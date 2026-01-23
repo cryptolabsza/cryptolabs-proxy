@@ -15,7 +15,7 @@ PORT = 8080
 # Services to check
 SERVICES = {
     'ipmi-monitor': {'container': 'ipmi-monitor', 'port': 5000},
-    'dc-overview': {'container': 'dc-overview', 'port': 5000},
+    'dc-overview': {'container': 'dc-overview', 'port': 5001},  # DC Overview uses port 5001
     'grafana': {'container': 'grafana', 'port': 3000},
     'prometheus': {'container': 'prometheus', 'port': 9090},
 }
