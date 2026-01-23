@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Management | CryptoLabs</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --text-primary: #f0f0f0;
+            --text-secondary: #888;
+            --text-muted: #555;
+            --accent-cyan: #00d4ff;
+            --accent-green: #4ade80;
+            --accent-yellow: #fbbf24;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --border-color: #2a2a3a;
+            --gradient-start: #00d4ff;
+            --gradient-end: #00ff88;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 50px;
+        }
+
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            margin-bottom: 50px;
+        }
+
+        .service-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 25px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .service-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.15);
+        }
+
+        .service-card.running {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .service-card.stopped {
+            border-left: 4px solid var(--text-muted);
+            opacity: 0.7;
+        }
+
+        .service-card.not-installed {
+            border-left: 4px solid var(--accent-yellow);
+            background: linear-gradient(135deg, var(--bg-card), rgba(251, 191, 36, 0.05));
+        }
+
+        .service-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .service-icon {
+            font-size: 2.5rem;
+        }
+
+        .service-info h3 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .service-info .status {
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.running {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .status-dot.stopped {
+            background: var(--text-muted);
+        }
+
+        .status-dot.not-installed {
+            background: var(--accent-yellow);
+        }
+
+        .service-description {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .service-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), #0099cc);
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        .btn-promo {
+            background: linear-gradient(135deg, var(--accent-yellow), #f59e0b);
+            color: #000;
+        }
+
+        .promo-badge {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: var(--accent-yellow);
+            color: #000;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .quick-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            border-top: 1px solid var(--border-color);
+            margin-top: 50px;
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+            transition: all 0.2s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .last-updated {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">🚀</div>
+            <h1>Fleet Management</h1>
+            <p class="subtitle">CryptoLabs Infrastructure Dashboard</p>
+        </header>
+
+        <div class="quick-stats" id="quickStats">
+            <div class="stat-card">
+                <div class="stat-value" id="servicesRunning">-</div>
+                <div class="stat-label">Services Running</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="servicesTotal">-</div>
+                <div class="stat-label">Total Services</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="proxyStatus">-</div>
+                <div class="stat-label">Proxy Status</div>
+            </div>
+        </div>
+
+        <h2 class="section-title">🔧 Services</h2>
+        <div class="services-grid" id="servicesGrid">
+            <div class="loading">
+                <div class="spinner"></div>
+                <span>Loading services...</span>
+            </div>
+        </div>
+
+        <h2 class="section-title">📦 Available Products</h2>
+        <div class="services-grid" id="availableProducts">
+            <!-- Populated by JS -->
+        </div>
+
+        <footer>
+            <p>Powered by <a href="https://cryptolabs.co.za" target="_blank">CryptoLabs</a></p>
+            <p class="last-updated" id="lastUpdated"></p>
+        </footer>
+    </div>
+
+    <button class="refresh-btn" onclick="loadServices()" title="Refresh">🔄</button>
+
+    <script>
+        // Default service definitions
+        const DEFAULT_SERVICES = {
+            'ipmi-monitor': {
+                displayName: 'IPMI Monitor',
+                icon: '🖥️',
+                description: 'Monitor server hardware health via IPMI/BMC. Track temperatures, events, and sensors.',
+                path: '/ipmi/',
+                productUrl: 'https://github.com/cryptolabsza/ipmi-monitor',
+                docsUrl: 'https://cryptolabs.co.za/ipmi-monitor/'
+            },
+            'dc-overview': {
+                displayName: 'DC Overview',
+                icon: '📊',
+                description: 'Datacenter overview dashboard with server metrics, alerts, and management tools.',
+                path: '/dc/',
+                productUrl: 'https://github.com/cryptolabsza/dc-overview',
+                docsUrl: 'https://www.cryptolabs.co.za/dc-overview/'
+            },
+            'grafana': {
+                displayName: 'Grafana',
+                icon: '📈',
+                description: 'Metrics visualization and dashboards. Connect to Prometheus for powerful analytics.',
+                path: '/grafana/',
+                productUrl: 'https://grafana.com/',
+                external: true
+            },
+            'prometheus': {
+                displayName: 'Prometheus',
+                icon: '🔍',
+                description: 'Metrics collection and alerting. Scrapes /metrics endpoints from your services.',
+                path: '/prometheus/',
+                productUrl: 'https://prometheus.io/',
+                external: true,
+                authRequired: true
+            }
+        };
+
+        async function loadServices() {
+            const grid = document.getElementById('servicesGrid');
+            const productsGrid = document.getElementById('availableProducts');
+            
+            try {
+                // Try to fetch health from API
+                let health = {};
+                try {
+                    const response = await fetch('/api/services');
+                    if (response.ok) {
+                        health = await response.json();
+                    }
+                } catch (e) {
+                    // API not available, try Docker detection via local endpoint
+                    console.log('API not available, using defaults');
+                }
+
+                // Render services
+                let runningHtml = '';
+                let availableHtml = '';
+                let runningCount = 0;
+                let totalCount = Object.keys(DEFAULT_SERVICES).length;
+
+                for (const [key, service] of Object.entries(DEFAULT_SERVICES)) {
+                    const serviceHealth = health[key] || {};
+                    const isRunning = serviceHealth.running === true;
+                    
+                    if (isRunning) {
+                        runningCount++;
+                        runningHtml += renderServiceCard(key, service, 'running');
+                    } else {
+                        availableHtml += renderServiceCard(key, service, 'not-installed');
+                    }
+                }
+
+                grid.innerHTML = runningHtml || '<p style="color: var(--text-secondary);">No services running. Install a CryptoLabs product to get started!</p>';
+                productsGrid.innerHTML = availableHtml || '<p style="color: var(--text-secondary);">All products are installed and running!</p>';
+
+                // Update stats
+                document.getElementById('servicesRunning').textContent = runningCount;
+                document.getElementById('servicesTotal').textContent = totalCount;
+                document.getElementById('proxyStatus').textContent = '✓';
+                document.getElementById('proxyStatus').style.color = 'var(--accent-green)';
+
+                // Update timestamp
+                document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+
+            } catch (e) {
+                console.error('Failed to load services:', e);
+                grid.innerHTML = `<p style="color: var(--accent-red);">Failed to load services: ${e.message}</p>`;
+            }
+        }
+
+        function renderServiceCard(key, service, status) {
+            const statusClass = status === 'running' ? 'running' : 'not-installed';
+            const statusText = status === 'running' ? 'Running' : 'Not Installed';
+            const statusDot = status === 'running' ? 'running' : 'not-installed';
+
+            let actions = '';
+            if (status === 'running') {
+                actions = `
+                    <a href="${service.path}" class="btn btn-primary">Open ${service.displayName}</a>
+                    ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                `;
+            } else {
+                const isCryptoLabs = key === 'ipmi-monitor' || key === 'dc-overview';
+                if (isCryptoLabs) {
+                    actions = `
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-promo">Get ${service.displayName}</a>
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Learn More</a>` : ''}
+                    `;
+                } else {
+                    actions = `
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-secondary">Learn More</a>
+                    `;
+                }
+            }
+
+            const promoBadge = status !== 'running' && (key === 'ipmi-monitor' || key === 'dc-overview') 
+                ? '<span class="promo-badge">Free</span>' 
+                : '';
+
+            return `
+                <div class="service-card ${statusClass}">
+                    ${promoBadge}
+                    <div class="service-header">
+                        <span class="service-icon">${service.icon}</span>
+                        <div class="service-info">
+                            <h3>${service.displayName}</h3>
+                            <div class="status">
+                                <span class="status-dot ${statusDot}"></span>
+                                ${statusText}
+                            </div>
+                        </div>
+                    </div>
+                    <p class="service-description">${service.description}</p>
+                    <div class="service-actions">
+                        ${actions}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Initial load
+        loadServices();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadServices, 30000);
+    </script>
+</body>
+</html>

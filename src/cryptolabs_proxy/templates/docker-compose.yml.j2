@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  cryptolabs-proxy:
+    image: ghcr.io/cryptolabsza/cryptolabs-proxy:latest
+    container_name: cryptolabs-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./services.yaml:/app/services.yaml:ro
+      {% if use_letsencrypt %}
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      {% endif %}
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    networks:
+      - cryptolabs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower for automatic updates
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_LABEL_ENABLE=true
+    networks:
+      - cryptolabs
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+networks:
+  cryptolabs:
+    name: cryptolabs
+    driver: bridge
