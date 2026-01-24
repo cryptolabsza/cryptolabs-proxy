@@ -5,17 +5,22 @@ LABEL org.opencontainers.image.source="https://github.com/cryptolabsza/cryptolab
 LABEL org.opencontainers.image.description="Unified reverse proxy for CryptoLabs products"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Install dependencies for health checks and Docker socket access
+# Install dependencies for health checks, auth, and Docker socket access
 RUN apk add --no-cache \
     curl \
     python3 \
     py3-pip \
     docker-cli
 
-# Install Python dependencies for service detection
+# Install Python dependencies for service detection and authentication
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
-    requests
+    requests \
+    flask \
+    werkzeug
+
+# Copy Python source for auth module
+COPY src/ /app/src/
 
 # Copy landing page (can be overridden by volume)
 COPY landing-page/ /usr/share/nginx/html/
@@ -23,19 +28,20 @@ COPY landing-page/ /usr/share/nginx/html/
 # Copy default nginx config (typically overridden by volume mount)
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
-# Copy health check script
+# Copy scripts
 COPY scripts/health-api.py /app/health-api.py
+COPY scripts/auth-server.py /app/auth-server.py
 
 # Copy entrypoint
 COPY scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh /app/auth-server.py
 
 # Create directories for volume mounts
-RUN mkdir -p /etc/nginx/ssl /etc/letsencrypt /var/www/certbot
+RUN mkdir -p /etc/nginx/ssl /etc/letsencrypt /var/www/certbot /data/auth
 
 # Volume mount points for persistent configuration
 # These allow config to persist when container is recreated
-VOLUME ["/etc/nginx/ssl", "/etc/letsencrypt", "/var/www/certbot"]
+VOLUME ["/etc/nginx/ssl", "/etc/letsencrypt", "/var/www/certbot", "/data"]
 
 # Expose ports
 EXPOSE 80 443

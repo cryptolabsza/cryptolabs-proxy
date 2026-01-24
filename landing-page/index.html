@@ -45,6 +45,42 @@
         header {
             text-align: center;
             margin-bottom: 50px;
+            position: relative;
+        }
+
+        .user-menu {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-info {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .user-info .username {
+            color: var(--accent-cyan);
+            font-weight: 500;
+        }
+
+        .logout-btn {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .logout-btn:hover {
+            border-color: var(--accent-red);
+            color: var(--accent-red);
         }
 
         .logo {
@@ -320,6 +356,9 @@
 <body>
     <div class="container">
         <header>
+            <div class="user-menu" id="userMenu">
+                <!-- Populated by JS -->
+            </div>
             <div class="logo">🚀</div>
             <h1>Fleet Management</h1>
             <p class="subtitle">CryptoLabs Infrastructure Dashboard</p>
@@ -502,7 +541,32 @@
             `;
         }
 
+        // Load user info
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/auth/check');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.authenticated) {
+                        document.getElementById('userMenu').innerHTML = `
+                            <span class="user-info">
+                                Logged in as <span class="username">${data.username}</span>
+                                (${data.role})
+                            </span>
+                            <a href="/auth/logout" class="logout-btn">Logout</a>
+                        `;
+                    }
+                } else {
+                    // Not authenticated - redirect to login
+                    window.location.href = '/auth/login';
+                }
+            } catch (e) {
+                console.log('Auth check failed:', e);
+            }
+        }
+
         // Initial load
+        loadUserInfo();
         loadServices();
 
         // Auto-refresh every 30 seconds

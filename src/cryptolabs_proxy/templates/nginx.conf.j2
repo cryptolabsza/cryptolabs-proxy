@@ -69,31 +69,84 @@ http {
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
 
-        # Fleet Management Landing Page
-        location = / {
-            root /usr/share/nginx/html;
-            index index.html;
+        # =====================================================
+        # AUTHENTICATION
+        # =====================================================
+        
+        # Auth server endpoints (public)
+        location /auth/ {
+            proxy_pass http://127.0.0.1:8081/auth/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        location /static/ {
-            root /usr/share/nginx/html;
+        # Internal auth verification endpoint (for auth_request)
+        location = /_auth_check {
+            internal;
+            proxy_pass http://127.0.0.1:8081/auth/headers;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header X-Original-URI $request_uri;
         }
 
-        # Health check API (handled by nginx itself)
+        # =====================================================
+        # PUBLIC ENDPOINTS (no auth required)
+        # =====================================================
+        
+        # Health check API (always public)
         location /api/health {
             default_type application/json;
             return 200 '{"status":"ok","proxy":"running"}';
         }
 
-        # Service health check (proxied to internal endpoint)
+        # Service health check (internal, no auth)
         location /api/services {
             proxy_pass http://127.0.0.1:8080/api/services;
             proxy_set_header Host $host;
         }
 
+        # Static assets (no auth)
+        location /static/ {
+            root /usr/share/nginx/html;
+        }
+
+        # =====================================================
+        # PROTECTED ENDPOINTS (auth required)
+        # =====================================================
+        
+        # Fleet Management Landing Page (requires auth)
+        location = / {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            
+            # Redirect to login if not authenticated
+            error_page 401 = @login_redirect;
+            
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+
+        location @login_redirect {
+            return 302 /auth/login?next=$request_uri;
+        }
+
         {% for name, service in services.items() %}
         # {{ service.get('display_name', name) }}
         location {{ service.path }} {
+            # Require authentication
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            
+            # Redirect to login if not authenticated
+            error_page 401 = @login_redirect;
+            
             proxy_pass http://{{ service.container_name }}:{{ service.port }}/;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -103,6 +156,14 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Script-Name {{ service.path.rstrip('/') }};
+            
+            # Forward authentication headers to backend services
+            # These allow services to trust proxy authentication
+            proxy_set_header X-Fleet-Auth-User $auth_user;
+            proxy_set_header X-Fleet-Auth-Role $auth_role;
+            proxy_set_header X-Fleet-Auth-Token $auth_token;
+            proxy_set_header X-Fleet-Authenticated "true";
+            
             proxy_read_timeout 300;
             proxy_connect_timeout 300;
             proxy_send_timeout 300;
