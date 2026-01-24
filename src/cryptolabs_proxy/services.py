@@ -22,10 +22,10 @@ DEFAULT_SERVICES = {
     "dc-overview": {
         "container_name": "dc-overview",
         "path": "/dc/",
-        "port": 5000,
+        "port": 5001,
         "display_name": "DC Overview",
         "icon": "📊",
-        "description": "Datacenter overview and management",
+        "description": "GPU Datacenter monitoring and management",
         "product_url": "https://github.com/cryptolabsza/dc-overview",
         "docs_url": "https://cryptolabs.co.za/dc-overview/",
     },
