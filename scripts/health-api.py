@@ -11,6 +11,7 @@ import socketserver
 from urllib.parse import urlparse
 
 PORT = 8080
+BUILD_INFO_FILE = '/app/BUILD_INFO'
 
 # Services to check (Docker containers)
 SERVICES = {
@@ -47,6 +48,27 @@ def get_all_service_status():
     return status
 
 
+def get_build_info():
+    """Read build info from BUILD_INFO file."""
+    try:
+        with open(BUILD_INFO_FILE, 'r') as f:
+            info = {}
+            for line in f:
+                line = line.strip()
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    info[key.lower()] = value
+            return info
+    except FileNotFoundError:
+        return {
+            'version': 'dev',
+            'branch': 'unknown',
+            'commit': 'unknown',
+            'build_date': 'unknown',
+            'app_name': 'CryptoLabs Fleet Management'
+        }
+
+
 class HealthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
@@ -64,6 +86,14 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(b'{"status":"ok"}')
+        
+        elif path == '/api/build-info':
+            build_info = get_build_info()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(build_info).encode())
         
         else:
             self.send_response(404)

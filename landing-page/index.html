@@ -351,6 +351,13 @@
             text-align: center;
             margin-top: 20px;
         }
+
+        .build-info {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -394,6 +401,7 @@
 
         <footer>
             <p>Powered by <a href="https://cryptolabs.co.za" target="_blank">CryptoLabs</a></p>
+            <p class="build-info" id="buildInfo"></p>
             <p class="last-updated" id="lastUpdated"></p>
         </footer>
     </div>
@@ -565,9 +573,28 @@
             }
         }
 
+        // Load build info
+        async function loadBuildInfo() {
+            try {
+                const response = await fetch('/api/build-info');
+                if (response.ok) {
+                    const data = await response.json();
+                    const version = data.version || 'dev';
+                    const branch = data.branch || 'unknown';
+                    const commit = data.commit ? data.commit.substring(0, 7) : 'unknown';
+                    const buildDate = data.build_date || 'unknown';
+                    document.getElementById('buildInfo').textContent = 
+                        `Fleet Management v${version} (${branch}@${commit}, ${buildDate})`;
+                }
+            } catch (e) {
+                document.getElementById('buildInfo').textContent = 'Fleet Management (dev build)';
+            }
+        }
+
         // Initial load
         loadUserInfo();
         loadServices();
+        loadBuildInfo();
 
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);

@@ -52,6 +52,17 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
+      - name: Generate build info
+        run: |
+          cat > BUILD_INFO << EOF
+          BUILD_BRANCH=${{ github.ref_name }}
+          BUILD_COMMIT=${{ github.sha }}
+          BUILD_SHORT_COMMIT=${GITHUB_SHA::7}
+          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          BUILD_VERSION=$(echo "${{ steps.meta.outputs.tags }}" | head -1 | sed 's/.*://')
+          EOF
+          cat BUILD_INFO
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -62,6 +73,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_BRANCH=${{ github.ref_name }}
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
       - name: Generate build summary
         run: |

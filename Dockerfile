@@ -5,6 +5,12 @@ LABEL org.opencontainers.image.source="https://github.com/cryptolabsza/cryptolab
 LABEL org.opencontainers.image.description="Unified reverse proxy for CryptoLabs products"
 LABEL org.opencontainers.image.licenses="MIT"
 
+# Build arguments for version info
+ARG BUILD_BRANCH=unknown
+ARG BUILD_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG VERSION=dev
+
 # Install dependencies for health checks, auth, and Docker socket access
 RUN apk add --no-cache \
     curl \
@@ -38,6 +44,13 @@ RUN chmod +x /app/entrypoint.sh /app/auth-server.py
 
 # Create directories for volume mounts
 RUN mkdir -p /etc/nginx/ssl /etc/letsencrypt /var/www/certbot /data/auth
+
+# Create BUILD_INFO file
+RUN echo "VERSION=${VERSION}" > /app/BUILD_INFO && \
+    echo "BRANCH=${BUILD_BRANCH}" >> /app/BUILD_INFO && \
+    echo "COMMIT=${BUILD_COMMIT}" >> /app/BUILD_INFO && \
+    echo "BUILD_DATE=${BUILD_DATE}" >> /app/BUILD_INFO && \
+    echo "APP_NAME=CryptoLabs Fleet Management" >> /app/BUILD_INFO
 
 # Volume mount points for persistent configuration
 # These allow config to persist when container is recreated
