@@ -148,6 +148,17 @@ http {
             # Redirect to login if not authenticated
             error_page 401 = @login_redirect;
             
+            {% if name == 'grafana' or service.container_name == 'grafana' %}
+            # Map Fleet roles to Grafana roles (Admin, Editor, Viewer)
+            set $grafana_role "Viewer";
+            if ($auth_role = "admin") {
+                set $grafana_role "Admin";
+            }
+            if ($auth_role = "readwrite") {
+                set $grafana_role "Editor";
+            }
+            {% endif %}
+            
             proxy_pass http://{{ service.container_name }}:{{ service.port }}/;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -159,11 +170,16 @@ http {
             proxy_set_header X-Script-Name {{ service.path.rstrip('/') }};
             
             # Forward authentication headers to backend services
-            # These allow services to trust proxy authentication
             proxy_set_header X-Fleet-Auth-User $auth_user;
             proxy_set_header X-Fleet-Auth-Role $auth_role;
             proxy_set_header X-Fleet-Auth-Token $auth_token;
             proxy_set_header X-Fleet-Authenticated "true";
+            
+            {% if name == 'grafana' or service.container_name == 'grafana' %}
+            # Grafana-specific: pass user and role for auto-login with correct permissions
+            proxy_set_header X-WEBAUTH-USER $auth_user;
+            proxy_set_header X-WEBAUTH-ROLE $grafana_role;
+            {% endif %}
             
             proxy_read_timeout 300;
             proxy_connect_timeout 300;
