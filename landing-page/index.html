@@ -556,11 +556,21 @@
                 if (response.ok) {
                     const data = await response.json();
                     if (data.authenticated) {
+                        // Build admin links if user is admin
+                        let adminLinks = '';
+                        if (data.role === 'admin') {
+                            adminLinks = `
+                                <a href="/auth/users" class="logout-btn" style="border-color: var(--accent-purple); color: var(--accent-purple);">👥 Users</a>
+                                <a href="/auth/settings" class="logout-btn" style="border-color: var(--accent-cyan); color: var(--accent-cyan);">⚙️ Settings</a>
+                            `;
+                        }
+                        
                         document.getElementById('userMenu').innerHTML = `
                             <span class="user-info">
                                 Logged in as <span class="username">${data.username}</span>
-                                (${data.role})
+                                <span style="background: var(--bg-card); padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-left: 5px;">${data.role}</span>
                             </span>
+                            ${adminLinks}
                             <a href="/auth/logout" class="logout-btn">Logout</a>
                         `;
                     }
