@@ -64,10 +64,24 @@ http {
         ssl_protocols TLSv1.2 TLSv1.3;
     {% endif %}
 
+        # DNS resolver for Docker networks - CRITICAL for runtime resolution
+        # This allows nginx to start even if backend services don't exist yet
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        resolver_timeout 5s;
+
         # Security headers
         add_header X-Frame-Options "SAMEORIGIN" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
+
+        # =====================================================
+        # ERROR HANDLERS
+        # =====================================================
+        
+        location @service_unavailable {
+            default_type application/json;
+            return 503 '{"error":"Service unavailable","message":"The requested service is not running. Install it or wait for it to start."}';
+        }
 
         # =====================================================
         # AUTHENTICATION
@@ -137,7 +151,7 @@ http {
         }
 
         {% for name, service in services.items() %}
-        # {{ service.get('display_name', name) }}
+        # {{ service.get('display_name', name) }} - uses variable for runtime DNS resolution
         location {{ service.path }} {
             # Require authentication
             auth_request /_auth_check;
@@ -159,7 +173,9 @@ http {
             }
             {% endif %}
             
-            proxy_pass http://{{ service.container_name }}:{{ service.port }}/;
+            # Variable allows nginx to start even if service doesn't exist yet
+            set $upstream_{{ name | replace('-', '_') }} http://{{ service.container_name }}:{{ service.port }};
+            proxy_pass $upstream_{{ name | replace('-', '_') }}/;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -185,8 +201,9 @@ http {
             proxy_connect_timeout 300;
             proxy_send_timeout 300;
             
-            # Strip the path prefix when proxying
-            rewrite ^{{ service.path.rstrip('/') }}(.*)$ $1 break;
+            # Graceful error handling when service is unavailable
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
         }
 
         {% endfor %}
