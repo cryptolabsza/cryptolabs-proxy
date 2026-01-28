@@ -358,6 +358,52 @@
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             margin-top: 10px;
         }
+
+        .install-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .install-label {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-bottom: 8px;
+        }
+
+        .install-command {
+            display: block;
+            background: var(--bg-primary);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-green);
+            cursor: pointer;
+            word-break: break-all;
+            transition: all 0.2s;
+        }
+
+        .install-command:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: var(--accent-cyan);
+        }
+
+        .copy-hint {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .install-note {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -417,32 +463,38 @@
                 description: 'Monitor server hardware health via IPMI/BMC. Track temperatures, events, and sensors with AI insights.',
                 path: '/ipmi/',
                 productUrl: 'https://www.cryptolabs.co.za/ipmi-monitor/',
-                docsUrl: 'https://github.com/cryptolabsza/ipmi-monitor'
+                docsUrl: 'https://github.com/cryptolabsza/ipmi-monitor',
+                installCommand: 'pip install ipmi-monitor && sudo ipmi-monitor quickstart',
+                isCryptoLabs: true
             },
             'dc-overview': {
                 displayName: 'Server Manager',
                 icon: '🖥️',
-                description: 'GPU server management. Add servers, install exporters, and monitor health metrics.',
+                description: 'GPU server management with Prometheus, Grafana, and exporters for GPU/CPU monitoring.',
                 path: '/dc/',
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
-                docsUrl: 'https://github.com/cryptolabsza/dc-overview'
+                docsUrl: 'https://github.com/cryptolabsza/dc-overview',
+                installCommand: 'pip install dc-overview && sudo dc-overview quickstart',
+                isCryptoLabs: true
             },
             'grafana': {
                 displayName: 'Grafana',
                 icon: '📈',
-                description: 'Metrics visualization and dashboards. Connect to Prometheus for powerful analytics.',
+                description: 'Metrics visualization and dashboards. Installed automatically with dc-overview.',
                 path: '/grafana/',
                 productUrl: 'https://grafana.com/',
-                external: true
+                external: true,
+                installNote: 'Installed with dc-overview quickstart'
             },
             'prometheus': {
                 displayName: 'Prometheus',
                 icon: '🔍',
-                description: 'Metrics collection and alerting. Scrapes /metrics endpoints from your services.',
+                description: 'Metrics collection and alerting. Installed automatically with dc-overview.',
                 path: '/prometheus/',
                 productUrl: 'https://prometheus.io/',
                 external: true,
-                authRequired: true
+                authRequired: true,
+                installNote: 'Installed with dc-overview quickstart'
             }
         };
 
@@ -505,17 +557,36 @@
             const statusDot = status === 'running' ? 'running' : 'not-installed';
 
             let actions = '';
+            let installSection = '';
+            
             if (status === 'running') {
                 actions = `
                     <a href="${service.path}" class="btn btn-primary">Open ${service.displayName}</a>
                     ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                 `;
             } else {
-                const isCryptoLabs = key === 'ipmi-monitor' || key === 'dc-overview';
-                if (isCryptoLabs) {
+                if (service.isCryptoLabs && service.installCommand) {
+                    // Show install command for CryptoLabs products
+                    installSection = `
+                        <div class="install-section">
+                            <p class="install-label">Quick Install:</p>
+                            <code class="install-command" onclick="copyCommand(this)">${service.installCommand}</code>
+                            <span class="copy-hint">Click to copy</span>
+                        </div>
+                    `;
                     actions = `
-                        <a href="${service.productUrl}" target="_blank" class="btn btn-promo">Get ${service.displayName}</a>
-                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Learn More</a>` : ''}
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-promo">Learn More</a>
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
+                } else if (service.installNote) {
+                    // Show note for external services
+                    installSection = `
+                        <div class="install-section">
+                            <p class="install-note">${service.installNote}</p>
+                        </div>
+                    `;
+                    actions = `
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-secondary">Learn More</a>
                     `;
                 } else {
                     actions = `
@@ -524,7 +595,7 @@
                 }
             }
 
-            const promoBadge = status !== 'running' && (key === 'ipmi-monitor' || key === 'dc-overview') 
+            const promoBadge = status !== 'running' && service.isCryptoLabs 
                 ? '<span class="promo-badge">Free</span>' 
                 : '';
 
@@ -542,11 +613,25 @@
                         </div>
                     </div>
                     <p class="service-description">${service.description}</p>
+                    ${installSection}
                     <div class="service-actions">
                         ${actions}
                     </div>
                 </div>
             `;
+        }
+        
+        function copyCommand(element) {
+            const text = element.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const hint = element.nextElementSibling;
+                hint.textContent = 'Copied!';
+                hint.style.color = 'var(--accent-green)';
+                setTimeout(() => {
+                    hint.textContent = 'Click to copy';
+                    hint.style.color = '';
+                }, 2000);
+            });
         }
 
         // Load user info
