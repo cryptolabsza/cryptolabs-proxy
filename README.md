@@ -1,10 +1,34 @@
 # CryptoLabs Proxy
 
-Unified reverse proxy and fleet management landing page for CryptoLabs products.
+Unified reverse proxy and fleet management landing page for CryptoLabs products. **This is the central entry point** that manages authentication and routing for all CryptoLabs services.
+
+## Architecture
+
+```
+                    ┌─────────────────────────────────┐
+                    │      CryptoLabs Proxy           │
+                    │   (Landing Page & Auth)         │
+                    │                                 │
+   User → HTTPS ───►│  ┌─────────────────────────┐   │
+                    │  │ Unified Authentication  │   │
+                    │  └─────────────────────────┘   │
+                    │              │                  │
+                    └──────────────┼──────────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+              ▼                    ▼                    ▼
+        ┌──────────┐        ┌──────────┐        ┌──────────┐
+        │  /ipmi/  │        │   /dc/   │        │/grafana/ │
+        │   IPMI   │        │    DC    │        │ Grafana  │
+        │ Monitor  │        │ Overview │        │          │
+        └──────────┘        └──────────┘        └──────────┘
+```
 
 ## Features
 
 - **Fleet Management Dashboard** - Landing page showing all CryptoLabs services
+- **Unified Authentication** - Single login for all services
 - **Auto-Detection** - Automatically detects running services via Docker
 - **Health Checks** - Real-time health status for all containers
 - **Cross-Promotion** - Promotes other CryptoLabs products when not installed
@@ -22,28 +46,53 @@ Unified reverse proxy and fleet management landing page for CryptoLabs products.
 
 ## Quick Start
 
-```bash
-# Install
-pip install cryptolabs-proxy
+The easiest way to deploy is through **DC Overview** or **IPMI Monitor** quickstart, which automatically sets up cryptolabs-proxy:
 
-# Setup (run as root)
+### Option 1: Deploy with DC Overview (Full Monitoring Stack)
+
+```bash
+# Install from dev branch
+pip install git+https://github.com/cryptolabsza/dc-overview.git@dev --break-system-packages
+
+# Run quickstart with config file
+sudo dc-overview quickstart -c /path/to/config.yaml -y
+```
+
+### Option 2: Deploy with IPMI Monitor (IPMI/BMC Only)
+
+```bash
+# Install from dev branch
+pip install git+https://github.com/cryptolabsza/ipmi-monitor.git@dev --break-system-packages
+
+# Run quickstart with config file
+sudo ipmi-monitor quickstart -c /path/to/config.yaml -y
+```
+
+### Option 3: Standalone Installation
+
+```bash
+pip install cryptolabs-proxy
 sudo cryptolabs-proxy setup
 ```
 
-## Usage with IPMI Monitor
+## Authentication Configuration
 
-When installing IPMI Monitor, the quickstart will automatically use cryptolabs-proxy:
+Authentication credentials are configured via environment variables or through the quickstart config file:
 
-```bash
-pipx install ipmi-monitor
-sudo ~/.local/bin/ipmi-monitor quickstart
-```
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `FLEET_ADMIN_USER` | Admin username | `admin` |
+| `FLEET_ADMIN_PASS` | Admin password | **Required** |
+| `AUTH_SECRET_KEY` | Token signing key | Auto-generated |
+| `AUTH_DATA_DIR` | Auth data directory | `/data/auth` |
 
-## Usage with DC Overview
+**Important:** You must set `FLEET_ADMIN_PASS` - there is no default password.
 
-```bash
-pipx install dc-overview
-sudo ~/.local/bin/dc-overview quickstart
+When using the quickstart config file, set these in your YAML:
+
+```yaml
+fleet_admin_user: admin
+fleet_admin_pass: YOUR_ADMIN_PASSWORD
 ```
 
 ## Manual Docker Deployment
@@ -52,8 +101,11 @@ sudo ~/.local/bin/dc-overview quickstart
 docker run -d \
   --name cryptolabs-proxy \
   -p 80:80 -p 443:443 \
+  -e FLEET_ADMIN_USER=admin \
+  -e FLEET_ADMIN_PASS=YOUR_ADMIN_PASSWORD \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -v cryptolabs_ssl:/etc/nginx/ssl \
+  -v cryptolabs_auth:/data/auth \
   ghcr.io/cryptolabsza/cryptolabs-proxy:latest
 ```
 
@@ -68,6 +120,14 @@ Config files are stored in `/etc/cryptolabs-proxy/`:
 └── ssl/                # SSL certificates
 ```
 
+User authentication data is stored in `/data/auth/`:
+
+```
+/data/auth/
+├── users.json          # User database (hashed passwords)
+└── sessions/           # Active sessions
+```
+
 ## API Endpoints
 
 | Endpoint | Description |
@@ -75,6 +135,16 @@ Config files are stored in `/etc/cryptolabs-proxy/`:
 | `GET /` | Fleet management landing page |
 | `GET /api/health` | Health status of all services |
 | `GET /api/services` | List of registered services |
+| `POST /auth/login` | Authentication endpoint |
+| `POST /auth/logout` | Logout endpoint |
+
+## Related Projects
+
+| Project | Description |
+|---------|-------------|
+| [DC Overview](https://github.com/cryptolabsza/dc-overview) | Full datacenter monitoring with GPU metrics, Prometheus & Grafana |
+| [IPMI Monitor](https://github.com/cryptolabsza/ipmi-monitor) | IPMI/BMC hardware monitoring, SEL logs, ECC tracking |
+| [DC Exporter](https://github.com/cryptolabsza/dc-exporter-releases) | Standalone GPU metrics exporter for Prometheus |
 
 ## License
 
@@ -83,5 +153,4 @@ MIT License - See [LICENSE](LICENSE) for details.
 ## Links
 
 - [CryptoLabs](https://cryptolabs.co.za)
-- [IPMI Monitor](https://github.com/cryptolabsza/ipmi-monitor)
-- [DC Overview](https://github.com/cryptolabsza/dc-overview)
+- [Documentation](https://cryptolabs.co.za/dc-monitoring/)
