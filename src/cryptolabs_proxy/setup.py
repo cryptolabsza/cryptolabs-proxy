@@ -67,6 +67,52 @@ def is_proxy_running() -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
+def wait_for_container_healthy(
+    container_name: str, 
+    timeout: int = 120, 
+    check_interval: int = 5,
+    callback=None
+) -> bool:
+    """Wait for a container to be healthy.
+    
+    Args:
+        container_name: Name of the Docker container
+        timeout: Maximum seconds to wait (default 2 minutes)
+        check_interval: Seconds between checks
+        callback: Optional function(msg) for progress updates
+        
+    Returns:
+        True if container is healthy, False if timeout
+    """
+    import time
+    waited = 0
+    
+    while waited < timeout:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}:{{.State.Health.Status}}",
+             container_name],
+            capture_output=True, text=True
+        )
+        
+        if result.returncode == 0:
+            status = result.stdout.strip()
+            parts = status.split(":")
+            is_running = parts[0] == "true"
+            health = parts[1] if len(parts) > 1 else ""
+            
+            if is_running and health == "healthy":
+                return True
+            
+            # Show progress every 30 seconds
+            if callback and waited > 0 and waited % 30 == 0:
+                callback(f"  Still waiting for {container_name} (health: {health}) [{waited}s/{timeout}s]")
+        
+        time.sleep(check_interval)
+        waited += check_interval
+    
+    return False
+
+
 def get_proxy_config() -> Optional[Dict]:
     """Get current proxy configuration if running."""
     if not is_proxy_running():
@@ -335,7 +381,12 @@ def setup_proxy(
         if result.returncode != 0:
             return False, f"Failed to start proxy: {result.stderr[:200]}"
         
-        log("Proxy container started")
+        # Wait for container to be healthy (up to 2 minutes)
+        log("Waiting for proxy to be healthy...")
+        if not wait_for_container_healthy("cryptolabs-proxy", timeout=120, callback=log):
+            return False, "Proxy failed to become healthy within 2 minutes"
+        
+        log("Proxy container started and healthy")
     else:
         log("Proxy already running with correct config")
     
