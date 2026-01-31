@@ -404,6 +404,163 @@
             font-size: 0.85rem;
             font-style: italic;
         }
+
+        /* System Updates Section */
+        .system-updates {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 40px;
+        }
+
+        .update-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .branch-selector {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .branch-selector label {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .branch-selector select {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            cursor: pointer;
+            min-width: 180px;
+        }
+
+        .branch-selector select:focus {
+            outline: none;
+            border-color: var(--accent-cyan);
+        }
+
+        .update-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .versions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .version-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .version-card.running {
+            border-left: 3px solid var(--accent-green);
+        }
+
+        .version-card.stopped {
+            border-left: 3px solid var(--text-muted);
+            opacity: 0.6;
+        }
+
+        .version-card.external {
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .version-info {
+            flex: 1;
+        }
+
+        .version-info .service-name {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .version-info .version-details {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-family: 'Monaco', 'Menlo', monospace;
+        }
+
+        .version-info .branch-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .version-info .branch-tag.main {
+            background: rgba(74, 222, 128, 0.2);
+            color: var(--accent-green);
+        }
+
+        .version-info .branch-tag.dev {
+            background: rgba(251, 191, 36, 0.2);
+            color: var(--accent-yellow);
+        }
+
+        .version-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .version-actions .btn-small {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+        }
+
+        .update-status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .update-status.success {
+            display: block;
+            background: rgba(74, 222, 128, 0.1);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .update-status.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .update-status.info {
+            display: block;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
     </style>
 </head>
 <body>
@@ -443,6 +600,29 @@
         <h2 class="section-title">📦 Available Products</h2>
         <div class="services-grid" id="availableProducts">
             <!-- Populated by JS -->
+        </div>
+
+        <h2 class="section-title">⚙️ System Updates</h2>
+        <div class="system-updates" id="systemUpdates">
+            <div class="update-controls">
+                <div class="branch-selector">
+                    <label for="targetBranch">Target Branch:</label>
+                    <select id="targetBranch" onchange="saveBranchSetting()">
+                        <option value="main">main (stable)</option>
+                        <option value="dev">dev (development)</option>
+                    </select>
+                </div>
+                <div class="update-buttons">
+                    <button class="btn btn-secondary" onclick="checkForUpdates()">🔍 Check Updates</button>
+                    <button class="btn btn-primary" onclick="updateAll()">⬆️ Update All</button>
+                </div>
+            </div>
+            <div class="versions-grid" id="versionsGrid">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span>Loading versions...</span>
+                </div>
+            </div>
         </div>
 
         <footer>
@@ -686,13 +866,191 @@
             }
         }
 
+        // Load versions
+        async function loadVersions() {
+            const grid = document.getElementById('versionsGrid');
+            try {
+                const response = await fetch('/api/versions');
+                if (!response.ok) throw new Error('Failed to fetch versions');
+                
+                const data = await response.json();
+                const settings = data._settings || {};
+                
+                // Update branch selector
+                const branchSelect = document.getElementById('targetBranch');
+                branchSelect.value = settings.target_branch || 'main';
+                
+                // Render version cards
+                let html = '';
+                for (const [name, info] of Object.entries(data)) {
+                    if (name === '_settings') continue;
+                    
+                    const statusClass = info.running ? 'running' : 'stopped';
+                    const externalClass = info.external ? 'external' : '';
+                    const branchClass = info.branch === 'dev' ? 'dev' : 'main';
+                    const branchLabel = info.branch || 'unknown';
+                    
+                    const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const versionText = info.running 
+                        ? `${info.tag || 'latest'}${info.commit ? ` @ ${info.commit}` : ''}`
+                        : 'Not running';
+                    const buildTime = info.build_time ? ` • Built: ${info.build_time}` : '';
+                    
+                    const updateBtn = !info.external && info.running
+                        ? `<button class="btn btn-secondary btn-small" onclick="updateService('${name}')">⬆️</button>`
+                        : '';
+                    
+                    html += `
+                        <div class="version-card ${statusClass} ${externalClass}">
+                            <div class="version-info">
+                                <div class="service-name">
+                                    ${displayName}
+                                    ${info.running ? `<span class="branch-tag ${branchClass}">${branchLabel}</span>` : ''}
+                                    ${info.external ? '<span class="branch-tag" style="background: rgba(168, 85, 247, 0.2); color: var(--accent-purple);">external</span>' : ''}
+                                    ${info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">proxy</span>' : ''}
+                                </div>
+                                <div class="version-details">${versionText}${buildTime}</div>
+                            </div>
+                            <div class="version-actions">
+                                ${updateBtn}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                grid.innerHTML = html || '<p style="color: var(--text-secondary);">No services found.</p>';
+                
+            } catch (e) {
+                console.error('Failed to load versions:', e);
+                grid.innerHTML = `<p style="color: var(--accent-red);">Failed to load versions: ${e.message}</p>`;
+            }
+        }
+
+        async function saveBranchSetting() {
+            const branch = document.getElementById('targetBranch').value;
+            try {
+                const response = await fetch('/api/update-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ branch })
+                });
+                if (!response.ok) throw new Error('Failed to save');
+                showUpdateStatus('info', `Target branch set to: ${branch}`);
+            } catch (e) {
+                showUpdateStatus('error', `Failed to save branch setting: ${e.message}`);
+            }
+        }
+
+        async function checkForUpdates() {
+            showUpdateStatus('info', '🔍 Checking for updates...');
+            const branch = document.getElementById('targetBranch').value;
+            try {
+                const response = await fetch('/api/pull', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service: 'all', branch })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showUpdateStatus('success', '✓ Images pulled. Restart containers to apply updates.');
+                    loadVersions();
+                } else {
+                    showUpdateStatus('error', 'Failed to pull updates');
+                }
+            } catch (e) {
+                showUpdateStatus('error', `Error: ${e.message}`);
+            }
+        }
+
+        async function updateService(serviceName) {
+            const branch = document.getElementById('targetBranch').value;
+            showUpdateStatus('info', `⬆️ Updating ${serviceName}...`);
+            try {
+                const response = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service: serviceName, branch })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    const result = data.results[serviceName] || {};
+                    if (result.message === 'self-update-required') {
+                        showUpdateStatus('info', '🔄 Proxy is updating... Page will reload shortly.');
+                        setTimeout(() => location.reload(), 5000);
+                    } else {
+                        showUpdateStatus('success', `✓ ${serviceName} updated: ${result.message}`);
+                    }
+                    setTimeout(loadVersions, 2000);
+                } else {
+                    showUpdateStatus('error', `Failed to update ${serviceName}`);
+                }
+            } catch (e) {
+                showUpdateStatus('error', `Error: ${e.message}`);
+            }
+        }
+
+        async function updateAll() {
+            if (!confirm('Update all services? This may cause brief downtime.')) return;
+            
+            const branch = document.getElementById('targetBranch').value;
+            showUpdateStatus('info', '⬆️ Updating all services...');
+            try {
+                const response = await fetch('/api/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service: 'all', branch })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    let msg = 'Updated: ';
+                    for (const [name, result] of Object.entries(data.results || {})) {
+                        msg += `${name}(${result.success ? '✓' : '✗'}) `;
+                    }
+                    if (data.results['cryptolabs-proxy']?.message?.includes('self-update')) {
+                        showUpdateStatus('info', '🔄 Proxy is updating... Page will reload shortly.');
+                        setTimeout(() => location.reload(), 5000);
+                    } else {
+                        showUpdateStatus('success', msg);
+                    }
+                    setTimeout(loadVersions, 2000);
+                    setTimeout(loadServices, 2000);
+                } else {
+                    showUpdateStatus('error', 'Update failed');
+                }
+            } catch (e) {
+                showUpdateStatus('error', `Error: ${e.message}`);
+            }
+        }
+
+        function showUpdateStatus(type, message) {
+            // Remove any existing status
+            const existingStatus = document.querySelector('.update-status');
+            if (existingStatus) existingStatus.remove();
+            
+            // Create new status element
+            const status = document.createElement('div');
+            status.className = `update-status ${type}`;
+            status.textContent = message;
+            
+            // Insert after controls
+            const controls = document.querySelector('.update-controls');
+            controls.after(status);
+            
+            // Auto-hide after 10 seconds (except for info during updates)
+            if (type !== 'info') {
+                setTimeout(() => status.remove(), 10000);
+            }
+        }
+
         // Initial load
         loadUserInfo();
         loadServices();
         loadBuildInfo();
+        loadVersions();
 
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);
+        setInterval(loadVersions, 60000);
     </script>
 </body>
 </html>
