@@ -29,6 +29,7 @@ Unified reverse proxy and fleet management landing page for CryptoLabs products.
 
 - **Fleet Management Dashboard** - Landing page showing all CryptoLabs services
 - **Unified Authentication** - Single login for all services
+- **Site Name Branding** - Customize landing page with your datacenter name
 - **Auto-Detection** - Automatically detects running services via Docker
 - **Health Checks** - Real-time health status for all containers
 - **Cross-Promotion** - Promotes other CryptoLabs products when not installed
@@ -83,6 +84,7 @@ Authentication credentials are configured via environment variables or through t
 |----------|-------------|---------|
 | `FLEET_ADMIN_USER` | Admin username | `admin` |
 | `FLEET_ADMIN_PASS` | Admin password | **Required** |
+| `SITE_NAME` | Site name for landing page branding | `DC Overview` |
 | `AUTH_SECRET_KEY` | Token signing key | Auto-generated |
 | `AUTH_DATA_DIR` | Auth data directory | `/data/auth` |
 
@@ -91,6 +93,7 @@ Authentication credentials are configured via environment variables or through t
 When using the quickstart config file, set these in your YAML:
 
 ```yaml
+site_name: My Datacenter       # Appears in landing page title
 fleet_admin_user: admin
 fleet_admin_pass: YOUR_ADMIN_PASSWORD
 ```
