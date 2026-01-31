@@ -33,6 +33,7 @@ class ProxyConfig:
     fleet_admin_user: str = "admin"
     fleet_admin_pass: str = ""
     auth_secret: str = ""
+    site_name: str = "DC Overview"  # Displayed on landing page
     additional_tcp_ports: List[int] = None
     additional_udp_ports: List[int] = None
     
@@ -367,6 +368,7 @@ def setup_proxy(
             "-e", f"FLEET_ADMIN_USER={config.fleet_admin_user}",
             "-e", f"FLEET_ADMIN_PASS={config.fleet_admin_pass}",
             "-e", f"AUTH_SECRET_KEY={config.auth_secret}",
+            "-e", f"SITE_NAME={config.site_name}",
             "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
             "-v", "fleet-auth-data:/data/auth",
             "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",
