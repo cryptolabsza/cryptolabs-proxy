@@ -948,6 +948,8 @@
                 
                 // Render version cards
                 let html = '';
+                let updatableCount = 0;  // Track how many services can be updated
+                
                 for (const [name, info] of Object.entries(data)) {
                     if (name === '_settings') continue;
                     
@@ -996,6 +998,7 @@
                         updateBtn = '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>';
                     } else if (needsUpdate) {
                         updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
+                        updatableCount++;  // This service can be updated
                     } else if (!branchKnown) {
                         // Branch unknown - show refresh option
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">🔄 Unknown</span>';
@@ -1024,6 +1027,22 @@
                 }
                 
                 grid.innerHTML = html || '<p style="color: var(--text-secondary);">No services found.</p>';
+                
+                // Enable/disable Update Running button based on whether any services need updating
+                const updateAllBtn = document.querySelector('.update-buttons .btn-primary');
+                if (updateAllBtn) {
+                    if (updatableCount > 0) {
+                        updateAllBtn.disabled = false;
+                        updateAllBtn.title = `Update ${updatableCount} service(s) to target branch`;
+                        updateAllBtn.style.opacity = '1';
+                        updateAllBtn.style.cursor = 'pointer';
+                    } else {
+                        updateAllBtn.disabled = true;
+                        updateAllBtn.title = 'All services are up to date or not running';
+                        updateAllBtn.style.opacity = '0.5';
+                        updateAllBtn.style.cursor = 'not-allowed';
+                    }
+                }
                 
             } catch (e) {
                 console.error('Failed to load versions:', e);
