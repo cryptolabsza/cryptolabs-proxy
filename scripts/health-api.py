@@ -547,15 +547,16 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             results = {}
             
             if service == 'all':
-                # Update all non-external services
+                # Update all services (including external like Grafana/Prometheus)
                 for name, config in SERVICES.items():
-                    if config.get('external'):
-                        results[name] = {'success': True, 'message': 'Skipped (external)'}
-                        continue
                     if config.get('self'):
                         # Handle self-update last
                         continue
-                    success, msg = update_container(name, config, target_branch)
+                    # For external services, we pull :latest (no branch suffix)
+                    if config.get('external'):
+                        success, msg = update_container(name, config, 'latest')
+                    else:
+                        success, msg = update_container(name, config, target_branch)
                     results[name] = {'success': success, 'message': msg}
                 
                 # Handle proxy self-update last (if requested)
@@ -571,7 +572,9 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             elif service in SERVICES:
                 config = SERVICES[service]
                 if config.get('external'):
-                    results[service] = {'success': True, 'message': 'Skipped (external image)'}
+                    # External services use :latest tag
+                    success, msg = update_container(service, config, 'latest')
+                    results[service] = {'success': success, 'message': msg}
                 else:
                     success, msg = update_container(service, config, target_branch)
                     results[service] = {'success': success, 'message': msg}
