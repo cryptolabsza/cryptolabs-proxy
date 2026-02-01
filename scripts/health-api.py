@@ -228,10 +228,15 @@ def restart_container(container_name, image_with_tag, container_config):
         # Restart policy
         cmd.extend(['--restart', container_config.get('restart_policy', 'unless-stopped')])
         
-        # Networks
-        for network in container_config.get('networks', ['cryptolabs']):
-            if network and network != 'bridge':
-                cmd.extend(['--network', network])
+        # Networks - docker run only supports one --network, use first non-bridge network
+        # Additional networks will be connected after container starts
+        networks = container_config.get('networks', ['cryptolabs'])
+        non_bridge_networks = [n for n in networks if n and n != 'bridge']
+        primary_network = non_bridge_networks[0] if non_bridge_networks else None
+        additional_networks = non_bridge_networks[1:] if len(non_bridge_networks) > 1 else []
+        
+        if primary_network:
+            cmd.extend(['--network', primary_network])
         
         # Port bindings
         for container_port, host_bindings in container_config.get('port_bindings', {}).items():
@@ -261,6 +266,14 @@ def restart_container(container_name, image_with_tag, container_config):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             return False, f"Failed to start container: {result.stderr}"
+        
+        # Connect to additional networks (docker run only supports one --network)
+        for network in additional_networks:
+            try:
+                subprocess.run(['docker', 'network', 'connect', network, container_name],
+                             capture_output=True, timeout=10)
+            except Exception as e:
+                print(f"Warning: Failed to connect {container_name} to network {network}: {e}")
         
         return True, "Container restarted successfully"
     except Exception as e:
