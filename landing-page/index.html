@@ -997,8 +997,8 @@
                         // External services (Grafana, Prometheus) - can update to :latest
                         // Note: Can't compare versions (no Docker Hub API integration)
                         updateBtn = `
-                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image from Docker Hub">⬆️ Update</button>
-                            <span style="color: var(--text-muted); font-size: 0.7em; margin-left: 4px;" title="External image - version comparison not available. Click Update to pull latest from Docker Hub.">ℹ️</span>
+                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image from Docker Hub - safe, data preserved">⬆️ Update</button>
+                            <span style="color: var(--text-muted); font-size: 0.7em; margin-left: 4px;" title="External image - can't check if newer version exists. Safe to click: pulls latest image and restarts container. Your data (dashboards, settings) is preserved in Docker volumes.">ℹ️</span>
                         `;
                         updatableCount++;  // External services can be updated too
                     } else if (needsUpdate) {
