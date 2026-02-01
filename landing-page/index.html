@@ -503,6 +503,27 @@
             color: var(--text-secondary);
             font-size: 0.85rem;
             font-family: 'Monaco', 'Menlo', monospace;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .version-info .version-tag {
+            font-weight: 600;
+            color: var(--accent-cyan);
+        }
+
+        .version-info .version-commit {
+            font-size: 0.8rem;
+            color: var(--accent-green);
+            opacity: 0.9;
+        }
+
+        .version-info .version-build {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            opacity: 0.8;
         }
 
         .version-info .branch-tag {
@@ -891,14 +912,30 @@
                     const branchLabel = info.branch || 'unknown';
                     
                     const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    const versionText = info.running 
-                        ? `${info.tag || 'latest'}${info.commit ? ` @ ${info.commit}` : ''}`
-                        : 'Not running';
-                    const buildTime = info.build_time ? ` • Built: ${info.build_time}` : '';
                     
+                    // Build version display with commit and build time
+                    let versionText = '';
+                    let detailsText = '';
+                    if (info.running) {
+                        versionText = info.tag || 'latest';
+                        // Show commit if available
+                        if (info.commit && info.commit !== 'unknown' && info.commit !== '') {
+                            detailsText += `<span class="version-commit" title="Git commit">📦 ${info.commit}</span>`;
+                        }
+                        // Show build time if available
+                        if (info.build_time && info.build_time !== 'unknown' && info.build_time !== '') {
+                            detailsText += `<span class="version-build" title="Build date">🕐 ${info.build_time}</span>`;
+                        }
+                    } else {
+                        versionText = 'Not running';
+                    }
+                    
+                    // Update button - only for our containers, not external
                     const updateBtn = !info.external && info.running
-                        ? `<button class="btn btn-secondary btn-small" onclick="updateService('${name}')">⬆️</button>`
-                        : '';
+                        ? `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Update ${displayName}">⬆️ Update</button>`
+                        : info.external 
+                            ? '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>'
+                            : '';
                     
                     html += `
                         <div class="version-card ${statusClass} ${externalClass}">
@@ -906,10 +943,12 @@
                                 <div class="service-name">
                                     ${displayName}
                                     ${info.running ? `<span class="branch-tag ${branchClass}">${branchLabel}</span>` : ''}
-                                    ${info.external ? '<span class="branch-tag" style="background: rgba(168, 85, 247, 0.2); color: var(--accent-purple);">external</span>' : ''}
-                                    ${info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">proxy</span>' : ''}
+                                    ${info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">self</span>' : ''}
                                 </div>
-                                <div class="version-details">${versionText}${buildTime}</div>
+                                <div class="version-details">
+                                    <span class="version-tag">${versionText}</span>
+                                    ${detailsText}
+                                </div>
                             </div>
                             <div class="version-actions">
                                 ${updateBtn}

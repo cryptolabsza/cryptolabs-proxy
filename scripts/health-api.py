@@ -72,52 +72,85 @@ def check_container_running(container_name):
 
 
 def get_container_version(container_name):
-    """Get version info for a container from its image and labels."""
+    """Get version info for a container from its image, labels, and environment variables."""
     try:
-        # Get image name and labels
+        # Get image name
         result = subprocess.run(
-            ['docker', 'inspect', '--format', 
-             '{{.Config.Image}}|{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{.Config.Env}}'],
+            ['docker', 'inspect', '--format', '{{.Config.Image}}', container_name],
             capture_output=True, text=True, timeout=5
         )
         if result.returncode != 0:
             return None
         
-        parts = result.stdout.strip().split('|')
-        image = parts[0] if parts else ''
-        version = parts[1] if len(parts) > 1 and parts[1] else ''
-        revision = parts[2] if len(parts) > 2 and parts[2] else ''
-        env_str = parts[3] if len(parts) > 3 else ''
+        image = result.stdout.strip()
         
         # Extract tag from image name
         tag = 'latest'
         if ':' in image:
             tag = image.split(':')[-1]
         
-        # Try to get version from environment variables
+        # Get labels
+        label_result = subprocess.run(
+            ['docker', 'inspect', '--format', 
+             '{{index .Config.Labels "org.opencontainers.image.version"}}||{{index .Config.Labels "org.opencontainers.image.revision"}}||{{index .Config.Labels "build.time"}}'],
+            capture_output=True, text=True, timeout=5
+        )
+        version = ''
+        revision = ''
+        label_build_time = ''
+        if label_result.returncode == 0:
+            parts = label_result.stdout.strip().split('||')
+            version = parts[0] if len(parts) > 0 and parts[0] else ''
+            revision = parts[1] if len(parts) > 1 and parts[1] else ''
+            label_build_time = parts[2] if len(parts) > 2 and parts[2] else ''
+        
+        # Get environment variables individually for better parsing
         git_commit = ''
         git_branch = ''
         build_time = ''
         
-        # Parse env vars (format: [VAR1=val1 VAR2=val2 ...])
-        if env_str:
-            for env in env_str.strip('[]').split():
-                if '=' in env:
-                    key, val = env.split('=', 1)
-                    if key == 'GIT_COMMIT':
-                        git_commit = val[:7] if len(val) > 7 else val
-                    elif key == 'GIT_BRANCH':
-                        git_branch = val
-                    elif key == 'BUILD_TIME':
-                        build_time = val
+        # Get GIT_COMMIT
+        env_result = subprocess.run(
+            ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', container_name],
+            capture_output=True, text=True, timeout=5
+        )
+        if env_result.returncode == 0:
+            for line in env_result.stdout.strip().split('\n'):
+                if line.startswith('GIT_COMMIT='):
+                    git_commit = line.split('=', 1)[1][:8]  # First 8 chars of commit
+                elif line.startswith('GIT_BRANCH='):
+                    git_branch = line.split('=', 1)[1]
+                elif line.startswith('BUILD_TIME='):
+                    build_time = line.split('=', 1)[1]
+        
+        # Try to get created time if no build time found
+        if not build_time and not label_build_time:
+            created_result = subprocess.run(
+                ['docker', 'inspect', '--format', '{{.Created}}', container_name],
+                capture_output=True, text=True, timeout=5
+            )
+            if created_result.returncode == 0:
+                created = created_result.stdout.strip()
+                # Parse ISO format and simplify
+                if 'T' in created:
+                    build_time = created.split('T')[0]  # Just the date
+        
+        # Determine branch from tag if not set
+        if not git_branch:
+            if tag == 'dev':
+                git_branch = 'dev'
+            elif tag in ['latest', 'main']:
+                git_branch = 'main'
+            else:
+                git_branch = tag
         
         return {
             'image': image,
             'tag': tag,
             'version': version or tag,
             'commit': revision or git_commit,
-            'branch': git_branch or ('dev' if tag == 'dev' else 'main' if tag in ['latest', 'main'] else tag),
-            'build_time': build_time,
+            'branch': git_branch,
+            'build_time': build_time or label_build_time,
         }
     except Exception as e:
         print(f"Error getting version for {container_name}: {e}")
