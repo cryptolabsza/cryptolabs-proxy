@@ -995,7 +995,11 @@
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Deploy via dc-overview quickstart">Not deployed</span>';
                     } else if (info.external) {
                         // External services (Grafana, Prometheus) - can update to :latest
-                        updateBtn = `<button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image">⬆️ Update</button>`;
+                        // Note: Can't compare versions (no Docker Hub API integration)
+                        updateBtn = `
+                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image from Docker Hub">⬆️ Update</button>
+                            <span style="color: var(--text-muted); font-size: 0.7em; margin-left: 4px;" title="External image - version comparison not available. Click Update to pull latest from Docker Hub.">ℹ️</span>
+                        `;
                         updatableCount++;  // External services can be updated too
                     } else if (needsUpdate) {
                         updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
