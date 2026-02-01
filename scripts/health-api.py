@@ -170,6 +170,103 @@ def pull_image(image_name, tag='latest'):
         return False, str(e)
 
 
+def get_container_config(container_name):
+    """Get the configuration of a running container for restart."""
+    try:
+        result = subprocess.run(
+            ['docker', 'inspect', container_name],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return None
+        
+        data = json.loads(result.stdout)
+        if not data:
+            return None
+        
+        container = data[0]
+        config = container.get('Config', {})
+        host_config = container.get('HostConfig', {})
+        network_settings = container.get('NetworkSettings', {})
+        
+        # Get network names
+        networks = list(network_settings.get('Networks', {}).keys())
+        
+        # Get port bindings
+        port_bindings = host_config.get('PortBindings', {})
+        
+        # Get volume bindings
+        binds = host_config.get('Binds', []) or []
+        
+        # Get environment variables
+        env_vars = config.get('Env', []) or []
+        
+        # Get restart policy
+        restart_policy = host_config.get('RestartPolicy', {}).get('Name', 'unless-stopped')
+        
+        return {
+            'networks': networks,
+            'port_bindings': port_bindings,
+            'binds': binds,
+            'env_vars': env_vars,
+            'restart_policy': restart_policy,
+        }
+    except Exception as e:
+        print(f"Error getting container config for {container_name}: {e}")
+        return None
+
+
+def restart_container(container_name, image_with_tag, container_config):
+    """Restart a container with the same configuration but new image."""
+    if not container_config:
+        return False, "No container configuration available"
+    
+    try:
+        # Build docker run command
+        cmd = ['docker', 'run', '-d', '--name', container_name]
+        
+        # Restart policy
+        cmd.extend(['--restart', container_config.get('restart_policy', 'unless-stopped')])
+        
+        # Networks
+        for network in container_config.get('networks', ['cryptolabs']):
+            if network and network != 'bridge':
+                cmd.extend(['--network', network])
+        
+        # Port bindings
+        for container_port, host_bindings in container_config.get('port_bindings', {}).items():
+            if host_bindings:
+                for binding in host_bindings:
+                    host_port = binding.get('HostPort', '')
+                    host_ip = binding.get('HostIp', '')
+                    if host_ip:
+                        cmd.extend(['-p', f"{host_ip}:{host_port}:{container_port.split('/')[0]}"])
+                    else:
+                        cmd.extend(['-p', f"{host_port}:{container_port.split('/')[0]}"])
+        
+        # Volume bindings
+        for bind in container_config.get('binds', []):
+            cmd.extend(['-v', bind])
+        
+        # Environment variables (filter out build-time vars that we'll update)
+        for env in container_config.get('env_vars', []):
+            # Skip PATH and other system vars, keep user-defined ones
+            if env.startswith('PATH=') or env.startswith('HOME='):
+                continue
+            cmd.extend(['-e', env])
+        
+        # Image
+        cmd.append(image_with_tag)
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return False, f"Failed to start container: {result.stderr}"
+        
+        return True, "Container restarted successfully"
+    except Exception as e:
+        return False, f"Error restarting container: {e}"
+
+
 def update_container(container_name, service_config, target_branch='main'):
     """Update a container to a new image version."""
     image = service_config.get('image', '')
@@ -183,7 +280,9 @@ def update_container(container_name, service_config, target_branch='main'):
     if service_config.get('external'):
         tag = 'latest'
     
-    # Pull new image
+    full_image = f"{image}:{tag}"
+    
+    # Pull new image first
     success, output = pull_image(image, tag)
     if not success:
         return False, f"Failed to pull image: {output}"
@@ -193,6 +292,9 @@ def update_container(container_name, service_config, target_branch='main'):
         # Create a script that will restart the container after we exit
         return True, "self-update-required"
     
+    # Get current container configuration before stopping
+    container_config = get_container_config(container_name)
+    
     # Stop and remove old container
     try:
         subprocess.run(['docker', 'stop', container_name], capture_output=True, timeout=30)
@@ -200,9 +302,16 @@ def update_container(container_name, service_config, target_branch='main'):
     except:
         pass
     
-    # The container will be recreated by docker-compose or the orchestration system
-    # For now, we rely on watchtower or manual restart
-    return True, f"Image pulled. Container will restart automatically via watchtower."
+    # Restart container with new image
+    if container_config:
+        success, msg = restart_container(container_name, full_image, container_config)
+        if success:
+            return True, f"Updated to {tag} and restarted"
+        else:
+            return False, f"Image pulled but restart failed: {msg}"
+    else:
+        # Fallback: container wasn't running or couldn't get config
+        return True, f"Image pulled. Container needs manual restart (was not running)."
 
 
 def trigger_self_update(target_branch='main'):

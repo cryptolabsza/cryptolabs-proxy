@@ -151,6 +151,21 @@
             font-size: 2.5rem;
         }
 
+        .service-icon-img {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+        }
+
+        .service-icon-img img {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            object-fit: contain;
+        }
+
         .service-info h3 {
             font-size: 1.3rem;
             font-weight: 600;
@@ -699,7 +714,8 @@
             },
             'runpod-exporter': {
                 displayName: 'RunPod Exporter',
-                icon: '🚀',
+                icon: '<img src="https://www.runpod.io/favicon.ico" alt="RunPod" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'🚀\';">',
+                iconType: 'html',
                 description: 'Prometheus exporter for RunPod metrics. Tracks earnings, GPU utilization, pod status and uptime.',
                 path: '/runpod-metrics/',
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
@@ -709,7 +725,8 @@
             },
             'vastai-exporter': {
                 displayName: 'Vast.ai Exporter',
-                icon: '💰',
+                icon: '<img src="https://vast.ai/favicon.ico" alt="Vast.ai" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'💎\';">',
+                iconType: 'html',
                 description: 'Prometheus exporter for Vast.ai metrics. Tracks earnings, machine status, and rental metrics.',
                 path: '/vastai-metrics/',
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
@@ -820,11 +837,16 @@
                 ? '<span class="promo-badge">Free</span>' 
                 : '';
 
+            // Handle both emoji icons and HTML icons (for favicon images)
+            const iconHtml = service.iconType === 'html' 
+                ? `<span class="service-icon-img">${service.icon}</span>`
+                : `<span class="service-icon">${service.icon}</span>`;
+
             return `
                 <div class="service-card ${statusClass}">
                     ${promoBadge}
                     <div class="service-header">
-                        <span class="service-icon">${service.icon}</span>
+                        ${iconHtml}
                         <div class="service-info">
                             <h3>${service.displayName}</h3>
                             <div class="status">
@@ -952,16 +974,27 @@
                     
                     // Update button - only show if branch mismatch or not our container
                     const targetBranch = settings.target_branch || 'main';
-                    const currentBranch = info.branch || 'unknown';
-                    const needsUpdate = currentBranch !== targetBranch && currentBranch !== 'unknown';
+                    const currentBranch = info.branch || '';
+                    
+                    // Normalize branch names - treat 'latest' as 'main'
+                    const normalizedCurrent = (currentBranch === 'latest' || currentBranch === '') ? 'main' : currentBranch;
+                    const normalizedTarget = targetBranch === 'latest' ? 'main' : targetBranch;
+                    
+                    // Check if update is needed - only when we know the branch and it differs
+                    const branchKnown = currentBranch && currentBranch !== 'unknown' && currentBranch !== '';
+                    const needsUpdate = branchKnown && normalizedCurrent !== normalizedTarget;
                     
                     let updateBtn = '';
-                    if (info.external) {
-                        updateBtn = '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>';
-                    } else if (!info.running) {
+                    if (!info.running) {
                         updateBtn = '';
+                    } else if (info.external) {
+                        // External services (Grafana, Prometheus) - can't check version, use Update All
+                        updateBtn = '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>';
                     } else if (needsUpdate) {
                         updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
+                    } else if (!branchKnown) {
+                        // Branch unknown - show refresh option
+                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">🔄 Unknown</span>';
                     } else {
                         updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Up to date</span>';
                     }
