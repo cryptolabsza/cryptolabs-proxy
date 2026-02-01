@@ -675,7 +675,8 @@
         const DEFAULT_SERVICES = {
             'ipmi-monitor': {
                 displayName: 'IPMI Monitor',
-                icon: '🖥️',
+                icon: '<img src="/ipmi/static/favicon.png" alt="IPMI" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'🖥️\';">',
+                iconType: 'html',
                 description: 'Monitor server hardware health via IPMI/BMC. Track temperatures, events, and sensors with AI insights.',
                 path: '/ipmi/',
                 productUrl: 'https://www.cryptolabs.co.za/ipmi-monitor/',
@@ -695,7 +696,8 @@
             },
             'grafana': {
                 displayName: 'Grafana',
-                icon: '📈',
+                icon: '<img src="https://grafana.com/favicon.ico" alt="Grafana" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'📈\';">',
+                iconType: 'html',
                 description: 'Metrics visualization and dashboards. Installed automatically with dc-overview.',
                 path: '/grafana/',
                 productUrl: 'https://grafana.com/',
@@ -704,7 +706,8 @@
             },
             'prometheus': {
                 displayName: 'Prometheus',
-                icon: '🔍',
+                icon: '<img src="https://prometheus.io/_next/static/media/prometheus-logo.7aa022e5.svg" alt="Prometheus" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'🔥\';">',
+                iconType: 'html',
                 description: 'Metrics collection and alerting. Installed automatically with dc-overview.',
                 path: '/prometheus/',
                 productUrl: 'https://prometheus.io/',
