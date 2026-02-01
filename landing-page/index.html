@@ -996,11 +996,11 @@
                     } else if (info.external) {
                         // External services (Grafana, Prometheus) - can update to :latest
                         // Note: Can't compare versions (no Docker Hub API integration)
+                        // Don't count towards updatableCount - we can't know if they need updating
                         updateBtn = `
                             <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image from Docker Hub - safe, data preserved">⬆️ Update</button>
                             <span style="color: var(--text-muted); font-size: 0.7em; margin-left: 4px;" title="External image - can't check if newer version exists. Safe to click: pulls latest image and restarts container. Your data (dashboards, settings) is preserved in Docker volumes.">ℹ️</span>
                         `;
-                        updatableCount++;  // External services can be updated too
                     } else if (needsUpdate) {
                         updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
                         updatableCount++;  // This service can be updated
