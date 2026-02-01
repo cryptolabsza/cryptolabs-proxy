@@ -25,7 +25,7 @@ SERVICES = {
     'dc-overview': {'container': 'dc-overview', 'port': 5001, 'image': 'ghcr.io/cryptolabsza/dc-overview'},
     'grafana': {'container': 'grafana', 'port': 3000, 'image': 'grafana/grafana', 'external': True},
     'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus', 'external': True},
-    'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'jjziets/vastai-exporter', 'external': True},
+    'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'ghcr.io/cryptolabsza/vastai-exporter'},
     'runpod-exporter': {'container': 'runpod-exporter', 'port': 8623, 'image': 'ghcr.io/cryptolabsza/runpod-exporter'},
 }
 
