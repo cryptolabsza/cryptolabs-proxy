@@ -11,6 +11,12 @@ ARG BUILD_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG VERSION=dev
 
+# Export build args as environment variables for runtime access
+ENV GIT_BRANCH=${BUILD_BRANCH}
+ENV GIT_COMMIT=${BUILD_COMMIT}
+ENV BUILD_TIME=${BUILD_DATE}
+ENV APP_VERSION=${VERSION}
+
 # Install dependencies for health checks, auth, and Docker socket access
 RUN apk add --no-cache \
     curl \

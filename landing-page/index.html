@@ -696,6 +696,26 @@
                 external: true,
                 authRequired: true,
                 installNote: 'Installed with dc-overview quickstart'
+            },
+            'runpod-exporter': {
+                displayName: 'RunPod Exporter',
+                icon: '🚀',
+                description: 'Prometheus exporter for RunPod metrics. Tracks earnings, GPU utilization, pod status and uptime.',
+                path: '/runpod-metrics/',
+                productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
+                docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
+                isCryptoLabs: true,
+                installNote: 'Deployed via dc-overview with RunPod API key configuration'
+            },
+            'vastai-exporter': {
+                displayName: 'Vast.ai Exporter',
+                icon: '💰',
+                description: 'Prometheus exporter for Vast.ai metrics. Tracks earnings, machine status, and rental metrics.',
+                path: '/vastai-metrics/',
+                productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
+                docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
+                isCryptoLabs: true,
+                installNote: 'Deployed via dc-overview with Vast.ai API key configuration'
             }
         };
 
@@ -930,12 +950,21 @@
                         versionText = 'Not running';
                     }
                     
-                    // Update button - only for our containers, not external
-                    const updateBtn = !info.external && info.running
-                        ? `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Update ${displayName}">⬆️ Update</button>`
-                        : info.external 
-                            ? '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>'
-                            : '';
+                    // Update button - only show if branch mismatch or not our container
+                    const targetBranch = settings.target_branch || 'main';
+                    const currentBranch = info.branch || 'unknown';
+                    const needsUpdate = currentBranch !== targetBranch && currentBranch !== 'unknown';
+                    
+                    let updateBtn = '';
+                    if (info.external) {
+                        updateBtn = '<span style="color: var(--text-secondary); font-size: 0.8em;">External</span>';
+                    } else if (!info.running) {
+                        updateBtn = '';
+                    } else if (needsUpdate) {
+                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
+                    } else {
+                        updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Up to date</span>';
+                    }
                     
                     html += `
                         <div class="version-card ${statusClass} ${externalClass}">

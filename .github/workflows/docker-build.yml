@@ -76,7 +76,8 @@ jobs:
           build-args: |
             BUILD_BRANCH=${{ github.ref_name }}
             BUILD_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.repository.pushed_at }}
+            VERSION=${{ github.ref_name == 'main' && 'latest' || github.ref_name == 'dev' && 'dev' || github.ref_name }}
 
       - name: Generate build summary
         run: |
