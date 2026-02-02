@@ -36,6 +36,9 @@ class ProxyConfig:
     site_name: str = "DC Overview"  # Displayed on landing page
     additional_tcp_ports: List[int] = None
     additional_udp_ports: List[int] = None
+    # DC Watchdog SSO - API key enables auto-login from Fleet Management
+    watchdog_api_key: str = ""
+    watchdog_url: str = "https://watchdog.cryptolabs.co.za"
     
     def __post_init__(self):
         if not self.auth_secret:
@@ -369,6 +372,8 @@ def setup_proxy(
             "-e", f"FLEET_ADMIN_PASS={config.fleet_admin_pass}",
             "-e", f"AUTH_SECRET_KEY={config.auth_secret}",
             "-e", f"SITE_NAME={config.site_name}",
+            "-e", f"WATCHDOG_API_KEY={config.watchdog_api_key}",
+            "-e", f"WATCHDOG_URL={config.watchdog_url}",
             "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
             "-v", "fleet-auth-data:/data/auth",
             "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",
@@ -405,7 +410,9 @@ def setup_proxy(
 def update_proxy_credentials(
     fleet_admin_user: str,
     fleet_admin_pass: str,
-    auth_secret: str = None
+    auth_secret: str = None,
+    watchdog_api_key: str = None,
+    watchdog_url: str = None
 ) -> Tuple[bool, str]:
     """Update proxy with new Fleet credentials without full restart.
     
@@ -422,6 +429,12 @@ def update_proxy_credentials(
     if not existing:
         return False, "Could not read proxy configuration"
     
+    # Preserve existing watchdog config if not provided
+    if watchdog_api_key is None:
+        watchdog_api_key = existing.get("WATCHDOG_API_KEY", "")
+    if watchdog_url is None:
+        watchdog_url = existing.get("WATCHDOG_URL", "https://watchdog.cryptolabs.co.za")
+    
     # Recreate with new credentials
     subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)
     
@@ -435,6 +448,8 @@ def update_proxy_credentials(
         "-e", f"FLEET_ADMIN_USER={fleet_admin_user}",
         "-e", f"FLEET_ADMIN_PASS={fleet_admin_pass}",
         "-e", f"AUTH_SECRET_KEY={auth_secret}",
+        "-e", f"WATCHDOG_API_KEY={watchdog_api_key}",
+        "-e", f"WATCHDOG_URL={watchdog_url}",
         "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
         "-v", "fleet-auth-data:/data/auth",
         "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",

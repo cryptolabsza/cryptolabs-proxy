@@ -45,6 +45,12 @@ AUTH_HEADER_TIMESTAMP = 'X-Fleet-Auth-Timestamp'
 # Data directory for auth database
 DATA_DIR = Path(os.environ.get('AUTH_DATA_DIR', '/data/auth'))
 
+# DC Watchdog SSO Configuration
+# API key (sk-ipmi-xxx) from CryptoLabs subscription - enables Auto-SSO
+# This key is also used as the signing secret for SSO tokens (no separate secret needed!)
+WATCHDOG_API_KEY = os.environ.get('WATCHDOG_API_KEY', '')
+WATCHDOG_URL = os.environ.get('WATCHDOG_URL', 'https://watchdog.cryptolabs.co.za')
+
 # Valid roles (ordered by privilege level)
 VALID_ROLES = ['admin', 'readwrite', 'readonly']
 
@@ -1268,6 +1274,125 @@ def create_flask_auth_app():
         settings.update(request.json)
         save_settings(settings)
         return jsonify({'success': True})
+    
+    # =========================================================================
+    # DC WATCHDOG AUTO-SSO
+    # =========================================================================
+    
+    @app.route('/auth/watchdog/sso')
+    def watchdog_sso():
+        """Generate SSO URL for DC Watchdog - enables seamless one-click access.
+        
+        IMPORTANT: WordPress validation ALWAYS happens!
+        This is NOT skipping WordPress - it's just avoiding browser redirects.
+        
+        Flow:
+        1. Fleet Management has API key (sk-ipmi-xxx) from client's .secrets.yaml
+        2. This endpoint generates a signed token containing the API key
+        3. DC Watchdog receives token and validates API key against WordPress
+        4. WordPress confirms: user_id, email, tier, subscription status
+        5. If valid, DC Watchdog creates session with WordPress-verified info
+        6. User lands on dashboard - no manual login needed!
+        
+        The API key is the trust anchor - it was obtained from WordPress during
+        initial signup at cryptolabs.co.za. DC Watchdog validates it every time.
+        
+        If API key is not configured, falls back to WordPress browser SSO.
+        """
+        import base64
+        
+        # Check if user is logged in to Fleet Management
+        if not session.get('logged_in'):
+            if not get_setting('allow_anonymous', False):
+                return redirect('/auth/login?next=/auth/watchdog/sso')
+        
+        username = session.get('username', 'anonymous')
+        role = session.get('role', 'readonly')
+        
+        # If no API key configured, fall back to WordPress browser SSO
+        # This happens when client hasn't linked their account yet
+        if not WATCHDOG_API_KEY:
+            # Redirect to WordPress signup page - they need to get an API key first
+            return redirect('https://www.cryptolabs.co.za/dc-watchdog-signup/')
+        
+        # Generate signed SSO payload
+        # NOTE: DC Watchdog will validate this API key against WordPress server-to-server
+        # The token is just a signed transport - WordPress is the source of truth
+        timestamp = int(time.time())
+        
+        sso_data = {
+            'username': username,
+            'role': role,
+            'api_key': WATCHDOG_API_KEY,  # Will be validated against WordPress by DC Watchdog
+            'timestamp': timestamp,
+            'source': 'fleet_management',
+        }
+        
+        # Sign the payload using the API key itself as the secret
+        # This eliminates the need for a separate shared secret per client!
+        # DC Watchdog will verify using the same API key from the payload
+        payload = base64.b64encode(json.dumps(sso_data).encode('utf-8')).decode('utf-8')
+        signature = hmac.new(
+            WATCHDOG_API_KEY.encode('utf-8'),  # API key IS the secret
+            payload.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Build SSO redirect URL
+        sso_url = f"{WATCHDOG_URL}/auth/sso?payload={payload}&signature={signature}"
+        
+        return redirect(sso_url)
+    
+    @app.route('/auth/watchdog/sso-url')
+    def watchdog_sso_url():
+        """API endpoint to get SSO URL without redirect (for JavaScript fetch).
+        
+        Returns JSON with the SSO URL that can be used client-side.
+        """
+        import base64
+        
+        # Check if user is logged in
+        if not session.get('logged_in'):
+            if not get_setting('allow_anonymous', False):
+                return jsonify({'error': 'Not authenticated'}), 401
+        
+        username = session.get('username', 'anonymous')
+        role = session.get('role', 'readonly')
+        
+        # If no API key configured, return WordPress fallback URL
+        if not WATCHDOG_API_KEY:
+            return jsonify({
+                'sso_url': 'https://www.cryptolabs.co.za/dc-watchdog-signup/',
+                'auto_sso': False,
+                'message': 'API key not configured, using WordPress SSO'
+            })
+        
+        # Generate signed SSO payload
+        timestamp = int(time.time())
+        
+        sso_data = {
+            'username': username,
+            'role': role,
+            'api_key': WATCHDOG_API_KEY,
+            'timestamp': timestamp,
+            'source': 'fleet_management',
+        }
+        
+        # Sign using API key as the secret (same as /auth/watchdog/sso)
+        payload = base64.b64encode(json.dumps(sso_data).encode('utf-8')).decode('utf-8')
+        signature = hmac.new(
+            WATCHDOG_API_KEY.encode('utf-8'),  # API key IS the secret
+            payload.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        sso_url = f"{WATCHDOG_URL}/auth/sso?payload={payload}&signature={signature}"
+        
+        return jsonify({
+            'sso_url': sso_url,
+            'auto_sso': True,
+            'message': 'Auto-SSO enabled'
+        })
     
     return app
 
