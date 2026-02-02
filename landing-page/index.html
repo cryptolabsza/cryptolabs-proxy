@@ -763,13 +763,15 @@
                 icon: '📡',
                 description: 'External uptime monitoring. Get instant alerts when your servers go down via email, Telegram, or push notifications.',
                 path: null,  // External service
-                externalUrl: '/auth/watchdog/sso',  // Auto-SSO via Fleet Management - no login click needed!
+                externalUrl: '/auth/watchdog/sso',  // Auto-SSO via Fleet Management
                 productUrl: 'https://watchdog.cryptolabs.co.za',
                 docsUrl: 'https://watchdog.cryptolabs.co.za/docs',
                 isCryptoLabs: true,
                 external: true,
                 requiresSubscription: true,
-                installNote: 'Enable via dc-overview quickstart or Fleet Management settings'
+                installNote: 'Enable via dc-overview quickstart or Fleet Management settings',
+                // Dynamic status - will be updated by checkWatchdogStatus()
+                needsApiKey: true  // Default to needing setup, will be updated
             }
         };
 
@@ -790,6 +792,18 @@
                     console.log('API not available, using defaults');
                 }
 
+                // Check DC Watchdog configuration status
+                try {
+                    const watchdogResponse = await fetch('/auth/watchdog/status');
+                    if (watchdogResponse.ok) {
+                        const watchdogStatus = await watchdogResponse.json();
+                        DEFAULT_SERVICES['dc-watchdog'].needsApiKey = !watchdogStatus.configured;
+                        DEFAULT_SERVICES['dc-watchdog'].configured = watchdogStatus.configured;
+                    }
+                } catch (e) {
+                    console.log('Could not check watchdog status');
+                }
+
                 // Render services
                 let runningHtml = '';
                 let availableHtml = '';
@@ -800,10 +814,11 @@
                     const serviceHealth = health[key] || {};
                     const isRunning = serviceHealth.running === true;
                     
-                    // External URL services (like DC Watchdog) always show in running section
+                    // External URL services - check if configured
                     const isExternalUrl = service.externalUrl ? true : false;
+                    const isConfigured = service.configured !== false;  // Default to true if not set
                     
-                    if (isRunning || isExternalUrl) {
+                    if (isRunning || (isExternalUrl && isConfigured)) {
                         runningCount++;
                         runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running');
                     } else {
@@ -849,13 +864,25 @@
             let installSection = '';
             
             if (status === 'running' || service.externalUrl) {
-                // External URL services (like DC Watchdog) always show as "running" with external link
-                const openUrl = service.externalUrl || service.path;
-                const target = service.externalUrl ? ' target="_blank"' : '';
-                actions = `
-                    <a href="${openUrl}"${target} class="btn btn-primary">Open ${service.displayName}</a>
-                    ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
-                `;
+                // External URL services - check if configured (has API key)
+                if (service.needsApiKey) {
+                    // Not configured - show "Link Account" button
+                    actions = `
+                        <a href="${service.externalUrl}" class="btn btn-promo">🔗 Link CryptoLabs Account</a>
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
+                    // Override status text
+                    statusText = 'Setup Required';
+                    statusDot = 'not-installed';
+                } else {
+                    // Configured - show "Open" button (auto-SSO)
+                    const openUrl = service.externalUrl || service.path;
+                    const target = service.externalUrl ? ' target="_blank"' : '';
+                    actions = `
+                        <a href="${openUrl}"${target} class="btn btn-primary">Open ${service.displayName}</a>
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
+                }
             } else {
                 if (service.isCryptoLabs && service.installCommand) {
                     // Show install command for CryptoLabs products

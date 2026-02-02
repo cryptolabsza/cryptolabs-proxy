@@ -50,6 +50,34 @@ DATA_DIR = Path(os.environ.get('AUTH_DATA_DIR', '/data/auth'))
 # This key is also used as the signing secret for SSO tokens (no separate secret needed!)
 WATCHDOG_API_KEY = os.environ.get('WATCHDOG_API_KEY', '')
 WATCHDOG_URL = os.environ.get('WATCHDOG_URL', 'https://watchdog.cryptolabs.co.za')
+WATCHDOG_SIGNUP_URL = 'https://www.cryptolabs.co.za/dc-watchdog-signup/'
+
+def get_watchdog_api_key() -> str:
+    """Get the DC Watchdog API key from environment or persistent storage."""
+    # First check environment variable
+    if WATCHDOG_API_KEY:
+        return WATCHDOG_API_KEY
+    
+    # Then check persistent storage (for keys obtained via OAuth callback)
+    key_file = DATA_DIR / 'watchdog_api_key'
+    if key_file.exists():
+        try:
+            return key_file.read_text().strip()
+        except Exception:
+            pass
+    
+    return ''
+
+def save_watchdog_api_key(api_key: str) -> bool:
+    """Save the DC Watchdog API key to persistent storage."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        key_file = DATA_DIR / 'watchdog_api_key'
+        key_file.write_text(api_key)
+        os.chmod(key_file, 0o600)  # Secure permissions
+        return True
+    except Exception:
+        return False
 
 # Valid roles (ordered by privilege level)
 VALID_ROLES = ['admin', 'readwrite', 'readonly']
@@ -1309,11 +1337,16 @@ def create_flask_auth_app():
         username = session.get('username', 'anonymous')
         role = session.get('role', 'readonly')
         
-        # If no API key configured, fall back to WordPress browser SSO
-        # This happens when client hasn't linked their account yet
-        if not WATCHDOG_API_KEY:
-            # Redirect to WordPress signup page - they need to get an API key first
-            return redirect('https://www.cryptolabs.co.za/dc-watchdog-signup/')
+        # Get API key (from env or persistent storage)
+        api_key = get_watchdog_api_key()
+        
+        # If no API key configured, redirect to WordPress signup with callback
+        # After signup, WordPress will redirect back with the API key
+        if not api_key:
+            # Build callback URL for this Fleet Management instance
+            callback_url = request.host_url.rstrip('/') + '/auth/watchdog/callback'
+            signup_url = f"{WATCHDOG_SIGNUP_URL}?redirect_uri={callback_url}&source=fleet_management"
+            return redirect(signup_url)
         
         # Generate signed SSO payload
         # NOTE: DC Watchdog will validate this API key against WordPress server-to-server
@@ -1323,7 +1356,7 @@ def create_flask_auth_app():
         sso_data = {
             'username': username,
             'role': role,
-            'api_key': WATCHDOG_API_KEY,  # Will be validated against WordPress by DC Watchdog
+            'api_key': api_key,  # Will be validated against WordPress by DC Watchdog
             'timestamp': timestamp,
             'source': 'fleet_management',
         }
@@ -1333,7 +1366,7 @@ def create_flask_auth_app():
         # DC Watchdog will verify using the same API key from the payload
         payload = base64.b64encode(json.dumps(sso_data).encode('utf-8')).decode('utf-8')
         signature = hmac.new(
-            WATCHDOG_API_KEY.encode('utf-8'),  # API key IS the secret
+            api_key.encode('utf-8'),  # API key IS the secret
             payload.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
@@ -1359,12 +1392,18 @@ def create_flask_auth_app():
         username = session.get('username', 'anonymous')
         role = session.get('role', 'readonly')
         
-        # If no API key configured, return WordPress fallback URL
-        if not WATCHDOG_API_KEY:
+        # Get API key (from env or persistent storage)
+        api_key = get_watchdog_api_key()
+        
+        # If no API key configured, return signup URL with callback
+        if not api_key:
+            callback_url = request.host_url.rstrip('/') + '/auth/watchdog/callback'
+            signup_url = f"{WATCHDOG_SIGNUP_URL}?redirect_uri={callback_url}&source=fleet_management"
             return jsonify({
-                'sso_url': 'https://www.cryptolabs.co.za/dc-watchdog-signup/',
+                'sso_url': signup_url,
                 'auto_sso': False,
-                'message': 'API key not configured, using WordPress SSO'
+                'needs_signup': True,
+                'message': 'API key not configured - redirect to signup'
             })
         
         # Generate signed SSO payload
@@ -1373,7 +1412,7 @@ def create_flask_auth_app():
         sso_data = {
             'username': username,
             'role': role,
-            'api_key': WATCHDOG_API_KEY,
+            'api_key': api_key,
             'timestamp': timestamp,
             'source': 'fleet_management',
         }
@@ -1381,7 +1420,7 @@ def create_flask_auth_app():
         # Sign using API key as the secret (same as /auth/watchdog/sso)
         payload = base64.b64encode(json.dumps(sso_data).encode('utf-8')).decode('utf-8')
         signature = hmac.new(
-            WATCHDOG_API_KEY.encode('utf-8'),  # API key IS the secret
+            api_key.encode('utf-8'),  # API key IS the secret
             payload.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
@@ -1392,6 +1431,61 @@ def create_flask_auth_app():
             'sso_url': sso_url,
             'auto_sso': True,
             'message': 'Auto-SSO enabled'
+        })
+    
+    @app.route('/auth/watchdog/callback')
+    def watchdog_callback():
+        """OAuth-style callback from WordPress after user signs up for DC Watchdog.
+        
+        WordPress redirects here with:
+        - api_key: The user's API key (sk-ipmi-xxx)
+        - user_email: User's email
+        - subscription: Subscription status (trial, active, etc.)
+        
+        We store the API key and then redirect to the DC Watchdog dashboard.
+        """
+        api_key = request.args.get('api_key')
+        user_email = request.args.get('user_email', '')
+        subscription = request.args.get('subscription', 'trial')
+        
+        if not api_key or not api_key.startswith('sk-ipmi-'):
+            return render_template_string('''
+                <!DOCTYPE html>
+                <html>
+                <head><title>Error</title></head>
+                <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+                    <h2>❌ Invalid API Key</h2>
+                    <p>No valid API key was provided. Please try again.</p>
+                    <a href="/">Return to Dashboard</a>
+                </body>
+                </html>
+            '''), 400
+        
+        # Save the API key persistently
+        if save_watchdog_api_key(api_key):
+            # Now redirect to DC Watchdog with SSO
+            return redirect('/auth/watchdog/sso')
+        else:
+            return render_template_string('''
+                <!DOCTYPE html>
+                <html>
+                <head><title>Error</title></head>
+                <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+                    <h2>❌ Failed to Save API Key</h2>
+                    <p>Could not save the API key. Please try again.</p>
+                    <a href="/">Return to Dashboard</a>
+                </body>
+                </html>
+            '''), 500
+    
+    @app.route('/auth/watchdog/status')
+    def watchdog_status():
+        """Check if DC Watchdog is configured (has API key)."""
+        api_key = get_watchdog_api_key()
+        return jsonify({
+            'configured': bool(api_key),
+            'has_api_key': bool(api_key),
+            'signup_url': WATCHDOG_SIGNUP_URL
         })
     
     return app
