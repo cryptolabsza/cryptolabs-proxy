@@ -659,6 +659,27 @@
                     <span>Loading versions...</span>
                 </div>
             </div>
+            
+            <!-- DC Watchdog Agents Section -->
+            <div class="watchdog-agents-section" id="watchdogSection" style="margin-top: 20px; display: none;">
+                <h3 style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 10px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                    📡 DC Watchdog Agents
+                </h3>
+                <div class="version-card" id="watchdogCard">
+                    <div class="version-info">
+                        <div class="version-name">
+                            <span class="version-icon">📡</span>
+                            <span>Watchdog Agents</span>
+                        </div>
+                        <div class="version-details" id="watchdogDetails">
+                            <span class="version-tag">Checking...</span>
+                        </div>
+                    </div>
+                    <div class="version-actions" id="watchdogActions">
+                        <span style="color: var(--text-muted); font-size: 0.8em;">Loading...</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <footer>
@@ -1201,15 +1222,60 @@
             }
         }
 
+        // DC Watchdog agent status
+        async function loadWatchdogStatus() {
+            const section = document.getElementById('watchdogSection');
+            const details = document.getElementById('watchdogDetails');
+            const actions = document.getElementById('watchdogActions');
+            
+            try {
+                // First check if dc-watchdog is configured by checking fleet config
+                // We'll try to fetch the public latest-version endpoint first
+                const latestResp = await fetch('https://watchdog.cryptolabs.co.za/api/latest-version');
+                if (!latestResp.ok) {
+                    section.style.display = 'none';
+                    return;
+                }
+                
+                const latestData = await latestResp.json();
+                const latestVersion = latestData.version;
+                
+                // Show the section
+                section.style.display = 'block';
+                
+                // Try to get update status if we have the API key in fleet config
+                // For now, just show the latest version available
+                details.innerHTML = `
+                    <span class="version-tag">v${latestVersion}</span>
+                    <span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">latest</span>
+                `;
+                
+                // Show link to watchdog dashboard
+                actions.innerHTML = `
+                    <a href="https://watchdog.cryptolabs.co.za/dashboard" target="_blank" 
+                       class="btn btn-secondary btn-small" title="View agent status and manage updates">
+                        🔍 Dashboard
+                    </a>
+                `;
+                
+            } catch (e) {
+                // DC Watchdog not available or not configured
+                console.log('DC Watchdog status not available:', e.message);
+                section.style.display = 'none';
+            }
+        }
+
         // Initial load
         loadUserInfo();
         loadServices();
         loadBuildInfo();
         loadVersions();
+        loadWatchdogStatus();
 
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);
         setInterval(loadVersions, 60000);
+        setInterval(loadWatchdogStatus, 60000);
     </script>
 </body>
 </html>
