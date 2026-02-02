@@ -50,6 +50,19 @@ DEFAULT_SERVICES = {
         "external": True,
         "auth_required": True,
     },
+    "dc-watchdog": {
+        "container_name": None,  # External service, not a container
+        "path": None,  # Not proxied locally
+        "port": None,
+        "display_name": "DC Watchdog",
+        "icon": "📡",
+        "description": "External uptime monitoring and alerting",
+        "product_url": "https://watchdog.cryptolabs.co.za",
+        "docs_url": "https://watchdog.cryptolabs.co.za/docs",
+        "external": True,
+        "external_url": "https://watchdog.cryptolabs.co.za",  # Links to external service
+        "requires_subscription": True,  # Requires CryptoLabs subscription
+    },
 }
 
 

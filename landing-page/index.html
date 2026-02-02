@@ -736,6 +736,19 @@
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
                 installNote: 'Deployed via dc-overview with Vast.ai API key configuration'
+            },
+            'dc-watchdog': {
+                displayName: 'DC Watchdog',
+                icon: '📡',
+                description: 'External uptime monitoring. Get instant alerts when your servers go down via email, Telegram, or push notifications.',
+                path: null,  // External service
+                externalUrl: 'https://watchdog.cryptolabs.co.za',
+                productUrl: 'https://watchdog.cryptolabs.co.za',
+                docsUrl: 'https://watchdog.cryptolabs.co.za/docs',
+                isCryptoLabs: true,
+                external: true,
+                requiresSubscription: true,
+                installNote: 'Enable via dc-overview quickstart or Fleet Management settings'
             }
         };
 
@@ -766,9 +779,12 @@
                     const serviceHealth = health[key] || {};
                     const isRunning = serviceHealth.running === true;
                     
-                    if (isRunning) {
+                    // External URL services (like DC Watchdog) always show in running section
+                    const isExternalUrl = service.externalUrl ? true : false;
+                    
+                    if (isRunning || isExternalUrl) {
                         runningCount++;
-                        runningHtml += renderServiceCard(key, service, 'running');
+                        runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running');
                     } else {
                         availableHtml += renderServiceCard(key, service, 'not-installed');
                     }
@@ -793,16 +809,30 @@
         }
 
         function renderServiceCard(key, service, status) {
-            const statusClass = status === 'running' ? 'running' : 'not-installed';
-            const statusText = status === 'running' ? 'Running' : 'Not Installed';
-            const statusDot = status === 'running' ? 'running' : 'not-installed';
+            let statusClass, statusText, statusDot;
+            if (status === 'external') {
+                statusClass = 'running';  // Show as running
+                statusText = 'External Service';
+                statusDot = 'running';
+            } else if (status === 'running') {
+                statusClass = 'running';
+                statusText = 'Running';
+                statusDot = 'running';
+            } else {
+                statusClass = 'not-installed';
+                statusText = 'Not Installed';
+                statusDot = 'not-installed';
+            }
 
             let actions = '';
             let installSection = '';
             
-            if (status === 'running') {
+            if (status === 'running' || service.externalUrl) {
+                // External URL services (like DC Watchdog) always show as "running" with external link
+                const openUrl = service.externalUrl || service.path;
+                const target = service.externalUrl ? ' target="_blank"' : '';
                 actions = `
-                    <a href="${service.path}" class="btn btn-primary">Open ${service.displayName}</a>
+                    <a href="${openUrl}"${target} class="btn btn-primary">Open ${service.displayName}</a>
                     ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                 `;
             } else {
