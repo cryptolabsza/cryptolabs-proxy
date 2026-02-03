@@ -1577,7 +1577,7 @@ def create_flask_auth_app():
         return jsonify(result)
     
     @app.route('/auth/watchdog/deploy-agents', methods=['POST'])
-    @login_required
+    @login_required_decorator
     def watchdog_deploy_agents():
         """Deploy DC Watchdog agents to all servers via dc-overview.
         
@@ -1632,7 +1632,7 @@ def create_flask_auth_app():
             }), 500
     
     @app.route('/auth/watchdog/agents-status')
-    @login_required
+    @login_required_decorator
     def watchdog_agents_local_status():
         """Get local agent deployment status from dc-overview.
         
