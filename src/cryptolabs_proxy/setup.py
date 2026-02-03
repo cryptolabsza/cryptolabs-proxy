@@ -22,7 +22,7 @@ from .services import ServiceRegistry
 # Docker network configuration
 DOCKER_NETWORK_NAME = "cryptolabs"
 DOCKER_NETWORK_SUBNET = "172.30.0.0/16"
-PROXY_STATIC_IP = "172.30.0.2"
+PROXY_STATIC_IP = "172.30.0.10"  # Use .10 to avoid conflicts with other containers
 
 
 @dataclass
