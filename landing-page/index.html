@@ -497,6 +497,15 @@
             opacity: 0.6;
         }
 
+        .version-card.disabled {
+            opacity: 0.5;
+            background: var(--bg-secondary);
+        }
+
+        .version-card.disabled .service-name {
+            color: var(--text-muted);
+        }
+
         .version-card.external {
             border-left: 3px solid var(--accent-purple);
         }
@@ -660,26 +669,6 @@
                 </div>
             </div>
             
-            <!-- DC Watchdog Agents Section -->
-            <div class="watchdog-agents-section" id="watchdogSection" style="margin-top: 20px; display: none;">
-                <h3 style="font-size: 0.9em; color: var(--text-muted); margin-bottom: 10px; border-top: 1px solid var(--border-color); padding-top: 15px;">
-                    📡 DC Watchdog Agents
-                </h3>
-                <div class="version-card" id="watchdogCard">
-                    <div class="version-info">
-                        <div class="version-name">
-                            <span class="version-icon">📡</span>
-                            <span>Watchdog Agents</span>
-                        </div>
-                        <div class="version-details" id="watchdogDetails">
-                            <span class="version-tag">Checking...</span>
-                        </div>
-                    </div>
-                    <div class="version-actions" id="watchdogActions">
-                        <span style="color: var(--text-muted); font-size: 0.8em;">Loading...</span>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <footer>
@@ -1249,46 +1238,145 @@
             }
         }
 
-        // DC Watchdog agent status
+        // DC Watchdog agent status - integrated into versions grid
         async function loadWatchdogStatus() {
-            const section = document.getElementById('watchdogSection');
-            const details = document.getElementById('watchdogDetails');
-            const actions = document.getElementById('watchdogActions');
+            const grid = document.getElementById('versionsGrid');
+            
+            // Remove any existing watchdog card first
+            const existingCard = document.getElementById('watchdogAgentCard');
+            if (existingCard) existingCard.remove();
             
             try {
-                // First check if dc-watchdog is configured by checking fleet config
-                // We'll try to fetch the public latest-version endpoint first
-                const latestResp = await fetch('https://watchdog.cryptolabs.co.za/api/latest-version');
-                if (!latestResp.ok) {
-                    section.style.display = 'none';
-                    return;
+                // Get detailed status from our backend
+                const statusResp = await fetch('/auth/watchdog/status');
+                const status = statusResp.ok ? await statusResp.json() : { state: 'error' };
+                
+                // Build card based on state
+                let cardClass = '';
+                let versionText = '';
+                let detailsHtml = '';
+                let actionsHtml = '';
+                let branchTag = '';
+                
+                switch (status.state) {
+                    case 'not_configured':
+                        // Grayed out - needs to be enabled
+                        cardClass = 'stopped disabled';
+                        versionText = 'Not enabled';
+                        detailsHtml = `<span style="color: var(--text-muted); font-size: 0.85em;">Enable to monitor server uptime</span>`;
+                        actionsHtml = `
+                            <a href="/auth/watchdog/sso" class="btn btn-primary btn-small" title="Get API key and enable DC Watchdog">
+                                🔓 Enable
+                            </a>
+                        `;
+                        break;
+                        
+                    case 'pending_agents':
+                        // Configured but no agents deployed yet
+                        cardClass = 'running';
+                        versionText = 'Pending';
+                        branchTag = '<span class="branch-tag" style="background: rgba(255, 193, 7, 0.2); color: #ffc107;">setup</span>';
+                        detailsHtml = `<span style="color: var(--text-secondary); font-size: 0.85em;">Deploy agents via dc-overview</span>`;
+                        actionsHtml = `
+                            <a href="https://watchdog.cryptolabs.co.za/dashboard" target="_blank" 
+                               class="btn btn-secondary btn-small" title="View setup instructions">
+                                📖 Setup
+                            </a>
+                        `;
+                        break;
+                        
+                    case 'active':
+                        // Fully configured with agents
+                        cardClass = 'running';
+                        const agents = status.agents || {};
+                        const latestVer = status.latest_version || '1.0.0';
+                        versionText = `v${latestVer}`;
+                        branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
+                        
+                        if (agents.outdated > 0) {
+                            detailsHtml = `
+                                <span class="version-tag" style="color: var(--accent-yellow);">
+                                    ${agents.online}/${agents.total} online
+                                </span>
+                                <span style="color: var(--accent-yellow); font-size: 0.85em;">
+                                    ⚠️ ${agents.outdated} need updates
+                                </span>
+                            `;
+                            actionsHtml = `
+                                <a href="/auth/watchdog/sso" class="btn btn-primary btn-small" title="Open dashboard to update agents">
+                                    ⬆️ Update
+                                </a>
+                            `;
+                        } else {
+                            detailsHtml = `
+                                <span class="version-tag" style="color: var(--accent-green);">
+                                    ${agents.online}/${agents.total} online
+                                </span>
+                                <span style="color: var(--accent-green); font-size: 0.85em;">✓ Up to date</span>
+                            `;
+                            actionsHtml = `
+                                <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">
+                                    🔍 Dashboard
+                                </a>
+                            `;
+                        }
+                        break;
+                        
+                    default:
+                        // Error or unknown state - show as not configured
+                        cardClass = 'stopped disabled';
+                        versionText = 'Unavailable';
+                        detailsHtml = `<span style="color: var(--text-muted); font-size: 0.85em;">Could not check status</span>`;
+                        actionsHtml = `
+                            <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Try to enable DC Watchdog">
+                                🔄 Retry
+                            </a>
+                        `;
                 }
                 
-                const latestData = await latestResp.json();
-                const latestVersion = latestData.version;
-                
-                // Show the section
-                section.style.display = 'block';
-                
-                // Try to get update status if we have the API key in fleet config
-                // For now, just show the latest version available
-                details.innerHTML = `
-                    <span class="version-tag">v${latestVersion}</span>
-                    <span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">latest</span>
+                // Create the card HTML
+                const cardHtml = `
+                    <div class="version-card ${cardClass}" id="watchdogAgentCard">
+                        <div class="version-info">
+                            <div class="service-name">
+                                DC Watchdog Agents
+                                ${branchTag}
+                            </div>
+                            <div class="version-details">
+                                <span class="version-tag">${versionText}</span>
+                                ${detailsHtml}
+                            </div>
+                        </div>
+                        <div class="version-actions">
+                            ${actionsHtml}
+                        </div>
+                    </div>
                 `;
                 
-                // Show link to watchdog dashboard
-                actions.innerHTML = `
-                    <a href="https://watchdog.cryptolabs.co.za/dashboard" target="_blank" 
-                       class="btn btn-secondary btn-small" title="View agent status and manage updates">
-                        🔍 Dashboard
-                    </a>
-                `;
+                // Append to the grid
+                if (grid) {
+                    grid.insertAdjacentHTML('beforeend', cardHtml);
+                }
                 
             } catch (e) {
-                // DC Watchdog not available or not configured
                 console.log('DC Watchdog status not available:', e.message);
-                section.style.display = 'none';
+                // Still show the card but as unavailable
+                if (grid) {
+                    grid.insertAdjacentHTML('beforeend', `
+                        <div class="version-card stopped disabled" id="watchdogAgentCard">
+                            <div class="version-info">
+                                <div class="service-name">DC Watchdog Agents</div>
+                                <div class="version-details">
+                                    <span class="version-tag">Offline</span>
+                                    <span style="color: var(--text-muted); font-size: 0.85em;">Server unavailable</span>
+                                </div>
+                            </div>
+                            <div class="version-actions">
+                                <span style="color: var(--text-muted); font-size: 0.8em;">Check later</span>
+                            </div>
+                        </div>
+                    `);
+                }
             }
         }
 

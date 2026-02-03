@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import time
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
@@ -1480,13 +1481,79 @@ def create_flask_auth_app():
     
     @app.route('/auth/watchdog/status')
     def watchdog_status():
-        """Check if DC Watchdog is configured (has API key)."""
+        """Check DC Watchdog configuration and agent status.
+        
+        Returns detailed status for UI rendering:
+        - state: 'not_configured' | 'pending_agents' | 'active' | 'error'
+        - configured: bool - has API key
+        - agents: dict with total, online, outdated counts
+        - latest_version: string - latest agent version from watchdog server
+        """
         api_key = get_watchdog_api_key()
-        return jsonify({
+        
+        result = {
             'configured': bool(api_key),
             'has_api_key': bool(api_key),
-            'signup_url': WATCHDOG_SIGNUP_URL
-        })
+            'signup_url': WATCHDOG_SIGNUP_URL,
+            'state': 'not_configured',
+            'agents': {
+                'total': 0,
+                'online': 0,
+                'outdated': 0
+            },
+            'latest_version': None,
+            'dashboard_url': f'{WATCHDOG_URL}/dashboard'
+        }
+        
+        if not api_key:
+            result['state'] = 'not_configured'
+            result['message'] = 'Enable DC Watchdog to monitor server uptime'
+            return jsonify(result)
+        
+        # Try to get agent status from watchdog server
+        try:
+            # First get latest version (public endpoint)
+            version_resp = requests.get(
+                f'{WATCHDOG_URL}/api/latest-version',
+                timeout=5
+            )
+            if version_resp.ok:
+                version_data = version_resp.json()
+                result['latest_version'] = version_data.get('version', 'unknown')
+            
+            # Try to get agent count (requires API key)
+            agents_resp = requests.get(
+                f'{WATCHDOG_URL}/api/updates',
+                params={'api_key': api_key},
+                timeout=5
+            )
+            if agents_resp.ok:
+                agents_data = agents_resp.json()
+                result['agents'] = {
+                    'total': agents_data.get('total_agents', 0),
+                    'online': agents_data.get('online_agents', 0),
+                    'outdated': agents_data.get('outdated_count', 0)
+                }
+                
+                if result['agents']['total'] > 0:
+                    result['state'] = 'active'
+                    if result['agents']['outdated'] > 0:
+                        result['message'] = f"{result['agents']['outdated']} agents need updates"
+                    else:
+                        result['message'] = f"{result['agents']['online']}/{result['agents']['total']} agents online"
+                else:
+                    result['state'] = 'pending_agents'
+                    result['message'] = 'API key configured, deploy agents via dc-overview'
+            else:
+                # API key might not be validated yet
+                result['state'] = 'pending_agents'
+                result['message'] = 'Verifying API key with watchdog server...'
+                
+        except requests.RequestException as e:
+            result['state'] = 'pending_agents' if api_key else 'not_configured'
+            result['message'] = 'Could not reach watchdog server'
+        
+        return jsonify(result)
     
     return app
 
