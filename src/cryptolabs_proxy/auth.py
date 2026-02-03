@@ -1544,8 +1544,27 @@ def create_flask_auth_app():
                     else:
                         result['message'] = f"{result['agents']['online']}/{result['agents']['total']} agents online"
                 else:
+                    # No agents reporting to watchdog yet - check if any are installed locally
                     result['state'] = 'pending_agents'
-                    result['message'] = 'API key configured, deploy agents via dc-overview'
+                    result['message'] = 'API key configured, deploy agents to start monitoring'
+                    
+                    # Try to get local installation status from dc-overview
+                    try:
+                        local_resp = requests.get(
+                            'http://dc-overview:5001/api/watchdog-agents/status',
+                            timeout=3
+                        )
+                        if local_resp.ok:
+                            local_data = local_resp.json()
+                            result['local'] = {
+                                'total_servers': local_data.get('total_servers', 0),
+                                'installed': local_data.get('installed', 0),
+                                'not_installed': local_data.get('not_installed', 0)
+                            }
+                            if local_data.get('installed', 0) > 0:
+                                result['message'] = f"{local_data['installed']} agents installed, waiting for heartbeats..."
+                    except:
+                        pass  # dc-overview not available
             else:
                 # API key might not be validated yet
                 result['state'] = 'pending_agents'
@@ -1556,6 +1575,95 @@ def create_flask_auth_app():
             result['message'] = 'Could not reach watchdog server'
         
         return jsonify(result)
+    
+    @app.route('/auth/watchdog/deploy-agents', methods=['POST'])
+    @login_required
+    def watchdog_deploy_agents():
+        """Deploy DC Watchdog agents to all servers via dc-overview.
+        
+        This forwards the request to dc-overview's /api/watchdog-agents/deploy-all
+        endpoint which handles the SSH deployment to each server.
+        """
+        # Check if user has write access
+        role = session.get('role', 'readonly')
+        if role == 'readonly':
+            return jsonify({
+                'success': False,
+                'error': 'Write access required to deploy agents'
+            }), 403
+        
+        # Forward to dc-overview
+        try:
+            # dc-overview container is accessible via internal network
+            dc_overview_url = 'http://dc-overview:5001'
+            
+            # Forward the deploy request with session cookies
+            resp = requests.post(
+                f'{dc_overview_url}/api/watchdog-agents/deploy-all',
+                timeout=120,  # Allow time for SSH to multiple servers
+                headers={
+                    'X-Proxy-Auth-User': session.get('username', 'admin'),
+                    'X-Proxy-Auth-Role': role
+                }
+            )
+            
+            if resp.ok:
+                return jsonify(resp.json())
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Deploy failed: {resp.text}'
+                }), resp.status_code
+                
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                'success': False,
+                'error': 'Could not connect to dc-overview. Is Server Manager running?'
+            }), 503
+        except requests.exceptions.Timeout:
+            return jsonify({
+                'success': False,
+                'error': 'Deployment timed out. Check server connectivity.'
+            }), 504
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+    
+    @app.route('/auth/watchdog/agents-status')
+    @login_required
+    def watchdog_agents_local_status():
+        """Get local agent deployment status from dc-overview.
+        
+        Returns how many agents are installed locally (via dc-overview)
+        vs what watchdog server sees.
+        """
+        try:
+            dc_overview_url = 'http://dc-overview:5001'
+            resp = requests.get(
+                f'{dc_overview_url}/api/watchdog-agents/status',
+                timeout=5
+            )
+            
+            if resp.ok:
+                return jsonify(resp.json())
+            else:
+                return jsonify({
+                    'configured': False,
+                    'error': 'Could not get status from dc-overview'
+                }), resp.status_code
+                
+        except requests.exceptions.ConnectionError:
+            return jsonify({
+                'configured': False,
+                'error': 'dc-overview not running'
+            }), 503
+        except Exception as e:
+            return jsonify({
+                'configured': False,
+                'error': str(e)
+            }), 500
     
     return app
 

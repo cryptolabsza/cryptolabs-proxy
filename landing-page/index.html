@@ -1272,16 +1272,15 @@
                         break;
                         
                     case 'pending_agents':
-                        // Configured but no agents deployed yet
+                        // Configured but no agents deployed yet - show deploy button
                         cardClass = 'running';
                         versionText = 'Pending';
                         branchTag = '<span class="branch-tag" style="background: rgba(255, 193, 7, 0.2); color: #ffc107;">setup</span>';
-                        detailsHtml = `<span style="color: var(--text-secondary); font-size: 0.85em;">Deploy agents via dc-overview</span>`;
+                        detailsHtml = `<span style="color: var(--text-secondary); font-size: 0.85em;">API key configured, ready to deploy</span>`;
                         actionsHtml = `
-                            <a href="https://watchdog.cryptolabs.co.za/dashboard" target="_blank" 
-                               class="btn btn-secondary btn-small" title="View setup instructions">
-                                📖 Setup
-                            </a>
+                            <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy agents to all servers via SSH">
+                                🚀 Deploy Agents
+                            </button>
                         `;
                         break;
                         
@@ -1377,6 +1376,42 @@
                         </div>
                     `);
                 }
+            }
+        }
+
+        // Deploy DC Watchdog agents to all servers
+        async function deployWatchdogAgents() {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            
+            if (!confirm('Deploy DC Watchdog agents to all configured servers?\n\nThis will install the monitoring agent via SSH on each server.')) {
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Deploying...';
+            
+            try {
+                const response = await fetch('/auth/watchdog/deploy-agents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showUpdateStatus('success', `✓ ${result.message}`);
+                    // Refresh status after deployment
+                    setTimeout(loadWatchdogStatus, 2000);
+                } else {
+                    showUpdateStatus('error', `Deploy failed: ${result.error || 'Unknown error'}`);
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            } catch (e) {
+                showUpdateStatus('error', `Deploy error: ${e.message}`);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
             }
         }
 
