@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fleet Management | {{SITE_NAME}}</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <style>
         :root {
             --bg-primary: #0a0a0f;
@@ -84,8 +84,14 @@
         }
 
         .logo {
-            font-size: 3rem;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        .logo img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
+            filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.3));
         }
 
         h1 {
@@ -614,7 +620,7 @@
             <div class="user-menu" id="userMenu">
                 <!-- Populated by JS -->
             </div>
-            <div class="logo">🚀</div>
+            <div class="logo"><img src="/assets/logo.png" alt="Fleet Management"></div>
             <h1>Fleet Management</h1>
             <p class="subtitle">{{SITE_NAME}} Infrastructure Dashboard</p>
         </header>
