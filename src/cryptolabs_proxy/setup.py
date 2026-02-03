@@ -302,6 +302,45 @@ def ensure_docker_network() -> bool:
     return result.returncode == 0
 
 
+def _free_ports_80_443() -> None:
+    """Free up ports 80 and 443 before starting the proxy.
+    
+    This stops:
+    - Host nginx service (if running)
+    - Any existing cryptolabs-proxy container (including stuck/Created ones)
+    - Apache2 if running
+    """
+    # Stop host web servers
+    subprocess.run(["systemctl", "stop", "nginx"], capture_output=True)
+    subprocess.run(["systemctl", "disable", "nginx"], capture_output=True)
+    subprocess.run(["systemctl", "stop", "apache2"], capture_output=True)
+    subprocess.run(["systemctl", "disable", "apache2"], capture_output=True)
+    
+    # Force remove any existing proxy container (handles "Created" state too)
+    subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)
+    
+    # Give time for ports to be released
+    time.sleep(1)
+    
+    # Check if ports are actually free using ss/netstat
+    result = subprocess.run(
+        ["ss", "-tlnp"],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        for line in result.stdout.split('\n'):
+            if ':80 ' in line or ':443 ' in line:
+                # Try to identify and stop the process
+                # Extract PID if available (format: users:(("name",pid=123,fd=4)))
+                import re
+                pid_match = re.search(r'pid=(\d+)', line)
+                if pid_match:
+                    pid = pid_match.group(1)
+                    subprocess.run(["kill", "-9", pid], capture_output=True)
+    
+    time.sleep(1)
+
+
 def setup_proxy(
     config: ProxyConfig,
     callback=None
@@ -352,8 +391,9 @@ def setup_proxy(
     if needs_restart:
         log("Starting proxy container...")
         
-        # Remove existing
-        subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)
+        # Free up ports 80/443 - stops nginx, apache, existing proxy containers
+        log("Freeing ports 80/443...")
+        _free_ports_80_443()
         
         # Pull latest image
         subprocess.run(
