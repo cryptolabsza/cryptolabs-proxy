@@ -1529,11 +1529,13 @@ def create_flask_auth_app():
             )
             if agents_resp.ok:
                 agents_data = agents_resp.json()
+                # API returns: total (online agents), outdated, any_outdated, all_outdated, latest_version
                 result['agents'] = {
-                    'total': agents_data.get('total_agents', 0),
-                    'online': agents_data.get('online_agents', 0),
-                    'outdated': agents_data.get('outdated_count', 0)
+                    'total': agents_data.get('total', 0),
+                    'online': agents_data.get('total', 0),  # API only counts online
+                    'outdated': agents_data.get('outdated', 0)
                 }
+                result['latest_version'] = agents_data.get('latest_version', result['latest_version'])
                 
                 if result['agents']['total'] > 0:
                     result['state'] = 'active'
