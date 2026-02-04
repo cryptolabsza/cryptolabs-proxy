@@ -793,6 +793,8 @@
                         const watchdogStatus = await watchdogResponse.json();
                         DEFAULT_SERVICES['dc-watchdog'].needsApiKey = !watchdogStatus.configured;
                         DEFAULT_SERVICES['dc-watchdog'].configured = watchdogStatus.configured;
+                        DEFAULT_SERVICES['dc-watchdog'].keyError = watchdogStatus.key_error || false;
+                        DEFAULT_SERVICES['dc-watchdog'].keyErrorMessage = watchdogStatus.message || '';
                     }
                 } catch (e) {
                     console.log('Could not check watchdog status');
@@ -860,7 +862,15 @@
             
             if (status === 'running' || service.externalUrl) {
                 // External URL services - check if configured (has API key)
-                if (service.needsApiKey) {
+                if (service.keyError) {
+                    // API key expired or subscription ended - show re-link
+                    actions = `
+                        <a href="${service.externalUrl}" class="btn btn-promo">🔗 Re-link Account</a>
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
+                    statusText = 'Key Expired';
+                    statusDot = 'not-installed';
+                } else if (service.needsApiKey) {
                     // Not configured - show "Link Account" button
                     actions = `
                         <a href="${service.externalUrl}" class="btn btn-promo">🔗 Link Account</a>
@@ -1306,6 +1316,19 @@
                         detailsHtml = `<span style="color: var(--accent-cyan); font-size: 0.85em;">Waiting for heartbeats to watchdog</span>`;
                         actionsHtml = `
                             <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">🔍 Dashboard</a>
+                        `;
+                        break;
+                    
+                    case 'key_invalid':
+                        // API key expired, subscription ended, or key rotated
+                        cardClass = 'stopped';
+                        versionText = 'Expired';
+                        branchTag = '<span class="branch-tag" style="background: rgba(255, 87, 87, 0.2); color: var(--accent-red);">error</span>';
+                        detailsHtml = `<span style="color: var(--accent-red); font-size: 0.85em;">${status.message || 'API key invalid or subscription expired'}</span>`;
+                        actionsHtml = `
+                            <a href="/auth/watchdog/sso" class="btn btn-primary btn-small" title="Re-link your CryptoLabs account">
+                                🔗 Re-link Account
+                            </a>
                         `;
                         break;
                         

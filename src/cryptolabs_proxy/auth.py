@@ -1602,8 +1602,17 @@ def create_flask_auth_app():
                                 result['message'] = f"{installed} agents installed, waiting for heartbeats..."
                     except Exception:
                         pass  # dc-overview not available
+            elif agents_resp.status_code in (401, 403):
+                # API key is invalid, expired, or subscription ended
+                result['configured'] = False  # Force re-link
+                result['state'] = 'key_invalid'
+                result['key_error'] = True
+                if agents_resp.status_code == 401:
+                    result['message'] = 'API key invalid or expired. Please re-link your account.'
+                else:
+                    result['message'] = 'Subscription expired or access denied. Please check your account.'
             else:
-                # API key might not be validated yet
+                # Other error - might be temporary
                 result['state'] = 'pending_agents'
                 result['message'] = 'Verifying API key with watchdog server...'
                 
