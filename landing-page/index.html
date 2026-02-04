@@ -1247,11 +1247,16 @@
         }
 
         // DC Watchdog agent status - integrated into versions grid (single card only)
+        let watchdogStatusLoading = false;
         async function loadWatchdogStatus() {
             const grid = document.getElementById('versionsGrid');
             if (!grid) return;
             
-            // Remove ALL watchdog cards to prevent duplicates (race between loadVersions + loadWatchdogStatus)
+            // Prevent concurrent calls (race condition protection)
+            if (watchdogStatusLoading) return;
+            watchdogStatusLoading = true;
+            
+            // Remove ALL watchdog cards to prevent duplicates
             document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
             
             try {
@@ -1396,6 +1401,8 @@
                         </div>
                     `);
                 }
+            } finally {
+                watchdogStatusLoading = false;
             }
         }
 
@@ -1439,13 +1446,11 @@
         loadUserInfo();
         loadServices();
         loadBuildInfo();
-        loadVersions();
-        loadWatchdogStatus();
+        loadVersions();  // This calls loadWatchdogStatus() at the end
 
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);
-        setInterval(loadVersions, 60000);
-        setInterval(loadWatchdogStatus, 60000);
+        setInterval(loadVersions, 60000);  // loadVersions calls loadWatchdogStatus at the end
     </script>
 </body>
 </html>

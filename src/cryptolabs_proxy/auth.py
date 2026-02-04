@@ -55,11 +55,7 @@ WATCHDOG_SIGNUP_URL = 'https://www.cryptolabs.co.za/dc-watchdog-signup/'
 
 def get_watchdog_api_key() -> str:
     """Get the DC Watchdog API key from environment or persistent storage."""
-    # First check environment variable
-    if WATCHDOG_API_KEY:
-        return WATCHDOG_API_KEY
-    
-    # Then check persistent storage (for keys obtained via OAuth callback)
+    # First check persistent storage (for keys obtained via OAuth callback)
     key_file = DATA_DIR / 'watchdog_api_key'
     if key_file.exists():
         try:
@@ -67,7 +63,34 @@ def get_watchdog_api_key() -> str:
         except Exception:
             pass
     
+    # Then check environment variable
+    if WATCHDOG_API_KEY:
+        return WATCHDOG_API_KEY
+    
     return ''
+
+
+def is_watchdog_verified() -> bool:
+    """Check if DC Watchdog has been verified via SSO.
+    
+    On fresh install, even if the API key is in env var (from quickstart config),
+    we require the user to complete SSO to verify the account. Only then is
+    DC Watchdog shown as "enabled" in Fleet Management.
+    """
+    verified_file = DATA_DIR / 'watchdog_verified'
+    return verified_file.exists()
+
+
+def set_watchdog_verified() -> bool:
+    """Mark DC Watchdog as verified after SSO completion."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        verified_file = DATA_DIR / 'watchdog_verified'
+        verified_file.write_text('1')
+        return True
+    except Exception:
+        return False
+
 
 def save_watchdog_api_key(api_key: str) -> bool:
     """Save the DC Watchdog API key to persistent storage."""
@@ -1463,8 +1486,9 @@ def create_flask_auth_app():
                 </html>
             '''), 400
         
-        # Save the API key persistently
+        # Save the API key persistently and mark as verified (SSO completed)
         if save_watchdog_api_key(api_key):
+            set_watchdog_verified()  # User completed SSO, now DC Watchdog is enabled
             # Now redirect to DC Watchdog with SSO
             return redirect('/auth/watchdog/sso')
         else:
@@ -1485,16 +1509,18 @@ def create_flask_auth_app():
         """Check DC Watchdog configuration and agent status.
         
         Returns detailed status for UI rendering:
-        - state: 'not_configured' | 'pending_agents' | 'active' | 'error'
-        - configured: bool - has API key
+        - state: 'not_configured' | 'pending_agents' | 'agents_installed' | 'active' | 'error'
+        - configured: bool - user has completed SSO verification
         - agents: dict with total, online, outdated counts
         - latest_version: string - latest agent version from watchdog server
         """
         api_key = get_watchdog_api_key()
+        verified = is_watchdog_verified()
         
         result = {
-            'configured': bool(api_key),
+            'configured': verified,  # Only true after SSO completion
             'has_api_key': bool(api_key),
+            'verified': verified,
             'signup_url': WATCHDOG_SIGNUP_URL,
             'state': 'not_configured',
             'agents': {
@@ -1506,13 +1532,18 @@ def create_flask_auth_app():
             'dashboard_url': f'{WATCHDOG_URL}/dashboard'
         }
         
-        if not api_key:
-            # First-time: always require user to enable DC Watchdog via "Link Account" + SSO.
-            # Do not show as enabled just because dc-overview has a key from config (e.g. IPMI
-            # fallback). After SSO, Fleet stores the key; then API key can be refreshed and
-            # Go agents get worker tokens for identification and encrypted comms.
+        if not verified:
+            # First-time: require user to enable DC Watchdog via "Link Account" + SSO.
+            # Even if quickstart passed API key via env var, user must complete SSO to
+            # verify account. After SSO, agents get worker tokens for encrypted comms.
             result['state'] = 'not_configured'
             result['message'] = 'Enable DC Watchdog to monitor server uptime'
+            return jsonify(result)
+        
+        if not api_key:
+            # Verified but no key (shouldn't happen, but handle gracefully)
+            result['state'] = 'not_configured'
+            result['message'] = 'API key missing, please re-enable DC Watchdog'
             return jsonify(result)
         
         # Try to get agent status from watchdog server
