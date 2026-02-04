@@ -710,7 +710,8 @@ def create_flask_auth_app():
             max-width: 400px;
             margin: 20px;
         }
-        .logo { font-size: 3rem; text-align: center; margin-bottom: 10px; }
+        .logo { text-align: center; margin-bottom: 15px; }
+        .logo svg { width: 80px; height: 80px; filter: drop-shadow(0 0 10px rgba(79, 195, 247, 0.4)); }
         h1 {
             text-align: center;
             background: linear-gradient(135deg, var(--accent-cyan), #00ff88);
@@ -724,7 +725,7 @@ def create_flask_auth_app():
 <body>
     <div class="login-container">
         <div class="card">
-            <div class="logo">🚀</div>
+            <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M52 24c0-8.8-7.2-16-16-16-6.6 0-12.3 4-14.7 9.7C19.9 17.3 18.5 17 17 17c-5.5 0-10 4.5-10 10 0 .3 0 .7.1 1C4.1 29.4 2 32.5 2 36c0 5 4 9 9 9h7v-3H11c-3.3 0-6-2.7-6-6 0-2.6 1.7-4.9 4.1-5.7l1.4-.5-.2-1.5c0-.4-.1-.9-.1-1.3 0-3.9 3.1-7 7-7 1.3 0 2.5.4 3.5 1l1.5 1 .6-1.7C24.5 15.4 29.8 11 36 11c7.2 0 13 5.8 13 13v2h2c4.4 0 8 3.6 8 8s-3.6 8-8 8h-5v3h5c6.1 0 11-4.9 11-11 0-5.5-4.1-10.1-9.4-10.9L52 24z" fill="#4FC3F7"/><rect x="18" y="36" width="28" height="8" rx="2" fill="#4FC3F7"/><circle cx="23" cy="40" r="2" fill="#4CAF50"/><circle cx="29" cy="40" r="2" fill="#FFC107"/><rect x="38" y="38" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="18" y="46" width="28" height="8" rx="2" fill="#29B6F6"/><circle cx="23" cy="50" r="2" fill="#4CAF50"/><circle cx="29" cy="50" r="2" fill="#FFC107"/><rect x="38" y="48" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="30" y="54" width="4" height="6" fill="#29B6F6"/><rect x="24" y="58" width="16" height="4" rx="1" fill="#29B6F6"/></svg></div>
             <h1>Fleet Management</h1>
             <p class="subtitle">CryptoLabs Infrastructure Dashboard</p>
             
@@ -775,7 +776,7 @@ def create_flask_auth_app():
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">🚀 Dashboard</a>
+            <a href="/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"><path d="M52 24c0-8.8-7.2-16-16-16-6.6 0-12.3 4-14.7 9.7C19.9 17.3 18.5 17 17 17c-5.5 0-10 4.5-10 10 0 .3 0 .7.1 1C4.1 29.4 2 32.5 2 36c0 5 4 9 9 9h7v-3H11c-3.3 0-6-2.7-6-6 0-2.6 1.7-4.9 4.1-5.7l1.4-.5-.2-1.5c0-.4-.1-.9-.1-1.3 0-3.9 3.1-7 7-7 1.3 0 2.5.4 3.5 1l1.5 1 .6-1.7C24.5 15.4 29.8 11 36 11c7.2 0 13 5.8 13 13v2h2c4.4 0 8 3.6 8 8s-3.6 8-8 8h-5v3h5c6.1 0 11-4.9 11-11 0-5.5-4.1-10.1-9.4-10.9L52 24z" fill="#4FC3F7"/><rect x="18" y="36" width="28" height="8" rx="2" fill="#4FC3F7"/><rect x="18" y="46" width="28" height="8" rx="2" fill="#29B6F6"/></svg> Dashboard</a>
             <a href="/auth/users" class="active">👥 Users</a>
             <a href="/auth/settings">⚙️ Settings</a>
             <a href="/auth/logout">Logout</a>
@@ -880,7 +881,7 @@ def create_flask_auth_app():
 <body>
     <div class="container">
         <div class="nav">
-            <a href="/">🚀 Dashboard</a>
+            <a href="/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"><path d="M52 24c0-8.8-7.2-16-16-16-6.6 0-12.3 4-14.7 9.7C19.9 17.3 18.5 17 17 17c-5.5 0-10 4.5-10 10 0 .3 0 .7.1 1C4.1 29.4 2 32.5 2 36c0 5 4 9 9 9h7v-3H11c-3.3 0-6-2.7-6-6 0-2.6 1.7-4.9 4.1-5.7l1.4-.5-.2-1.5c0-.4-.1-.9-.1-1.3 0-3.9 3.1-7 7-7 1.3 0 2.5.4 3.5 1l1.5 1 .6-1.7C24.5 15.4 29.8 11 36 11c7.2 0 13 5.8 13 13v2h2c4.4 0 8 3.6 8 8s-3.6 8-8 8h-5v3h5c6.1 0 11-4.9 11-11 0-5.5-4.1-10.1-9.4-10.9L52 24z" fill="#4FC3F7"/><rect x="18" y="36" width="28" height="8" rx="2" fill="#4FC3F7"/><rect x="18" y="46" width="28" height="8" rx="2" fill="#29B6F6"/></svg> Dashboard</a>
             <a href="/auth/users">👥 Users</a>
             <a href="/auth/settings" class="active">⚙️ Settings</a>
             <a href="/auth/logout">Logout</a>
