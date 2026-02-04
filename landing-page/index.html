@@ -841,8 +841,9 @@
         function renderServiceCard(key, service, status) {
             let statusClass, statusText, statusDot;
             if (status === 'external') {
-                statusClass = 'running';  // Show as running
-                statusText = 'External Service';
+                statusClass = 'running';
+                // CryptoLabs services (e.g. DC Watchdog) run on our VPS – "Cloud Service". Third-party (Grafana/Prometheus) = "External Service".
+                statusText = (service.isCryptoLabs) ? 'Cloud Service' : 'External Service';
                 statusDot = 'running';
             } else if (status === 'running') {
                 statusClass = 'running';
@@ -862,7 +863,7 @@
                 if (service.needsApiKey) {
                     // Not configured - show "Link Account" button
                     actions = `
-                        <a href="${service.externalUrl}" class="btn btn-promo">🔗 Link CryptoLabs Account</a>
+                        <a href="${service.externalUrl}" class="btn btn-promo">🔗 Link Account</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                     // Override status text
@@ -1245,13 +1246,13 @@
             }
         }
 
-        // DC Watchdog agent status - integrated into versions grid
+        // DC Watchdog agent status - integrated into versions grid (single card only)
         async function loadWatchdogStatus() {
             const grid = document.getElementById('versionsGrid');
+            if (!grid) return;
             
-            // Remove any existing watchdog card first
-            const existingCard = document.getElementById('watchdogAgentCard');
-            if (existingCard) existingCard.remove();
+            // Remove ALL watchdog cards to prevent duplicates (race between loadVersions + loadWatchdogStatus)
+            document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
             
             try {
                 // Get detailed status from our backend
@@ -1279,7 +1280,7 @@
                         break;
                         
                     case 'pending_agents':
-                        // Configured but no agents deployed yet - show deploy button
+                        // API key set but no agents deployed yet - single deploy action
                         cardClass = 'running';
                         versionText = 'Pending';
                         branchTag = '<span class="branch-tag" style="background: rgba(255, 193, 7, 0.2); color: #ffc107;">setup</span>';
@@ -1288,6 +1289,18 @@
                             <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy agents to all servers via SSH">
                                 🚀 Deploy Agents
                             </button>
+                        `;
+                        break;
+                        
+                    case 'agents_installed':
+                        // Go agents installed via dc-overview quickstart, waiting for heartbeats to watchdog
+                        cardClass = 'running';
+                        const installedCount = (status.local && status.local.installed) ? status.local.installed : 0;
+                        versionText = `${installedCount} installed`;
+                        branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
+                        detailsHtml = `<span style="color: var(--accent-cyan); font-size: 0.85em;">Waiting for heartbeats to watchdog</span>`;
+                        actionsHtml = `
+                            <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">🔍 Dashboard</a>
                         `;
                         break;
                         
@@ -1340,9 +1353,9 @@
                         `;
                 }
                 
-                // Create the card HTML
+                // Create the card HTML (class ensures single card when deduping)
                 const cardHtml = `
-                    <div class="version-card ${cardClass}" id="watchdogAgentCard">
+                    <div class="version-card watchdog-agent-card ${cardClass}" id="watchdogAgentCard">
                         <div class="version-info">
                             <div class="service-name">
                                 DC Watchdog Agents
@@ -1369,7 +1382,7 @@
                 // Still show the card but as unavailable
                 if (grid) {
                     grid.insertAdjacentHTML('beforeend', `
-                        <div class="version-card stopped disabled" id="watchdogAgentCard">
+                        <div class="version-card watchdog-agent-card stopped disabled" id="watchdogAgentCard">
                             <div class="version-info">
                                 <div class="service-name">DC Watchdog Agents</div>
                                 <div class="version-details">

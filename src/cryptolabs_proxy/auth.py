@@ -1507,6 +1507,10 @@ def create_flask_auth_app():
         }
         
         if not api_key:
+            # First-time: always require user to enable DC Watchdog via "Link Account" + SSO.
+            # Do not show as enabled just because dc-overview has a key from config (e.g. IPMI
+            # fallback). After SSO, Fleet stores the key; then API key can be refreshed and
+            # Go agents get worker tokens for identification and encrypted comms.
             result['state'] = 'not_configured'
             result['message'] = 'Enable DC Watchdog to monitor server uptime'
             return jsonify(result)
@@ -1545,11 +1549,10 @@ def create_flask_auth_app():
                     else:
                         result['message'] = f"{result['agents']['online']}/{result['agents']['total']} agents online"
                 else:
-                    # No agents reporting to watchdog yet - check if any are installed locally
+                    # No agents reporting to watchdog yet - check if any are installed locally (e.g. via dc-overview quickstart)
                     result['state'] = 'pending_agents'
                     result['message'] = 'API key configured, deploy agents to start monitoring'
                     
-                    # Try to get local installation status from dc-overview
                     try:
                         local_resp = requests.get(
                             'http://dc-overview:5001/api/watchdog-agents/status',
@@ -1562,9 +1565,11 @@ def create_flask_auth_app():
                                 'installed': local_data.get('installed', 0),
                                 'not_installed': local_data.get('not_installed', 0)
                             }
-                            if local_data.get('installed', 0) > 0:
-                                result['message'] = f"{local_data['installed']} agents installed, waiting for heartbeats..."
-                    except:
+                            installed = local_data.get('installed', 0)
+                            if installed > 0:
+                                result['state'] = 'agents_installed'  # Go agents deployed, waiting for heartbeats
+                                result['message'] = f"{installed} agents installed, waiting for heartbeats..."
+                    except Exception:
                         pass  # dc-overview not available
             else:
                 # API key might not be validated yet
