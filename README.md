@@ -201,8 +201,18 @@ When a user clicks "Enable DC Watchdog" in the Fleet Management UI:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `WATCHDOG_API_KEY` | Pre-configured API key (optional) | (none) |
+| `WATCHDOG_API_KEY` | Pre-configured API key (optional, requires SSO verification) | (none) |
 | `WATCHDOG_URL` | DC Watchdog server URL | `https://watchdog.cryptolabs.co.za` |
+
+### First-Time SSO Requirement
+
+Even if `WATCHDOG_API_KEY` is provided via environment variable (e.g., from dc-overview quickstart), users must complete the SSO flow at least once to verify their account. This is enforced by:
+
+1. **Persistent verification flag** (`/data/auth/watchdog_verified`) - Only set after SSO completion
+2. **Status endpoint checks** - Returns `not_configured` until verification is complete
+3. **UI enforcement** - Shows "Link Account" button until verified
+
+This ensures users explicitly authorize DC Watchdog integration, even when API keys are pre-provisioned.
 
 ### Agent Deployment
 
@@ -213,6 +223,28 @@ Once DC Watchdog is enabled, you can deploy agents to all your servers:
 3. Agents send heartbeats every 30 seconds to DC Watchdog
 4. If a server stops responding, you get alerts via email, Telegram, push, or app
 
+## Development Status
+
+### Implemented Features ✓
+
+| Feature | Status |
+|---------|--------|
+| Fleet Management landing page | ✓ Complete |
+| Unified authentication | ✓ Complete |
+| DC Watchdog SSO integration | ✓ Complete |
+| First-time SSO verification enforcement | ✓ Complete |
+| "Cloud Service" label for DC Watchdog | ✓ Complete |
+| Duplicate card prevention (System Updates) | ✓ Complete |
+| `key_invalid` state with "Re-link Account" prompt | ✓ Complete |
+| Agent deployment status display | ✓ Complete |
+
+### Pending Features (In Development)
+
+| Feature | Status |
+|---------|--------|
+| Token renewal UI feedback | ⏳ Future |
+| Subscription expiry warning banner | ⏳ Future |
+
 ## Related Projects
 
 | Project | Description |
@@ -220,6 +252,34 @@ Once DC Watchdog is enabled, you can deploy agents to all your servers:
 | [DC Overview](https://github.com/cryptolabsza/dc-overview) | Full datacenter monitoring with GPU metrics, Prometheus & Grafana |
 | [IPMI Monitor](https://github.com/cryptolabsza/ipmi-monitor) | IPMI/BMC hardware monitoring, SEL logs, ECC tracking |
 | [DC Exporter](https://github.com/cryptolabsza/dc-exporter-releases) | Standalone GPU metrics exporter for Prometheus |
+| [DC Watchdog](https://github.com/cryptolabsza/dc-watchdog) | External uptime monitoring with multi-channel alerts |
+
+## Changelog
+
+### v1.1.0 (Feb 2026) - DC Watchdog Integration
+
+**SSO & Verification:**
+- First-time SSO verification enforcement (even with pre-configured API key)
+- Persistent verification flag (`/data/auth/watchdog_verified`)
+- "Link Account" button until SSO is completed
+
+**UI Improvements:**
+- "Cloud Service" label for CryptoLabs-hosted services
+- Fixed duplicate DC Watchdog cards in System Updates
+- `key_invalid` state displays "Re-link Account" when API key expires
+- `agents_installed` state shows installed agents waiting for heartbeats
+
+**Backend:**
+- Prioritized file-based API key storage over environment variables
+- Added key validation against WordPress API
+- Propagated `keyError` state to frontend for proper UI handling
+
+### v1.0.0 (Jan 2026) - Initial Release
+
+- Fleet Management landing page
+- Unified authentication for all services
+- DC Watchdog SSO flow
+- Agent deployment via dc-overview
 
 ## License
 
