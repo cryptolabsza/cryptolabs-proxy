@@ -141,6 +141,78 @@ User authentication data is stored in `/data/auth/`:
 | `POST /auth/login` | Authentication endpoint |
 | `POST /auth/logout` | Logout endpoint |
 
+## DC Watchdog Integration
+
+Fleet Management provides seamless integration with DC Watchdog for uptime monitoring.
+
+### How It Works
+
+When a user clicks "Enable DC Watchdog" in the Fleet Management UI:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  First-Time Setup (No API Key)                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. User clicks "Enable DC Watchdog"                                        │
+│     └── Fleet checks /data/auth/watchdog_api_key → empty                   │
+│                                                                              │
+│  2. Redirect to WordPress signup:                                            │
+│     https://cryptolabs.co.za/dc-watchdog-signup/                            │
+│       ?redirect_uri=https://your-fleet.local/auth/watchdog/callback         │
+│       &source=fleet_management                                               │
+│                                                                              │
+│  3. User logs in / creates account on WordPress                              │
+│     └── Clicks "Start Free Trial"                                           │
+│     └── WordPress generates API key (sk-ipmi-xxx)                           │
+│                                                                              │
+│  4. WordPress redirects back with API key:                                   │
+│     https://your-fleet.local/auth/watchdog/callback?api_key=sk-ipmi-xxx     │
+│                                                                              │
+│  5. Fleet saves API key to /data/auth/watchdog_api_key                      │
+│                                                                              │
+│  6. Auto-SSO to DC Watchdog dashboard (no manual login needed!)             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Returning User (API Key Already Saved)                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. User clicks "DC Watchdog" → API key loaded from storage                 │
+│  2. Fleet generates signed SSO token (using API key as secret)              │
+│  3. Redirect to watchdog.cryptolabs.co.za/auth/sso                          │
+│  4. Instant dashboard access (no WordPress redirect!)                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### DC Watchdog Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /auth/watchdog/sso` | Generate SSO URL and redirect to DC Watchdog |
+| `GET /auth/watchdog/sso-url` | Get SSO URL as JSON (for JavaScript) |
+| `GET /auth/watchdog/callback` | OAuth-style callback from WordPress signup |
+| `GET /auth/watchdog/status` | Check DC Watchdog configuration status |
+| `POST /auth/watchdog/deploy-agents` | Deploy agents to all servers via dc-overview |
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WATCHDOG_API_KEY` | Pre-configured API key (optional) | (none) |
+| `WATCHDOG_URL` | DC Watchdog server URL | `https://watchdog.cryptolabs.co.za` |
+
+### Agent Deployment
+
+Once DC Watchdog is enabled, you can deploy agents to all your servers:
+
+1. Click "Deploy Agents" in the Fleet Management UI
+2. Agents are installed via SSH to each configured server
+3. Agents send heartbeats every 30 seconds to DC Watchdog
+4. If a server stops responding, you get alerts via email, Telegram, push, or app
+
 ## Related Projects
 
 | Project | Description |
