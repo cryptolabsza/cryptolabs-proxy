@@ -87,8 +87,10 @@ def set_watchdog_verified() -> bool:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         verified_file = DATA_DIR / 'watchdog_verified'
         verified_file.write_text('1')
+        logger.info(f"DC Watchdog verified flag set at {verified_file}")
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to set DC Watchdog verified flag: {e}")
         return False
 
 
@@ -1395,6 +1397,13 @@ def create_flask_auth_app():
             payload.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
+        
+        # Mark as verified - user is actively using DC Watchdog via SSO
+        # This handles the case where API key came from quickstart but user
+        # never went through the WordPress callback flow
+        if not is_watchdog_verified():
+            set_watchdog_verified()
+            logger.info("DC Watchdog verified via direct SSO (API key from quickstart)")
         
         # Build SSO redirect URL
         sso_url = f"{WATCHDOG_URL}/auth/sso?payload={payload}&signature={signature}"
