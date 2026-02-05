@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import time
+import logging
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -31,6 +32,9 @@ from functools import wraps
 from typing import Optional, Tuple, List
 
 from werkzeug.security import generate_password_hash, check_password_hash
+
+# Module-level logger for auth operations
+logger = logging.getLogger('cryptolabs_proxy.auth')
 
 # =============================================================================
 # CONFIGURATION
@@ -1652,13 +1656,16 @@ def create_flask_auth_app():
             # dc-overview container is accessible via internal network
             dc_overview_url = 'http://dc-overview:5001'
             
-            # Forward the deploy request with session cookies
+            # Forward the deploy request with Fleet auth headers
+            # dc-overview expects X-Fleet-Auth-* headers from trusted proxy
             resp = requests.post(
                 f'{dc_overview_url}/api/watchdog-agents/deploy-all',
                 timeout=120,  # Allow time for SSH to multiple servers
                 headers={
-                    'X-Proxy-Auth-User': session.get('username', 'admin'),
-                    'X-Proxy-Auth-Role': role
+                    'X-Fleet-Auth-User': session.get('username', 'admin'),
+                    'X-Fleet-Auth-Role': role,
+                    'X-Fleet-Authenticated': 'true',
+                    'Content-Type': 'application/json'
                 }
             )
             
