@@ -1266,11 +1266,8 @@
             if (watchdogStatusLoading) return;
             watchdogStatusLoading = true;
             
-            // Remove ALL watchdog cards to prevent duplicates
-            document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
-            
             try {
-                // Get detailed status from our backend
+                // Get detailed status from our backend FIRST (before removing old card)
                 const statusResp = await fetch('/auth/watchdog/status');
                 const status = statusResp.ok ? await statusResp.json() : { state: 'error' };
                 
@@ -1400,8 +1397,9 @@
                     </div>
                 `;
                 
-                // Append to the grid
+                // Remove old watchdog cards and append new one (atomic swap to prevent flicker)
                 if (grid) {
+                    document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
                     grid.insertAdjacentHTML('beforeend', cardHtml);
                 }
                 
@@ -1409,6 +1407,7 @@
                 console.log('DC Watchdog status not available:', e.message);
                 // Still show the card but as unavailable
                 if (grid) {
+                    document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
                     grid.insertAdjacentHTML('beforeend', `
                         <div class="version-card watchdog-agent-card stopped disabled" id="watchdogAgentCard">
                             <div class="version-info">
