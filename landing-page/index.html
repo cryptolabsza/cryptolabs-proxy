@@ -1334,8 +1334,19 @@
                         cardClass = 'running';
                         const agents = status.agents || {};
                         const latestVer = status.latest_version || '1.0.0';
+                        const sites = status.sites || [];
                         versionText = `v${latestVer}`;
                         branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
+                        
+                        // Build site breakdown for multi-site customers
+                        let siteBreakdown = '';
+                        if (sites.length > 1) {
+                            siteBreakdown = '<div style="margin-top: 4px; font-size: 0.8em; color: var(--text-muted);">' +
+                                sites.map(s => {
+                                    const siteColor = s.online === s.total ? 'var(--accent-green)' : 'var(--accent-yellow)';
+                                    return `<span style="color: ${siteColor};">${s.site_id}: ${s.online}/${s.total}</span>`;
+                                }).join(' · ') + '</div>';
+                        }
                         
                         if (agents.outdated > 0) {
                             detailsHtml = `
@@ -1345,6 +1356,7 @@
                                 <span style="color: var(--accent-yellow); font-size: 0.85em;">
                                     ⚠️ ${agents.outdated} need updates
                                 </span>
+                                ${siteBreakdown}
                             `;
                             actionsHtml = `
                                 <a href="/auth/watchdog/sso" class="btn btn-primary btn-small" title="Open dashboard to update agents">
@@ -1357,6 +1369,7 @@
                                     ${agents.online}/${agents.total} online
                                 </span>
                                 <span style="color: var(--accent-green); font-size: 0.85em;">✓ Up to date</span>
+                                ${siteBreakdown}
                             `;
                             actionsHtml = `
                                 <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">

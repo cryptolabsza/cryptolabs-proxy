@@ -1541,6 +1541,7 @@ def create_flask_auth_app():
                 'online': 0,
                 'outdated': 0
             },
+            'sites': [],  # Per-site breakdown for multi-site customers
             'latest_version': None,
             'dashboard_url': f'{WATCHDOG_URL}/dashboard'
         }
@@ -1578,12 +1579,13 @@ def create_flask_auth_app():
             )
             if agents_resp.ok:
                 agents_data = agents_resp.json()
-                # API returns: total (online agents), outdated, any_outdated, all_outdated, latest_version
+                # API returns: total (online agents), outdated, any_outdated, all_outdated, latest_version, sites
                 result['agents'] = {
                     'total': agents_data.get('total', 0),
                     'online': agents_data.get('total', 0),  # API only counts online
                     'outdated': agents_data.get('outdated', 0)
                 }
+                result['sites'] = agents_data.get('sites', [])
                 result['latest_version'] = agents_data.get('latest_version', result['latest_version'])
                 
                 if result['agents']['total'] > 0:
