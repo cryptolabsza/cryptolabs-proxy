@@ -1589,7 +1589,7 @@ def create_flask_auth_app():
                 agents_data = agents_resp.json()
                 # API returns: total (all registered), online (currently online), outdated, sites
                 total_registered = agents_data.get('total_registered', agents_data.get('total', 0))
-                online_count = agents_data.get('online', total_registered)
+                online_count = agents_data.get('online', 0)  # Default 0, not total_registered
                 result['agents'] = {
                     'total': total_registered,
                     'online': online_count,
@@ -1599,11 +1599,16 @@ def create_flask_auth_app():
                 result['latest_version'] = agents_data.get('latest_version', result['latest_version'])
                 
                 if result['agents']['total'] > 0:
-                    result['state'] = 'active'
-                    if result['agents']['outdated'] > 0:
+                    if online_count == 0:
+                        # Agents registered but none online - likely not deployed or all offline
+                        result['state'] = 'agents_offline'
+                        result['message'] = f"0/{total_registered} agents online"
+                    elif result['agents']['outdated'] > 0:
+                        result['state'] = 'active'
                         result['message'] = f"{result['agents']['outdated']} agents need updates"
                     else:
-                        result['message'] = f"{result['agents']['online']}/{result['agents']['total']} agents online"
+                        result['state'] = 'active'
+                        result['message'] = f"{online_count}/{total_registered} agents online"
                 else:
                     # No agents reporting to watchdog yet - check if any are installed locally (e.g. via dc-overview quickstart)
                     result['state'] = 'pending_agents'

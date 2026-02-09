@@ -1378,6 +1378,26 @@
                             `;
                         }
                         break;
+                    
+                    case 'agents_offline':
+                        // Agents registered but none online
+                        cardClass = 'stopped';
+                        const offlineAgents = status.agents || {};
+                        const offlineVer = status.latest_version || '1.0.0';
+                        versionText = `v${offlineVer}`;
+                        branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
+                        detailsHtml = `
+                            <span class="version-tag" style="color: var(--accent-yellow);">
+                                0/${offlineAgents.total} online
+                            </span>
+                            <span style="color: var(--accent-yellow); font-size: 0.85em;">⚠️ All agents offline</span>
+                        `;
+                        actionsHtml = `
+                            <a href="/auth/watchdog/sso" class="btn btn-primary btn-small" title="Open dashboard to check agents">
+                                🔍 Dashboard
+                            </a>
+                        `;
+                        break;
                         
                     default:
                         // Error or unknown state - show as not configured
