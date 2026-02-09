@@ -43,18 +43,27 @@
         }
 
         header {
-            text-align: center;
-            margin-bottom: 50px;
-            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 40px;
+            gap: 15px;
+            flex-wrap: wrap;
         }
 
-        .user-menu {
-            position: absolute;
-            top: 0;
-            right: 0;
+        .header-brand {
             display: flex;
             align-items: center;
             gap: 15px;
+            min-width: 0;
+        }
+
+        .user-menu {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         .user-info {
@@ -76,6 +85,7 @@
             text-decoration: none;
             font-size: 0.85rem;
             transition: all 0.2s;
+            white-space: nowrap;
         }
 
         .logout-btn:hover {
@@ -84,13 +94,56 @@
         }
 
         .logo {
-            margin-bottom: 15px;
+            flex-shrink: 0;
         }
 
         .logo svg {
-            width: 80px;
-            height: 80px;
+            width: 48px;
+            height: 48px;
             filter: drop-shadow(0 0 10px rgba(79, 195, 247, 0.4));
+            display: block;
+        }
+
+        .header-text h1 {
+            font-size: 1.5rem;
+            line-height: 1.2;
+            margin: 0;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-text .subtitle {
+            font-size: 0.85rem;
+            margin: 2px 0 0 0;
+            color: var(--text-secondary);
+        }
+
+        @media (min-width: 768px) {
+            .logo svg {
+                width: 56px;
+                height: 56px;
+            }
+            .header-text h1 {
+                font-size: 1.8rem;
+            }
+            .header-text .subtitle {
+                font-size: 0.9rem;
+            }
+        }
+
+        @media (max-width: 600px) {
+            header {
+                gap: 10px;
+            }
+            .user-menu {
+                gap: 8px;
+            }
+            .logout-btn {
+                padding: 6px 10px;
+                font-size: 0.8rem;
+            }
         }
 
         h1 {
@@ -616,12 +669,16 @@
 <body>
     <div class="container">
         <header>
+            <div class="header-brand">
+                <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M52 24c0-8.8-7.2-16-16-16-6.6 0-12.3 4-14.7 9.7C19.9 17.3 18.5 17 17 17c-5.5 0-10 4.5-10 10 0 .3 0 .7.1 1C4.1 29.4 2 32.5 2 36c0 5 4 9 9 9h7v-3H11c-3.3 0-6-2.7-6-6 0-2.6 1.7-4.9 4.1-5.7l1.4-.5-.2-1.5c0-.4-.1-.9-.1-1.3 0-3.9 3.1-7 7-7 1.3 0 2.5.4 3.5 1l1.5 1 .6-1.7C24.5 15.4 29.8 11 36 11c7.2 0 13 5.8 13 13v2h2c4.4 0 8 3.6 8 8s-3.6 8-8 8h-5v3h5c6.1 0 11-4.9 11-11 0-5.5-4.1-10.1-9.4-10.9L52 24z" fill="#4FC3F7"/><rect x="18" y="36" width="28" height="8" rx="2" fill="#4FC3F7"/><circle cx="23" cy="40" r="2" fill="#4CAF50"/><circle cx="29" cy="40" r="2" fill="#FFC107"/><rect x="38" y="38" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="18" y="46" width="28" height="8" rx="2" fill="#29B6F6"/><circle cx="23" cy="50" r="2" fill="#4CAF50"/><circle cx="29" cy="50" r="2" fill="#FFC107"/><rect x="38" y="48" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="30" y="54" width="4" height="6" fill="#29B6F6"/><rect x="24" y="58" width="16" height="4" rx="1" fill="#29B6F6"/></svg></div>
+                <div class="header-text">
+                    <h1>Fleet Management</h1>
+                    <p class="subtitle">{{SITE_NAME}} Infrastructure Dashboard</p>
+                </div>
+            </div>
             <div class="user-menu" id="userMenu">
                 <!-- Populated by JS -->
             </div>
-            <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path d="M52 24c0-8.8-7.2-16-16-16-6.6 0-12.3 4-14.7 9.7C19.9 17.3 18.5 17 17 17c-5.5 0-10 4.5-10 10 0 .3 0 .7.1 1C4.1 29.4 2 32.5 2 36c0 5 4 9 9 9h7v-3H11c-3.3 0-6-2.7-6-6 0-2.6 1.7-4.9 4.1-5.7l1.4-.5-.2-1.5c0-.4-.1-.9-.1-1.3 0-3.9 3.1-7 7-7 1.3 0 2.5.4 3.5 1l1.5 1 .6-1.7C24.5 15.4 29.8 11 36 11c7.2 0 13 5.8 13 13v2h2c4.4 0 8 3.6 8 8s-3.6 8-8 8h-5v3h5c6.1 0 11-4.9 11-11 0-5.5-4.1-10.1-9.4-10.9L52 24z" fill="#4FC3F7"/><rect x="18" y="36" width="28" height="8" rx="2" fill="#4FC3F7"/><circle cx="23" cy="40" r="2" fill="#4CAF50"/><circle cx="29" cy="40" r="2" fill="#FFC107"/><rect x="38" y="38" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="18" y="46" width="28" height="8" rx="2" fill="#29B6F6"/><circle cx="23" cy="50" r="2" fill="#4CAF50"/><circle cx="29" cy="50" r="2" fill="#FFC107"/><rect x="38" y="48" width="5" height="4" rx="1" fill="#fff" opacity="0.5"/><rect x="30" y="54" width="4" height="6" fill="#29B6F6"/><rect x="24" y="58" width="16" height="4" rx="1" fill="#29B6F6"/></svg></div>
-            <h1>Fleet Management</h1>
-            <p class="subtitle">{{SITE_NAME}} Infrastructure Dashboard</p>
         </header>
 
         <div class="quick-stats" id="quickStats">
