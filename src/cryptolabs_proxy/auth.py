@@ -1384,12 +1384,17 @@ def create_flask_auth_app():
         # The token is just a signed transport - WordPress is the source of truth
         timestamp = int(time.time())
         
+        # Include this Fleet Management instance's URL so dc-watchdog
+        # can show a "Home" button that navigates back here.
+        fleet_home = request.host_url.rstrip('/')  + '/'
+        
         sso_data = {
             'username': username,
             'role': role,
             'api_key': api_key,  # Will be validated against WordPress by DC Watchdog
             'timestamp': timestamp,
             'source': 'fleet_management',
+            'fleet_home_url': fleet_home,
         }
         
         # Sign the payload using the API key itself as the secret
@@ -1447,12 +1452,15 @@ def create_flask_auth_app():
         # Generate signed SSO payload
         timestamp = int(time.time())
         
+        fleet_home = request.host_url.rstrip('/') + '/'
+        
         sso_data = {
             'username': username,
             'role': role,
             'api_key': api_key,
             'timestamp': timestamp,
             'source': 'fleet_management',
+            'fleet_home_url': fleet_home,
         }
         
         # Sign using API key as the secret (same as /auth/watchdog/sso)
