@@ -63,7 +63,16 @@ def get_watchdog_api_key() -> str:
     key_file = DATA_DIR / 'watchdog_api_key'
     if key_file.exists():
         try:
-            return key_file.read_text().strip()
+            key = key_file.read_text().strip()
+            # Ensure file is readable by other containers sharing fleet-auth-data volume
+            # (dc-overview runs as dcuser, not root)
+            try:
+                current_mode = key_file.stat().st_mode & 0o777
+                if current_mode != 0o644:
+                    os.chmod(key_file, 0o644)
+            except Exception:
+                pass
+            return key
         except Exception:
             pass
     
@@ -104,7 +113,9 @@ def save_watchdog_api_key(api_key: str) -> bool:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         key_file = DATA_DIR / 'watchdog_api_key'
         key_file.write_text(api_key)
-        os.chmod(key_file, 0o600)  # Secure permissions
+        # 0644 so other containers sharing fleet-auth-data volume can read it
+        # (dc-overview runs as dcuser, not root)
+        os.chmod(key_file, 0o644)
         return True
     except Exception:
         return False

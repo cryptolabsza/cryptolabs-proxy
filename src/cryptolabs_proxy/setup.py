@@ -40,10 +40,14 @@ class ProxyConfig:
     # DC Watchdog SSO - API key enables auto-login from Fleet Management
     watchdog_api_key: str = ""
     watchdog_url: str = "https://watchdog.cryptolabs.co.za"
+    # Internal API token - shared secret for service-to-service config API
+    internal_api_token: str = ""
     
     def __post_init__(self):
         if not self.auth_secret:
             self.auth_secret = secrets.token_hex(32)
+        if not self.internal_api_token:
+            self.internal_api_token = secrets.token_hex(32)
         if self.additional_tcp_ports is None:
             self.additional_tcp_ports = []
         if self.additional_udp_ports is None:
@@ -118,8 +122,59 @@ def wait_for_container_healthy(
     return False
 
 
+# Keys that should never be returned by get_proxy_config() to prevent leaking
+# secrets to callers that don't need them (e.g. quickstart scripts)
+_SENSITIVE_ENV_KEYS = {'INTERNAL_API_TOKEN', 'AUTH_SECRET_KEY'}
+
+
+def _save_internal_token(token: str):
+    """Save the internal API token to the shared volume so other containers can read it.
+    
+    File is written to the fleet-auth-data volume with restricted permissions (0600)
+    since only the host process deploying containers needs to read it.
+    """
+    token_dir = CONFIG_DIR / "auth"
+    token_dir.mkdir(parents=True, exist_ok=True)
+    token_file = token_dir / "internal_api_token"
+    token_file.write_text(token)
+    import os as _os
+    _os.chmod(token_file, 0o600)
+
+
+def get_internal_api_token() -> Optional[str]:
+    """Read the internal API token from disk (for use by deployment scripts).
+    
+    This is called by quickstart scripts to pass the token to dc-overview/ipmi-monitor
+    containers as an environment variable.
+    """
+    token_file = CONFIG_DIR / "auth" / "internal_api_token"
+    if token_file.exists():
+        try:
+            return token_file.read_text().strip()
+        except Exception:
+            pass
+    # Fallback: read from proxy container env
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "cryptolabs-proxy", "--format",
+             "{{range .Config.Env}}{{println .}}{{end}}"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith('INTERNAL_API_TOKEN='):
+                    return line.split('=', 1)[1]
+    except Exception:
+        pass
+    return None
+
+
 def get_proxy_config() -> Optional[Dict]:
-    """Get current proxy configuration if running."""
+    """Get current proxy configuration if running.
+    
+    Note: Sensitive keys (INTERNAL_API_TOKEN, AUTH_SECRET_KEY) are filtered out.
+    Use get_internal_api_token() to retrieve the internal API token specifically.
+    """
     if not is_proxy_running():
         return None
     
@@ -136,7 +191,9 @@ def get_proxy_config() -> Optional[Dict]:
         for line in result.stdout.strip().split('\n'):
             if '=' in line:
                 key, value = line.split('=', 1)
-                config[key] = value
+                # Filter out sensitive internal keys
+                if key not in _SENSITIVE_ENV_KEYS:
+                    config[key] = value
         return config
     except Exception:
         return None
@@ -415,6 +472,7 @@ def setup_proxy(
             "-e", f"SITE_NAME={config.site_name}",
             "-e", f"WATCHDOG_API_KEY={config.watchdog_api_key}",
             "-e", f"WATCHDOG_URL={config.watchdog_url}",
+            "-e", f"INTERNAL_API_TOKEN={config.internal_api_token}",
             "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
             "-v", "fleet-auth-data:/data/auth",
             "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",
@@ -423,6 +481,9 @@ def setup_proxy(
             "--label", "com.centurylinklabs.watchtower.enable=true",
             "ghcr.io/cryptolabsza/cryptolabs-proxy:dev"
         ]
+        
+        # Save internal API token to shared volume so other containers can read it
+        _save_internal_token(config.internal_api_token)
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
@@ -476,6 +537,9 @@ def update_proxy_credentials(
     if watchdog_url is None:
         watchdog_url = existing.get("WATCHDOG_URL", "https://watchdog.cryptolabs.co.za")
     
+    # Preserve or generate internal API token
+    internal_api_token = existing.get("INTERNAL_API_TOKEN", "") or secrets.token_hex(32)
+    
     # Recreate with new credentials
     subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)
     
@@ -491,6 +555,7 @@ def update_proxy_credentials(
         "-e", f"AUTH_SECRET_KEY={auth_secret}",
         "-e", f"WATCHDOG_API_KEY={watchdog_api_key}",
         "-e", f"WATCHDOG_URL={watchdog_url}",
+        "-e", f"INTERNAL_API_TOKEN={internal_api_token}",
         "-v", "/var/run/docker.sock:/var/run/docker.sock:ro",
         "-v", "fleet-auth-data:/data/auth",
         "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",
@@ -499,6 +564,8 @@ def update_proxy_credentials(
         "--label", "com.centurylinklabs.watchtower.enable=true",
         "ghcr.io/cryptolabsza/cryptolabs-proxy:dev"
     ]
+    
+    _save_internal_token(internal_api_token)
     
     result = subprocess.run(cmd, capture_output=True, text=True)
     

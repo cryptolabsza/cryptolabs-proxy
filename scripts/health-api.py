@@ -17,6 +17,22 @@ from pathlib import Path
 PORT = 8080
 BUILD_INFO_FILE = '/app/BUILD_INFO'
 SETTINGS_FILE = '/data/auth/update-settings.json'
+SHARED_CONFIG_FILE = '/data/auth/shared-config.json'
+
+# Internal Docker network subnet - only allow requests from this range
+INTERNAL_NETWORK = '172.30.'
+
+# Shared secret for internal API authentication (set via INTERNAL_API_TOKEN env var)
+# Must match the token given to dc-overview / ipmi-monitor containers
+INTERNAL_API_TOKEN = os.environ.get('INTERNAL_API_TOKEN', '')
+
+# Config keys classified by sensitivity
+# PUBLIC: safe to return without auth (cosmetic / non-secret)
+# INTERNAL: requires valid bearer token + internal network (API keys, etc.)
+# NEVER: never returned via API (passwords, secrets)
+PUBLIC_CONFIG_KEYS = {'site_name', 'watchdog_url'}
+INTERNAL_CONFIG_KEYS = {'watchdog_api_key'}
+NEVER_EXPOSE_KEYS = {'fleet_admin_pass', 'fleet_admin_user', 'auth_secret'}
 
 # Services to check (Docker containers)
 SERVICES = {
@@ -57,6 +73,150 @@ def save_update_settings(settings):
     except Exception as e:
         print(f"Error saving settings: {e}")
         return False
+
+
+def load_shared_config():
+    """Load the shared config store used by all fleet services.
+    
+    IMPORTANT: This function intentionally does NOT load passwords or secrets
+    (fleet_admin_pass, auth_secret) into the config store. Those values should
+    NEVER leave the container's environment. The filter_config_for_response()
+    function provides an additional safety net, but defense-in-depth means
+    we don't even load them here.
+    """
+    config = {}
+    try:
+        if os.path.exists(SHARED_CONFIG_FILE):
+            with open(SHARED_CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+            # Scrub any sensitive keys that may have been persisted by accident
+            for key in NEVER_EXPOSE_KEYS:
+                config.pop(key, None)
+    except Exception:
+        pass
+
+    # Merge in live NON-SENSITIVE values from environment
+    env_keys = {
+        'site_name': 'SITE_NAME',
+        'watchdog_url': 'WATCHDOG_URL',
+    }
+    for config_key, env_var in env_keys.items():
+        val = os.environ.get(env_var, '')
+        if val:
+            config[config_key] = val
+
+    # Watchdog API key: check persistent file first (written by SSO callback),
+    # then env var (set at deploy time)
+    key_file = '/data/auth/watchdog_api_key'
+    if os.path.exists(key_file):
+        try:
+            with open(key_file) as f:
+                wk = f.read().strip()
+                if wk:
+                    config['watchdog_api_key'] = wk
+        except Exception:
+            pass
+    if 'watchdog_api_key' not in config:
+        wk = os.environ.get('WATCHDOG_API_KEY', '')
+        if wk:
+            config['watchdog_api_key'] = wk
+
+    return config
+
+
+def save_shared_config(config):
+    """Save the shared config store.
+    
+    Scrubs sensitive keys before writing to prevent accidental persistence
+    of passwords or secrets to the JSON config file.
+    """
+    try:
+        # Defense-in-depth: never persist sensitive keys to disk
+        clean_config = {k: v for k, v in config.items() if k not in NEVER_EXPOSE_KEYS}
+        os.makedirs(os.path.dirname(SHARED_CONFIG_FILE), exist_ok=True)
+        with open(SHARED_CONFIG_FILE, 'w') as f:
+            json.dump(clean_config, f, indent=2)
+        # Config file is readable by containers on the shared volume,
+        # but only contains non-sensitive data
+        os.chmod(SHARED_CONFIG_FILE, 0o644)
+        return True
+    except Exception as e:
+        print(f"Error saving shared config: {e}")
+        return False
+
+
+def is_internal_request(client_address):
+    """Check if the request comes from the internal Docker network."""
+    ip = client_address[0] if isinstance(client_address, tuple) else str(client_address)
+    return ip.startswith(INTERNAL_NETWORK) or ip == '127.0.0.1' or ip == '::1'
+
+
+# Rate limiting for failed auth attempts (defense-in-depth)
+_failed_auth_attempts = {}  # ip -> (count, first_attempt_time)
+_MAX_FAILED_ATTEMPTS = 10
+_LOCKOUT_SECONDS = 300  # 5 minute lockout after 10 failures
+
+
+def _check_rate_limit(client_address) -> bool:
+    """Return True if the client is rate-limited (too many failed auth attempts)."""
+    ip = client_address[0] if isinstance(client_address, tuple) else str(client_address)
+    if ip not in _failed_auth_attempts:
+        return False
+    count, first_time = _failed_auth_attempts[ip]
+    import time
+    elapsed = time.time() - first_time
+    if elapsed > _LOCKOUT_SECONDS:
+        # Reset after lockout period
+        del _failed_auth_attempts[ip]
+        return False
+    return count >= _MAX_FAILED_ATTEMPTS
+
+
+def _record_failed_auth(client_address):
+    """Record a failed authentication attempt for rate limiting."""
+    ip = client_address[0] if isinstance(client_address, tuple) else str(client_address)
+    import time
+    now = time.time()
+    if ip in _failed_auth_attempts:
+        count, first_time = _failed_auth_attempts[ip]
+        if now - first_time > _LOCKOUT_SECONDS:
+            _failed_auth_attempts[ip] = (1, now)
+        else:
+            _failed_auth_attempts[ip] = (count + 1, first_time)
+    else:
+        _failed_auth_attempts[ip] = (1, now)
+    count = _failed_auth_attempts[ip][0]
+    if count >= _MAX_FAILED_ATTEMPTS:
+        print(f"WARNING: IP {ip} locked out after {count} failed auth attempts")
+
+
+def verify_internal_token(headers):
+    """Verify the bearer token for internal API access to sensitive keys.
+    
+    Returns True only if INTERNAL_API_TOKEN is set AND the request has
+    a matching Authorization: Bearer <token> header.
+    Uses constant-time comparison to prevent timing attacks.
+    """
+    if not INTERNAL_API_TOKEN:
+        return False
+    auth_header = headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        import hmac
+        return hmac.compare_digest(auth_header[7:], INTERNAL_API_TOKEN)
+    return False
+
+
+def filter_config_for_response(config, has_token=False):
+    """Return only the config keys the caller is allowed to see.
+    
+    - Always: PUBLIC_CONFIG_KEYS (site_name, watchdog_url)
+    - With valid token: + INTERNAL_CONFIG_KEYS (watchdog_api_key)
+    - Never: NEVER_EXPOSE_KEYS (passwords, secrets)
+    """
+    allowed = set(PUBLIC_CONFIG_KEYS)
+    if has_token:
+        allowed |= INTERNAL_CONFIG_KEYS
+    return {k: v for k, v in config.items() if k in allowed}
 
 
 def check_container_running(container_name):
@@ -512,6 +672,49 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             settings = load_update_settings()
             self.send_json(settings)
         
+        # ---- Internal Config API (fleet services only) ----
+        # Security: 4 layers of protection
+        #   1. nginx blocks /internal/ for all public traffic (returns 403)
+        #   2. IP check: must come from internal Docker network (172.30.x.x)
+        #   3. Rate limiting: lockout after repeated failed auth attempts
+        #   4. Bearer token required for sensitive keys (watchdog_api_key, etc.)
+        elif path == '/internal/api/config':
+            if not is_internal_request(self.client_address):
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            if _check_rate_limit(self.client_address):
+                self.send_json({'error': 'Too many failed attempts'}, 429)
+                return
+            has_token = verify_internal_token(self.headers)
+            if not has_token and self.headers.get('Authorization'):
+                _record_failed_auth(self.client_address)
+            config = load_shared_config()
+            self.send_json(filter_config_for_response(config, has_token))
+        
+        elif path.startswith('/internal/api/config/'):
+            if not is_internal_request(self.client_address):
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            if _check_rate_limit(self.client_address):
+                self.send_json({'error': 'Too many failed attempts'}, 429)
+                return
+            key = path.split('/internal/api/config/', 1)[1]
+            # Block keys that should never be exposed
+            if key in NEVER_EXPOSE_KEYS:
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            # Sensitive keys require bearer token
+            if key in INTERNAL_CONFIG_KEYS:
+                if not verify_internal_token(self.headers):
+                    _record_failed_auth(self.client_address)
+                    self.send_json({'error': 'Unauthorized - bearer token required'}, 401)
+                    return
+            config = load_shared_config()
+            if key in config:
+                self.send_json({'key': key, 'value': config[key]})
+            else:
+                self.send_json({'error': f'Key not found: {key}'}, 404)
+        
         else:
             self.send_response(404)
             self.end_headers()
@@ -625,6 +828,57 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
                     results[name] = {'success': False, 'message': 'No image configured'}
             
             self.send_json({'success': True, 'results': results})
+        
+        # ---- Internal Config API: SET values (always requires token) ----
+        elif path == '/internal/api/config':
+            if not is_internal_request(self.client_address):
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            if _check_rate_limit(self.client_address):
+                self.send_json({'error': 'Too many failed attempts'}, 429)
+                return
+            if not verify_internal_token(self.headers):
+                _record_failed_auth(self.client_address)
+                self.send_json({'error': 'Unauthorized - bearer token required'}, 401)
+                return
+            # Strip out any keys that should never be stored via API
+            config = load_shared_config()
+            updated_keys = []
+            for k, v in data.items():
+                if k in NEVER_EXPOSE_KEYS:
+                    continue  # silently skip
+                config[k] = v
+                updated_keys.append(k)
+            if save_shared_config(config):
+                self.send_json({'success': True, 'updated': updated_keys})
+            else:
+                self.send_json({'error': 'Failed to save config'}, 500)
+        
+        elif path.startswith('/internal/api/config/'):
+            if not is_internal_request(self.client_address):
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            if _check_rate_limit(self.client_address):
+                self.send_json({'error': 'Too many failed attempts'}, 429)
+                return
+            if not verify_internal_token(self.headers):
+                _record_failed_auth(self.client_address)
+                self.send_json({'error': 'Unauthorized - bearer token required'}, 401)
+                return
+            key = path.split('/internal/api/config/', 1)[1]
+            if key in NEVER_EXPOSE_KEYS:
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            value = data.get('value')
+            if value is None:
+                self.send_json({'error': 'Missing "value" in request body'}, 400)
+                return
+            config = load_shared_config()
+            config[key] = value
+            if save_shared_config(config):
+                self.send_json({'success': True, 'key': key})
+            else:
+                self.send_json({'error': 'Failed to save config'}, 500)
         
         else:
             self.send_response(404)

@@ -108,6 +108,14 @@ http {
         }
 
         # =====================================================
+        # Internal API (blocked from public access)
+        # Only reachable via direct Docker network (172.30.0.10:8080)
+        # =====================================================
+        location /internal/ {
+            return 403;
+        }
+
+        # =====================================================
         # PUBLIC ENDPOINTS (no auth required)
         # =====================================================
         
