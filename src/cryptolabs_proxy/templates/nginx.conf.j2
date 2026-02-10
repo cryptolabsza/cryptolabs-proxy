@@ -159,6 +159,9 @@ http {
         }
 
         {% for name, service in services.items() %}
+        {% if not service.path %}
+        # {{ service.get('display_name', name) }} - external service, no local proxy route
+        {% else %}
         # {{ service.get('display_name', name) }} - uses variable for runtime DNS resolution
         location {{ service.path }} {
             # Require authentication
@@ -231,6 +234,7 @@ http {
             error_page 502 503 504 = @service_unavailable;
         }
 
+        {% endif %}
         {% endfor %}
         
         # Default: show landing page
