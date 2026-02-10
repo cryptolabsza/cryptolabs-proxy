@@ -866,16 +866,21 @@
                 for (const [key, service] of Object.entries(DEFAULT_SERVICES)) {
                     const serviceHealth = health[key] || {};
                     const isRunning = serviceHealth.running === true;
-                    
-                    // External URL services - check if configured
                     const isExternalUrl = service.externalUrl ? true : false;
-                    const isConfigured = service.configured !== false;  // Default to true if not set
                     
-                    if (isRunning || (isExternalUrl && isConfigured)) {
+                    // Determine if this service belongs in "Services" or "Available Products"
+                    // Services requiring subscription (e.g. dc-watchdog) must be explicitly
+                    // configured === true to appear in Services; otherwise Available Products.
+                    // Regular external services default to Services if they have an externalUrl.
+                    const isConfigured = service.requiresSubscription
+                        ? service.configured === true
+                        : service.configured !== false;
+                    
+                    if (isRunning || (isExternalUrl && isConfigured && !service.needsApiKey)) {
                         runningCount++;
                         runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running');
                     } else {
-                        availableHtml += renderServiceCard(key, service, 'not-installed');
+                        availableHtml += renderServiceCard(key, service, isRunning ? 'running' : 'not-installed');
                     }
                 }
 
@@ -901,7 +906,6 @@
             let statusClass, statusText, statusDot;
             if (status === 'external') {
                 statusClass = 'running';
-                // CryptoLabs services (e.g. DC Watchdog) run on our VPS – "Cloud Service". Third-party (Grafana/Prometheus) = "External Service".
                 statusText = (service.isCryptoLabs) ? 'Cloud Service' : 'External Service';
                 statusDot = 'running';
             } else if (status === 'running') {
@@ -917,37 +921,38 @@
             let actions = '';
             let installSection = '';
             
-            if (status === 'running' || service.externalUrl) {
-                // External URL services - check if configured (has API key)
+            if (status === 'running' || status === 'external') {
+                // Active service - show Open button
+                const openUrl = service.externalUrl || service.path;
+                const target = service.externalUrl ? ' target="_blank"' : '';
+                actions = `
+                    <a href="${openUrl}"${target} class="btn btn-primary">Open ${service.displayName}</a>
+                    ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                `;
+            } else if (service.externalUrl) {
+                // External/cloud service not yet configured - show Link Account or Re-link
                 if (service.keyError) {
-                    // API key expired or subscription ended - show re-link
                     actions = `
                         <a href="${service.externalUrl}" class="btn btn-promo">🔗 Re-link Account</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                     statusText = 'Key Expired';
                     statusDot = 'not-installed';
-                } else if (service.needsApiKey) {
-                    // Not configured - show "Link Account" button
+                } else if (service.needsApiKey || service.requiresSubscription) {
                     actions = `
                         <a href="${service.externalUrl}" class="btn btn-promo">🔗 Link Account</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
-                    // Override status text
-                    statusText = 'Setup Required';
+                    statusText = service.requiresSubscription ? 'Available — Subscription' : 'Setup Required';
                     statusDot = 'not-installed';
                 } else {
-                    // Configured - show "Open" button (auto-SSO)
-                    const openUrl = service.externalUrl || service.path;
-                    const target = service.externalUrl ? ' target="_blank"' : '';
                     actions = `
-                        <a href="${openUrl}"${target} class="btn btn-primary">Open ${service.displayName}</a>
-                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-secondary">Learn More</a>
                     `;
                 }
             } else {
+                // Local service not installed
                 if (service.isCryptoLabs && service.installCommand) {
-                    // Show install command for CryptoLabs products
                     installSection = `
                         <div class="install-section">
                             <p class="install-label">Quick Install:</p>
@@ -960,7 +965,6 @@
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                 } else if (service.installNote) {
-                    // Show note for external services
                     installSection = `
                         <div class="install-section">
                             <p class="install-note">${service.installNote}</p>
@@ -976,8 +980,10 @@
                 }
             }
 
-            // No promo badge - DC Watchdog is a subscription service
-            const promoBadge = '';
+            // Show subscription badge for paid services in Available Products
+            const promoBadge = (status !== 'running' && status !== 'external' && service.requiresSubscription)
+                ? '<div class="promo-badge" style="background: linear-gradient(135deg, #00b4d8, #0077b6);">Subscription</div>'
+                : '';
 
             // Handle both emoji icons and HTML icons (for favicon images)
             const iconHtml = service.iconType === 'html' 
