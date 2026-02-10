@@ -872,9 +872,23 @@ def create_flask_auth_app():
                 <tbody>
                     {% for user in users %}
                     <tr>
-                        <td><strong>{{ user.username }}</strong></td>
+                        <td><strong>{{ user.username }}</strong>
+                            {% if user.require_password_change %}
+                            <span style="color: var(--accent-yellow); font-size: 0.8rem;" title="Must change password on next login">🔑</span>
+                            {% endif %}
+                        </td>
                         <td>
+                            {% if user.username != current_user %}
+                            <form method="POST" action="/auth/users/{{ user.username }}/role" style="display: inline;">
+                                <select name="role" onchange="this.form.submit()" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 6px; font-size: 0.85rem; cursor: pointer;">
+                                    <option value="readonly" {{ 'selected' if user.role == 'readonly' }}>readonly</option>
+                                    <option value="readwrite" {{ 'selected' if user.role == 'readwrite' }}>readwrite</option>
+                                    <option value="admin" {{ 'selected' if user.role == 'admin' }}>admin</option>
+                                </select>
+                            </form>
+                            {% else %}
                             <span class="badge badge-{{ user.role }}">{{ user.role }}</span>
+                            {% endif %}
                         </td>
                         <td>
                             {% if user.enabled %}
@@ -886,6 +900,7 @@ def create_flask_auth_app():
                         <td>{{ user.last_login[:10] if user.last_login else '—' }}</td>
                         <td>
                             {% if user.username != current_user %}
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleResetForm('{{ user.username }}')" title="Reset Password">🔑 Reset</button>
                             <form method="POST" action="/auth/users/{{ user.username }}/toggle" style="display: inline;">
                                 <button type="submit" class="btn btn-secondary btn-sm">
                                     {{ 'Disable' if user.enabled else 'Enable' }}
@@ -900,11 +915,34 @@ def create_flask_auth_app():
                             {% endif %}
                         </td>
                     </tr>
+                    <tr id="reset-row-{{ user.username }}" style="display: none;">
+                        <td colspan="5" style="background: var(--bg-secondary); border-top: none;">
+                            <form method="POST" action="/auth/users/{{ user.username }}/reset-password" style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">
+                                <label style="white-space: nowrap; font-size: 0.9rem;">New password for <strong>{{ user.username }}</strong>:</label>
+                                <input type="password" name="new_password" required minlength="4" placeholder="Min 4 characters" style="flex: 1; max-width: 250px; padding: 6px 10px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);">
+                                <button type="submit" class="btn btn-sm">Set &amp; Force Change</button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="toggleResetForm('{{ user.username }}')">Cancel</button>
+                            </form>
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
+    <script>
+    function toggleResetForm(username) {
+        var row = document.getElementById('reset-row-' + username);
+        if (row.style.display === 'none') {
+            // Hide all other open reset forms first
+            document.querySelectorAll('[id^="reset-row-"]').forEach(function(r) { r.style.display = 'none'; });
+            row.style.display = 'table-row';
+            row.querySelector('input[type="password"]').focus();
+        } else {
+            row.style.display = 'none';
+        }
+    }
+    </script>
 </body>
 </html>
 '''
@@ -1207,6 +1245,28 @@ def create_flask_auth_app():
         if delete_user(username):
             return redirect('/auth/users?success=User+deleted')
         return redirect('/auth/users?error=Cannot+delete+user')
+    
+    @app.route('/auth/users/<username>/reset-password', methods=['POST'])
+    @admin_required_decorator
+    def users_reset_password(username):
+        new_password = request.form.get('new_password', '').strip()
+        if not new_password or len(new_password) < 4:
+            return redirect('/auth/users?error=Password+must+be+at+least+4+characters')
+        if admin_set_password(username, new_password):
+            return redirect(f'/auth/users?success=Password+reset+for+{username}.+They+must+change+it+on+next+login.')
+        return redirect('/auth/users?error=User+not+found')
+    
+    @app.route('/auth/users/<username>/role', methods=['POST'])
+    @admin_required_decorator
+    def users_change_role(username):
+        new_role = request.form.get('role', '')
+        if new_role not in VALID_ROLES:
+            return redirect('/auth/users?error=Invalid+role')
+        if username == session.get('username'):
+            return redirect('/auth/users?error=Cannot+change+your+own+role')
+        if update_user(username, role=new_role):
+            return redirect(f'/auth/users?success=Role+updated+to+{new_role}+for+{username}')
+        return redirect('/auth/users?error=User+not+found')
     
     @app.route('/auth/settings', methods=['GET', 'POST'])
     @admin_required_decorator
