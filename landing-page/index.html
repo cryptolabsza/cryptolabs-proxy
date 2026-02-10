@@ -1391,8 +1391,12 @@
                         cardClass = 'running';
                         const agents = status.agents || {};
                         const latestVer = status.latest_version || '1.0.0';
+                        const minVer = status.min_version || latestVer;
+                        const maxVer = status.max_version || latestVer;
                         const sites = status.sites || [];
-                        versionText = `v${latestVer}`;
+                        
+                        // Show the lowest installed version so users can see what needs updating
+                        versionText = `v${minVer}`;
                         branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
                         
                         // Build site breakdown for multi-site customers
@@ -1406,13 +1410,18 @@
                         }
                         
                         if (agents.outdated > 0) {
+                            // Show version range if agents are on different versions
+                            const versionRange = (minVer !== maxVer)
+                                ? `<span style="color: var(--text-secondary); font-size: 0.8em; margin-left: 4px;">(v${minVer} → v${maxVer})</span>`
+                                : '';
                             detailsHtml = `
                                 <span class="version-tag" style="color: var(--accent-yellow);">
                                     ${agents.online}/${agents.total} online
                                 </span>
                                 <span style="color: var(--accent-yellow); font-size: 0.85em;">
-                                    ⚠️ ${agents.outdated} need updates
+                                    ⚠️ ${agents.outdated} need updates — latest v${latestVer}
                                 </span>
+                                ${versionRange}
                                 ${siteBreakdown}
                             `;
                             actionsHtml = `

@@ -1608,6 +1608,8 @@ def create_flask_auth_app():
                 }
                 result['sites'] = agents_data.get('sites', [])
                 result['latest_version'] = agents_data.get('latest_version', result['latest_version'])
+                result['min_version'] = agents_data.get('min_version')  # Lowest running agent version
+                result['max_version'] = agents_data.get('max_version')  # Highest running agent version
                 
                 if result['agents']['total'] > 0:
                     if online_count == 0:
