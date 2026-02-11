@@ -796,7 +796,10 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deployed via dc-overview with RunPod API key configuration'
+                installNote: 'Deployed via dc-overview with RunPod API key configuration',
+                deployable: true,
+                exporterName: 'runpod',
+                keyPlaceholder: 'rpa_XXXXXXXXXXXXX'
             },
             'vastai-exporter': {
                 displayName: 'Vast.ai Exporter',
@@ -807,7 +810,10 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deployed via dc-overview with Vast.ai API key configuration'
+                installNote: 'Deployed via dc-overview with Vast.ai API key configuration',
+                deployable: true,
+                exporterName: 'vastai',
+                keyPlaceholder: 'Your Vast.ai API Key'
             },
             'dc-watchdog': {
                 displayName: 'DC Watchdog',
@@ -964,6 +970,21 @@
                         <a href="${service.productUrl}" target="_blank" class="btn btn-promo">Learn More</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
+                } else if (service.deployable) {
+                    // Deployable exporter — show API key input and Deploy button
+                    installSection = `
+                        <div class="install-section" id="deploy-section-${key}">
+                            <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px;">
+                                <input type="password" id="deploy-key-${key}" placeholder="${service.keyPlaceholder || 'API Key'}"
+                                    style="flex:1;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.9rem;">
+                                <button class="btn btn-promo" onclick="deployExporter('${service.exporterName}','${key}')">Deploy</button>
+                            </div>
+                            <div id="deploy-status-${key}" style="font-size:0.85rem;"></div>
+                        </div>
+                    `;
+                    actions = `
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
                 } else if (service.installNote) {
                     installSection = `
                         <div class="install-section">
@@ -1023,6 +1044,53 @@
                     hint.style.color = '';
                 }, 2000);
             });
+        }
+
+        async function deployExporter(exporterName, serviceKey) {
+            const keyInput = document.getElementById('deploy-key-' + serviceKey);
+            const statusDiv = document.getElementById('deploy-status-' + serviceKey);
+            const apiKey = keyInput ? keyInput.value.trim() : '';
+            
+            if (!apiKey) {
+                statusDiv.textContent = 'Please enter an API key';
+                statusDiv.style.color = '#f44336';
+                return;
+            }
+            
+            // Disable input and show progress
+            keyInput.disabled = true;
+            const btn = keyInput.parentElement.querySelector('button');
+            btn.disabled = true;
+            btn.textContent = 'Deploying...';
+            statusDiv.textContent = 'Starting container, configuring Prometheus, importing Grafana dashboard...';
+            statusDiv.style.color = 'var(--accent-cyan)';
+            
+            try {
+                const resp = await fetch('/auth/api/exporters/' + exporterName + '/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: apiKey })
+                });
+                const data = await resp.json();
+                
+                if (data.success) {
+                    statusDiv.textContent = 'Deployed successfully! Reloading...';
+                    statusDiv.style.color = 'var(--accent-green)';
+                    setTimeout(() => loadServices(), 1500);
+                } else {
+                    statusDiv.textContent = data.error || 'Deployment failed';
+                    statusDiv.style.color = '#f44336';
+                    keyInput.disabled = false;
+                    btn.disabled = false;
+                    btn.textContent = 'Deploy';
+                }
+            } catch (e) {
+                statusDiv.textContent = 'Request failed: ' + e.message;
+                statusDiv.style.color = '#f44336';
+                keyInput.disabled = false;
+                btn.disabled = false;
+                btn.textContent = 'Deploy';
+            }
         }
 
         // Load user info
