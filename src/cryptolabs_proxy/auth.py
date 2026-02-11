@@ -1603,7 +1603,7 @@ def create_flask_auth_app():
                 const status = acc.status || 'active';
                 html += '<tr><td><strong>' + name + '</strong></td>';
                 html += '<td><span style="color:var(--accent-green);">' + status + '</span></td>';
-                html += '<td><button class="btn btn-danger btn-sm" onclick="removeAccount(\'' + name + '\')">Remove</button></td></tr>';
+                html += '<td><button class="btn btn-danger btn-sm" onclick="removeAccount(&quot;' + name + '&quot;)">Remove</button></td></tr>';
             }
             html += '</tbody></table>';
             listDiv.innerHTML = html;
