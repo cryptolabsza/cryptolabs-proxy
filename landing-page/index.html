@@ -884,9 +884,9 @@
                     
                     if (isRunning || (isExternalUrl && isConfigured && !service.needsApiKey)) {
                         runningCount++;
-                        runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running');
+                        runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running', health);
                     } else {
-                        availableHtml += renderServiceCard(key, service, isRunning ? 'running' : 'not-installed');
+                        availableHtml += renderServiceCard(key, service, isRunning ? 'running' : 'not-installed', health);
                     }
                 }
 
@@ -908,7 +908,8 @@
             }
         }
 
-        function renderServiceCard(key, service, status) {
+        function renderServiceCard(key, service, status, health) {
+            health = health || {};
             let statusClass, statusText, statusDot;
             if (status === 'external') {
                 statusClass = 'running';
