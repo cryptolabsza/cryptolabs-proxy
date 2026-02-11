@@ -798,7 +798,8 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview setup',
+                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installNote: 'Deploy from this page, or via setup:',
                 deployable: true,
                 exporterName: 'runpod',
                 keyPlaceholder: 'rpa_XXXXXXXXXXXXX'
@@ -812,7 +813,8 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview setup',
+                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installNote: 'Deploy from this page, or via setup:',
                 deployable: true,
                 exporterName: 'vastai',
                 keyPlaceholder: 'Your Vast.ai API Key'
@@ -961,21 +963,7 @@
                 }
             } else {
                 // Local service not installed
-                if (service.installCommand) {
-                    const noteHtml = service.installNote ? `<p class="install-note" style="margin-bottom:8px;">${service.installNote}</p>` : '';
-                    installSection = `
-                        <div class="install-section">
-                            ${noteHtml}
-                            <p class="install-label">Quick Install:</p>
-                            <code class="install-command" onclick="copyCommand(this)">${service.installCommand}</code>
-                            <span class="copy-hint">Click to copy</span>
-                        </div>
-                    `;
-                    actions = `
-                        <a href="${service.productUrl}" target="_blank" class="${service.isCryptoLabs ? 'btn btn-promo' : 'btn btn-secondary'}">Learn More</a>
-                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
-                    `;
-                } else if (service.deployable) {
+                if (service.deployable) {
                     // Deployable exporter — check if Prometheus/Grafana are running first
                     const prometheusUp = health['prometheus']?.running === true;
                     const grafanaUp = health['grafana']?.running === true;
@@ -991,6 +979,16 @@
                                 <div id="deploy-status-${key}" style="font-size:0.85rem;"></div>
                             </div>
                         `;
+                    } else if (service.installCommand) {
+                        // Prometheus/Grafana not running — show install command instead
+                        installSection = `
+                            <div class="install-section">
+                                <p class="install-note" style="color:var(--accent-yellow); margin-bottom:8px;">Requires Prometheus and Grafana.</p>
+                                <p class="install-label">Quick Install:</p>
+                                <code class="install-command" onclick="copyCommand(this)">${service.installCommand}</code>
+                                <span class="copy-hint">Click to copy</span>
+                            </div>
+                        `;
                     } else {
                         installSection = `
                             <div class="install-section">
@@ -999,6 +997,20 @@
                         `;
                     }
                     actions = `
+                        ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
+                    `;
+                } else if (service.installCommand) {
+                    const noteHtml = service.installNote ? `<p class="install-note" style="margin-bottom:8px;">${service.installNote}</p>` : '';
+                    installSection = `
+                        <div class="install-section">
+                            ${noteHtml}
+                            <p class="install-label">Quick Install:</p>
+                            <code class="install-command" onclick="copyCommand(this)">${service.installCommand}</code>
+                            <span class="copy-hint">Click to copy</span>
+                        </div>
+                    `;
+                    actions = `
+                        <a href="${service.productUrl}" target="_blank" class="${service.isCryptoLabs ? 'btn btn-promo' : 'btn btn-secondary'}">Learn More</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                 } else if (service.installNote) {
