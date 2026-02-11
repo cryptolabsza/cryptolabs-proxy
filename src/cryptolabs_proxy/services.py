@@ -63,6 +63,22 @@ DEFAULT_SERVICES = {
         "external_url": "https://watchdog.cryptolabs.co.za",  # Links to external service
         "requires_subscription": True,  # Requires CryptoLabs subscription
     },
+    "vastai-exporter": {
+        "container_name": "vastai-exporter",
+        "path": "/vastai-metrics/",
+        "port": 8622,
+        "display_name": "Vast.ai Exporter",
+        "icon": "💎",
+        "description": "Prometheus exporter for Vast.ai metrics",
+    },
+    "runpod-exporter": {
+        "container_name": "runpod-exporter",
+        "path": "/runpod-metrics/",
+        "port": 8623,
+        "display_name": "RunPod Exporter",
+        "icon": "🚀",
+        "description": "Prometheus exporter for RunPod metrics",
+    },
 }
 
 

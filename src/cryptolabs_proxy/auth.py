@@ -1018,20 +1018,6 @@ def create_flask_auth_app():
             </form>
         </div>
         
-        <div class="card" id="exporters-card">
-            <h2>Service Management</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                Enable or disable optional monitoring exporters. Enabling will start the container,
-                configure Prometheus scraping, and import the Grafana dashboard. Disabling reverses all of this.
-            </p>
-            
-            <div id="exporters-loading" style="text-align: center; padding: 20px;">
-                Loading service status...
-            </div>
-            <div id="exporters-list" style="display: none;"></div>
-            <div id="exporters-error" class="error" style="display: none;"></div>
-        </div>
-        
         <div class="card">
             <h2>Role Permissions</h2>
             <table>
@@ -1065,163 +1051,6 @@ def create_flask_auth_app():
             </table>
         </div>
     </div>
-    
-    <script>
-    async function loadExporters() {
-        try {
-            const resp = await fetch('/auth/api/exporters');
-            if (!resp.ok) throw new Error('Failed to load');
-            const data = await resp.json();
-            renderExporters(data);
-        } catch (e) {
-            document.getElementById('exporters-loading').style.display = 'none';
-            document.getElementById('exporters-error').style.display = 'block';
-            document.getElementById('exporters-error').textContent = 'Failed to load exporter status: ' + e.message;
-        }
-    }
-    
-    function renderExporters(data) {
-        document.getElementById('exporters-loading').style.display = 'none';
-        const list = document.getElementById('exporters-list');
-        list.style.display = 'block';
-        list.innerHTML = '';
-        
-        for (const [name, info] of Object.entries(data)) {
-            const div = document.createElement('div');
-            div.style.cssText = 'border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; margin-bottom: 15px;';
-            
-            const statusColor = info.running ? 'var(--accent-green)' : 'var(--text-secondary)';
-            const statusText = info.running ? '● Running' : '○ Stopped';
-            
-            let html = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">';
-            html += '<div>';
-            html += '<strong style="font-size: 1.1rem;">' + info.display_name + '</strong>';
-            html += ' <span style="color: ' + statusColor + '; font-size: 0.9rem; margin-left: 8px;">' + statusText + '</span>';
-            html += '</div>';
-            html += '</div>';
-            
-            if (info.enabled && info.running) {
-                // Show disable button
-                html += '<div style="display: flex; align-items: center; gap: 10px;">';
-                html += '<span style="color: var(--accent-green);">Enabled and running on port ' + info.port + '</span>';
-                html += '<button class="btn btn-danger btn-sm" onclick="disableExporter(\'' + name + '\', this)" style="margin-left: auto;">Disable & Remove</button>';
-                html += '</div>';
-            } else if (info.enabled && !info.running) {
-                // Enabled but not running - show re-enable
-                html += '<div style="color: var(--accent-yellow); margin-bottom: 10px;">Enabled but container is not running</div>';
-                html += '<div id="form-' + name + '">';
-                html += '<div style="display: flex; gap: 10px; align-items: end;">';
-                html += '<div style="flex: 1;"><label style="display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 4px;">API Key</label>';
-                html += '<input type="password" id="key-' + name + '" placeholder="' + info.key_placeholder + '" style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);"></div>';
-                html += '<button class="btn" onclick="enableExporter(\'' + name + '\', this)">Re-enable</button>';
-                html += '</div>';
-                html += '<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px;">' + info.key_help + '</div>';
-                html += '</div>';
-            } else {
-                // Not enabled - show enable form
-                html += '<div id="form-' + name + '">';
-                html += '<div style="display: flex; gap: 10px; align-items: end;">';
-                html += '<div style="flex: 1;"><label style="display: block; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 4px;">API Key</label>';
-                html += '<input type="password" id="key-' + name + '" placeholder="' + info.key_placeholder + '" style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);"></div>';
-                html += '<button class="btn" onclick="enableExporter(\'' + name + '\', this)">Enable</button>';
-                html += '</div>';
-                html += '<div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px;">' + info.key_help + '</div>';
-                html += '</div>';
-            }
-            
-            // Status message area
-            html += '<div id="status-' + name + '" style="margin-top: 10px; display: none;"></div>';
-            
-            div.innerHTML = html;
-            list.appendChild(div);
-        }
-    }
-    
-    async function enableExporter(name, btn) {
-        const keyInput = document.getElementById('key-' + name);
-        const apiKey = keyInput ? keyInput.value.trim() : '';
-        if (!apiKey) {
-            showExporterStatus(name, 'Please enter an API key', 'error');
-            return;
-        }
-        
-        btn.disabled = true;
-        btn.textContent = 'Enabling...';
-        showExporterStatus(name, 'Starting container, configuring Prometheus, importing dashboard...', 'info');
-        
-        try {
-            const resp = await fetch('/auth/api/exporters/' + name + '/enable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: apiKey })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showExporterStatus(name, 'Enabled successfully! ' + (data.steps || []).join(' | '), 'success');
-                setTimeout(loadExporters, 1500);
-            } else {
-                showExporterStatus(name, data.error || 'Failed to enable', 'error');
-                btn.disabled = false;
-                btn.textContent = 'Enable';
-            }
-        } catch (e) {
-            showExporterStatus(name, 'Request failed: ' + e.message, 'error');
-            btn.disabled = false;
-            btn.textContent = 'Enable';
-        }
-    }
-    
-    async function disableExporter(name, btn) {
-        if (!confirm('Disable ' + name + '? This will stop the container, remove the Prometheus target, and delete the Grafana dashboard.')) return;
-        
-        btn.disabled = true;
-        btn.textContent = 'Disabling...';
-        showExporterStatus(name, 'Stopping container, removing configuration...', 'info');
-        
-        try {
-            const resp = await fetch('/auth/api/exporters/' + name + '/disable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            const data = await resp.json();
-            if (data.success) {
-                showExporterStatus(name, 'Disabled and removed. ' + (data.steps || []).join(' | '), 'success');
-                setTimeout(loadExporters, 1500);
-            } else {
-                showExporterStatus(name, data.error || 'Failed to disable', 'error');
-                btn.disabled = false;
-                btn.textContent = 'Disable & Remove';
-            }
-        } catch (e) {
-            showExporterStatus(name, 'Request failed: ' + e.message, 'error');
-            btn.disabled = false;
-            btn.textContent = 'Disable & Remove';
-        }
-    }
-    
-    function showExporterStatus(name, msg, type) {
-        const el = document.getElementById('status-' + name);
-        if (!el) return;
-        el.style.display = 'block';
-        el.style.padding = '8px 12px';
-        el.style.borderRadius = '4px';
-        el.style.fontSize = '0.9rem';
-        if (type === 'success') {
-            el.style.background = 'rgba(76, 175, 80, 0.15)';
-            el.style.color = 'var(--accent-green)';
-        } else if (type === 'error') {
-            el.style.background = 'rgba(244, 67, 54, 0.15)';
-            el.style.color = '#f44336';
-        } else {
-            el.style.background = 'rgba(33, 150, 243, 0.15)';
-            el.style.color = '#2196F3';
-        }
-        el.textContent = msg;
-    }
-    
-    // Load exporter status on page load
-    loadExporters();
-    </script>
 </body>
 </html>
 '''
@@ -1607,6 +1436,283 @@ def create_flask_auth_app():
         from cryptolabs_proxy.exporter_manager import disable_exporter
         result = disable_exporter(name)
         return jsonify(result)
+    
+    # =========================================================================
+    # EXPORTER MANAGEMENT PAGES
+    # =========================================================================
+    
+    EXPORTER_PAGE_CONFIG = {
+        'vastai': {
+            'display_name': 'Vast.ai Exporter',
+            'api_prefix': '/vastai-api',
+            'metrics_path': '/vastai-metrics/',
+            'grafana_path': '/grafana/d/vast-dashboard',
+            'key_placeholder': 'Your Vast.ai API Key',
+            'key_help': 'Find your API key at console.vast.ai &rarr; Account &rarr; API Keys',
+            'logo_html': '<img src="https://vast.ai/favicon.ico" alt="Vast.ai" style="width:28px;height:28px;border-radius:6px;" onerror="this.onerror=null;this.textContent=\'💎\';">',
+        },
+        'runpod': {
+            'display_name': 'RunPod Exporter',
+            'api_prefix': '/runpod-api',
+            'metrics_path': '/runpod-metrics/',
+            'grafana_path': '/grafana/d/runpod-dashboard',
+            'key_placeholder': 'rpa_XXXXXXXXXXXXX',
+            'key_help': 'Find your API key at runpod.io &rarr; Settings &rarr; API Keys',
+            'logo_html': '<img src="https://cdn.prod.website-files.com/67d20fb9f56ff2ec6a7a657d/683cd0ee11462aef4a016ef6_runpod%20lowercase.webp" alt="RunPod" style="width:28px;height:28px;border-radius:6px;object-fit:contain;" onerror="this.onerror=null;this.textContent=\'🚀\';">',
+        },
+    }
+    
+    EXPORTER_PAGE_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Management | {{ config.display_name }}</title>
+    <style>''' + BASE_STYLE + '''
+        .top-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+        .top-bar a.home-btn { color: var(--accent-blue); text-decoration: none; border: 1px solid var(--accent-blue); padding: 6px 16px; border-radius: 6px; font-size: 0.9rem; transition: background 0.2s; }
+        .top-bar a.home-btn:hover { background: rgba(0, 180, 216, 0.15); }
+        .top-bar .sep { color: var(--border-color); }
+        .top-bar .title { font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .status-badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 500; }
+        .status-running { background: rgba(76,175,80,0.2); color: var(--accent-green); }
+        .status-stopped { background: rgba(244,67,54,0.2); color: #f44336; }
+        .actions-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+        .key-table { width: 100%; border-collapse: collapse; }
+        .key-table th, .key-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
+        .key-table th { color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; }
+        .add-key-form { display: flex; gap: 10px; align-items: end; margin-top: 15px; }
+        .add-key-form input { flex: 1; padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; }
+        .add-key-form input::placeholder { color: var(--text-secondary); }
+        #status-msg { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; display: none; }
+        .msg-success { background: rgba(76,175,80,0.15); color: var(--accent-green); }
+        .msg-error { background: rgba(244,67,54,0.15); color: #f44336; }
+        .msg-info { background: rgba(33,150,243,0.15); color: #2196f3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="top-bar">
+            <a href="/" class="home-btn">Home</a>
+            <span class="sep">|</span>
+            <span class="title">{{ config.logo_html|safe }} {{ config.display_name }}</span>
+            <span id="status-badge" class="status-badge status-stopped">checking...</span>
+        </div>
+        
+        <div class="actions-row">
+            <a href="{{ config.grafana_path }}" class="btn">Open Grafana Dashboard</a>
+            <a href="{{ config.metrics_path }}" class="btn btn-secondary">Raw Metrics</a>
+        </div>
+        
+        <div class="card">
+            <h2>Service Status</h2>
+            <div id="service-status">Loading...</div>
+            <div style="margin-top: 15px;">
+                <button id="btn-enable" class="btn" style="display:none;" onclick="showEnableForm()">Enable Service</button>
+                <button id="btn-disable" class="btn btn-danger" style="display:none;" onclick="disableService()">Disable &amp; Remove</button>
+            </div>
+            <div id="enable-form" style="display:none; margin-top:15px;">
+                <div class="add-key-form">
+                    <input type="password" id="enable-key" placeholder="{{ config.key_placeholder }}">
+                    <button class="btn" onclick="enableService()">Enable</button>
+                    <button class="btn btn-secondary" onclick="hideEnableForm()">Cancel</button>
+                </div>
+                <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">{{ config.key_help|safe }}</div>
+            </div>
+            <div id="status-msg"></div>
+        </div>
+        
+        <div class="card" id="accounts-card" style="display:none;">
+            <h2>API Key Accounts</h2>
+            <p style="color:var(--text-secondary); font-size:0.9rem; margin-bottom:15px;">
+                Manage API key accounts for this exporter. Multiple accounts can be monitored simultaneously.
+            </p>
+            <div id="accounts-list">Loading...</div>
+            <div class="add-key-form" style="margin-top:20px; padding-top:15px; border-top:1px solid var(--border-color);">
+                <input type="text" id="new-account-name" placeholder="Account name" style="max-width:180px;">
+                <input type="password" id="new-account-key" placeholder="{{ config.key_placeholder }}">
+                <button class="btn" onclick="addAccount()">Add Account</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    const EXPORTER = '{{ exporter_name }}';
+    const API_PREFIX = '{{ config.api_prefix }}';
+    
+    async function loadStatus() {
+        try {
+            const resp = await fetch('/auth/api/exporters');
+            if (!resp.ok) throw new Error('Failed');
+            const data = await resp.json();
+            const info = data[EXPORTER];
+            if (!info) { document.getElementById('service-status').textContent = 'Unknown exporter'; return; }
+            
+            const badge = document.getElementById('status-badge');
+            const statusDiv = document.getElementById('service-status');
+            
+            if (info.running) {
+                badge.textContent = 'Running';
+                badge.className = 'status-badge status-running';
+                statusDiv.innerHTML = 'Container is running on port <strong>' + info.port + '</strong>';
+                document.getElementById('btn-disable').style.display = '';
+                document.getElementById('btn-enable').style.display = 'none';
+                loadAccounts();
+            } else if (info.enabled) {
+                badge.textContent = 'Enabled (not running)';
+                badge.className = 'status-badge status-stopped';
+                statusDiv.innerHTML = 'Service is enabled but the container is not running.';
+                document.getElementById('btn-disable').style.display = '';
+                document.getElementById('btn-enable').style.display = '';
+            } else {
+                badge.textContent = 'Disabled';
+                badge.className = 'status-badge status-stopped';
+                statusDiv.innerHTML = 'Service is not enabled. Click Enable to start.';
+                document.getElementById('btn-disable').style.display = 'none';
+                document.getElementById('btn-enable').style.display = '';
+            }
+        } catch (e) {
+            document.getElementById('service-status').textContent = 'Error loading status';
+        }
+    }
+    
+    async function loadAccounts() {
+        const card = document.getElementById('accounts-card');
+        const listDiv = document.getElementById('accounts-list');
+        try {
+            const resp = await fetch(API_PREFIX + '/accounts');
+            if (!resp.ok) { card.style.display = 'none'; return; }
+            const data = await resp.json();
+            card.style.display = '';
+            
+            if (!data.accounts || data.accounts.length === 0) {
+                listDiv.innerHTML = '<p style="color:var(--text-secondary);">No accounts configured.</p>';
+                return;
+            }
+            
+            let html = '<table class="key-table"><thead><tr><th>Account</th><th>Status</th><th></th></tr></thead><tbody>';
+            for (const acc of data.accounts) {
+                const name = acc.name || acc;
+                const status = acc.status || 'active';
+                html += '<tr><td><strong>' + name + '</strong></td>';
+                html += '<td><span style="color:var(--accent-green);">' + status + '</span></td>';
+                html += '<td><button class="btn btn-danger btn-sm" onclick="removeAccount(\'' + name + '\')">Remove</button></td></tr>';
+            }
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+        } catch (e) {
+            card.style.display = 'none';
+        }
+    }
+    
+    async function addAccount() {
+        const name = document.getElementById('new-account-name').value.trim();
+        const key = document.getElementById('new-account-key').value.trim();
+        if (!name || !key) { showMsg('Please enter both account name and API key', 'error'); return; }
+        
+        showMsg('Adding account...', 'info');
+        try {
+            const resp = await fetch(API_PREFIX + '/accounts', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, key: key})
+            });
+            if (resp.ok) {
+                showMsg('Account added successfully', 'success');
+                document.getElementById('new-account-name').value = '';
+                document.getElementById('new-account-key').value = '';
+                loadAccounts();
+            } else {
+                const data = await resp.json().catch(() => ({}));
+                showMsg(data.error || 'Failed to add account', 'error');
+            }
+        } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
+    }
+    
+    async function removeAccount(name) {
+        if (!confirm('Remove account "' + name + '"?')) return;
+        showMsg('Removing...', 'info');
+        try {
+            const resp = await fetch(API_PREFIX + '/accounts', {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            });
+            if (resp.ok) {
+                showMsg('Account removed', 'success');
+                loadAccounts();
+            } else { showMsg('Failed to remove', 'error'); }
+        } catch (e) { showMsg('Request failed', 'error'); }
+    }
+    
+    function showEnableForm() { document.getElementById('enable-form').style.display = ''; }
+    function hideEnableForm() { document.getElementById('enable-form').style.display = 'none'; }
+    
+    async function enableService() {
+        const key = document.getElementById('enable-key').value.trim();
+        if (!key) { showMsg('Please enter an API key', 'error'); return; }
+        showMsg('Enabling service (starting container, configuring Prometheus, importing dashboard)...', 'info');
+        try {
+            const resp = await fetch('/auth/api/exporters/' + EXPORTER + '/enable', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({api_key: key})
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showMsg('Service enabled! ' + (data.steps || []).join(' | '), 'success');
+                hideEnableForm();
+                setTimeout(loadStatus, 1500);
+            } else { showMsg(data.error || 'Failed to enable', 'error'); }
+        } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
+    }
+    
+    async function disableService() {
+        if (!confirm('Disable this service? This will stop the container, remove the Prometheus target, and delete the Grafana dashboard.')) return;
+        showMsg('Disabling service...', 'info');
+        try {
+            const resp = await fetch('/auth/api/exporters/' + EXPORTER + '/disable', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showMsg('Service disabled. ' + (data.steps || []).join(' | '), 'success');
+                document.getElementById('accounts-card').style.display = 'none';
+                setTimeout(loadStatus, 1500);
+            } else { showMsg(data.error || 'Failed to disable', 'error'); }
+        } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
+    }
+    
+    function showMsg(msg, type) {
+        const el = document.getElementById('status-msg');
+        el.style.display = 'block';
+        el.className = 'msg-' + type;
+        el.textContent = msg;
+    }
+    
+    loadStatus();
+    </script>
+</body>
+</html>
+'''
+    
+    @app.route('/vastai/')
+    @login_required_decorator
+    def vastai_management():
+        """Vast.ai exporter management page."""
+        return render_template_string(EXPORTER_PAGE_TEMPLATE,
+                                      config=EXPORTER_PAGE_CONFIG['vastai'],
+                                      exporter_name='vastai')
+    
+    @app.route('/runpod/')
+    @login_required_decorator
+    def runpod_management():
+        """RunPod exporter management page."""
+        return render_template_string(EXPORTER_PAGE_TEMPLATE,
+                                      config=EXPORTER_PAGE_CONFIG['runpod'],
+                                      exporter_name='runpod')
     
     # =========================================================================
     # DC WATCHDOG AUTO-SSO
