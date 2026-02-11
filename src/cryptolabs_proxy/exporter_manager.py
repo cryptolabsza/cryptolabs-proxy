@@ -385,7 +385,7 @@ def _write_prometheus_config(config: dict) -> bool:
              "-v", "/etc/dc-overview:/etc/dc-overview",
              "alpine", "sh", "-c",
              "cat > /etc/dc-overview/prometheus.yml"],
-            input=config_yaml.encode(),
+            input=config_yaml,
             capture_output=True, text=True, timeout=15,
         )
         if result.returncode != 0:
