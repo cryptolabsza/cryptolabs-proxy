@@ -1258,7 +1258,16 @@
                     `;
                 }
                 
+                // Preserve the watchdog card across grid refresh
+                const wdCard = document.getElementById('watchdogAgentCard');
+                const wdCardSaved = wdCard ? wdCard.cloneNode(true) : null;
+                
                 grid.innerHTML = html || '<p style="color: var(--text-secondary);">No services found.</p>';
+                
+                // Re-attach the saved watchdog card (avoids flicker from async reload)
+                if (wdCardSaved) {
+                    grid.appendChild(wdCardSaved);
+                }
                 
                 // Enable/disable Update Running button based on whether any services need updating
                 const updateAllBtn = document.querySelector('.update-buttons .btn-primary');
@@ -1565,50 +1574,52 @@
                         `;
                 }
                 
-                // Create the card HTML (class ensures single card when deduping)
-                const cardHtml = `
-                    <div class="version-card watchdog-agent-card ${cardClass}" id="watchdogAgentCard">
-                        <div class="version-info">
-                            <div class="service-name">
-                                DC Watchdog Agents
-                                ${branchTag}
-                            </div>
-                            <div class="version-details">
-                                <span class="version-tag">${versionText}</span>
-                                ${detailsHtml}
-                            </div>
+                // Update existing card in-place to prevent flicker, or create if first load
+                const innerHtml = `
+                    <div class="version-info">
+                        <div class="service-name">
+                            DC Watchdog Agents
+                            ${branchTag}
                         </div>
-                        <div class="version-actions">
-                            ${actionsHtml}
+                        <div class="version-details">
+                            <span class="version-tag">${versionText}</span>
+                            ${detailsHtml}
                         </div>
+                    </div>
+                    <div class="version-actions">
+                        ${actionsHtml}
                     </div>
                 `;
                 
-                // Remove old watchdog cards and append new one (atomic swap to prevent flicker)
-                if (grid) {
-                    document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
-                    grid.insertAdjacentHTML('beforeend', cardHtml);
+                let existingCard = document.getElementById('watchdogAgentCard');
+                if (existingCard) {
+                    existingCard.className = 'version-card watchdog-agent-card ' + cardClass;
+                    existingCard.innerHTML = innerHtml;
+                } else if (grid) {
+                    grid.insertAdjacentHTML('beforeend', `<div class="version-card watchdog-agent-card ${cardClass}" id="watchdogAgentCard">${innerHtml}</div>`);
                 }
                 
             } catch (e) {
                 console.log('DC Watchdog status not available:', e.message);
-                // Still show the card but as unavailable
-                if (grid) {
-                    document.querySelectorAll('.watchdog-agent-card').forEach(el => el.remove());
-                    grid.insertAdjacentHTML('beforeend', `
-                        <div class="version-card watchdog-agent-card stopped disabled" id="watchdogAgentCard">
-                            <div class="version-info">
-                                <div class="service-name">DC Watchdog Agents</div>
-                                <div class="version-details">
-                                    <span class="version-tag">Offline</span>
-                                    <span style="color: var(--text-muted); font-size: 0.85em;">Server unavailable</span>
-                                </div>
-                            </div>
-                            <div class="version-actions">
-                                <span style="color: var(--text-muted); font-size: 0.8em;">Check later</span>
-                            </div>
+                // Show the card as unavailable (update in-place if exists)
+                const errorHtml = `
+                    <div class="version-info">
+                        <div class="service-name">DC Watchdog Agents</div>
+                        <div class="version-details">
+                            <span class="version-tag">Offline</span>
+                            <span style="color: var(--text-muted); font-size: 0.85em;">Server unavailable</span>
                         </div>
-                    `);
+                    </div>
+                    <div class="version-actions">
+                        <span style="color: var(--text-muted); font-size: 0.8em;">Check later</span>
+                    </div>
+                `;
+                let errorCard = document.getElementById('watchdogAgentCard');
+                if (errorCard) {
+                    errorCard.className = 'version-card watchdog-agent-card stopped disabled';
+                    errorCard.innerHTML = errorHtml;
+                } else if (grid) {
+                    grid.insertAdjacentHTML('beforeend', `<div class="version-card watchdog-agent-card stopped disabled" id="watchdogAgentCard">${errorHtml}</div>`);
                 }
             } finally {
                 watchdogStatusLoading = false;
