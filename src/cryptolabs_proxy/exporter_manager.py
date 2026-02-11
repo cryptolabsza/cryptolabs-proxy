@@ -25,6 +25,7 @@ EXPORTERS = {
         "image": "ghcr.io/cryptolabsza/vastai-exporter:latest",
         "port": 8622,
         "network": "cryptolabs",
+        "volume": "vastai-exporter-data",
         "display_name": "Vast.ai Exporter",
         "prometheus_job": "vastai",
         "scrape_interval": "60s",
@@ -38,6 +39,7 @@ EXPORTERS = {
         "image": "ghcr.io/cryptolabsza/runpod-exporter:latest",
         "port": 8623,
         "network": "cryptolabs",
+        "volume": "runpod-exporter-data",
         "display_name": "RunPod Exporter",
         "prometheus_job": "runpod",
         "scrape_interval": "60s",
@@ -118,9 +120,9 @@ def enable_exporter(name: str, api_key: str) -> dict:
 
     # Require Prometheus and Grafana to be running (deployed by dc-overview)
     if not _is_container_running("prometheus"):
-        return {"success": False, "error": "Prometheus is not running. Deploy dc-overview first (dc-overview quickstart) to set up Prometheus and Grafana."}
+        return {"success": False, "error": "Prometheus is not running. Deploy dc-overview first (dc-overview setup) to set up Prometheus and Grafana."}
     if not _is_container_running("grafana"):
-        return {"success": False, "error": "Grafana is not running. Deploy dc-overview first (dc-overview quickstart) to set up Prometheus and Grafana."}
+        return {"success": False, "error": "Grafana is not running. Deploy dc-overview first (dc-overview setup) to set up Prometheus and Grafana."}
 
     api_key = api_key.strip()
     exporter = EXPORTERS[name]
@@ -147,6 +149,48 @@ def enable_exporter(name: str, api_key: str) -> dict:
     steps.append(f"Grafana: {msg}")
 
     return {"success": True, "steps": steps}
+
+
+def restart_exporter(name: str) -> dict:
+    """Restart an exporter container (stop then start with same config).
+
+    Args:
+        name: 'vastai' or 'runpod'
+
+    Returns:
+        dict with 'success' bool and message
+    """
+    if name not in EXPORTERS:
+        return {"success": False, "error": f"Unknown exporter: {name}"}
+
+    exporter = EXPORTERS[name]
+    container = exporter["container_name"]
+
+    if not _is_container_running(container):
+        return {"success": False, "error": f"Container '{container}' is not running"}
+
+    try:
+        # Restart the container (docker restart preserves config/volumes)
+        result = subprocess.run(
+            ["docker", "restart", container],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return {"success": False, "error": f"Restart failed: {result.stderr.strip()}"}
+
+        # Verify it came back up
+        time.sleep(3)
+        if _is_container_running(container):
+            return {"success": True, "message": f"Container '{container}' restarted successfully"}
+        else:
+            logs = subprocess.run(
+                ["docker", "logs", "--tail", "10", container],
+                capture_output=True, text=True, timeout=5,
+            )
+            return {"success": False, "error": f"Container failed to restart: {logs.stderr.strip() or logs.stdout.strip()}"}
+
+    except Exception as e:
+        return {"success": False, "error": f"Error: {str(e)}"}
 
 
 def disable_exporter(name: str) -> dict:
@@ -201,8 +245,33 @@ def _is_container_running(container_name: str) -> bool:
         return False
 
 
+def _generate_mgmt_token() -> str:
+    """Generate or retrieve a management token for the exporter API."""
+    import secrets as _secrets
+    token_file = Path("/data/auth/exporter-mgmt-token")
+    try:
+        if token_file.exists():
+            token = token_file.read_text().strip()
+            if token:
+                return token
+        # Generate a new token and persist it
+        token = _secrets.token_hex(32)
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token)
+        return token
+    except Exception as e:
+        logger.warning(f"Could not persist mgmt token: {e}")
+        return _secrets.token_hex(32)
+
+
 def _start_exporter_container(name: str, api_key: str) -> tuple:
-    """Start an exporter container."""
+    """Start an exporter container.
+
+    Uses a named Docker volume for /data so that accounts added via the
+    management API persist across container recreations.  Passes the initial
+    API key via environment variable and sets a MGMT_TOKEN for the management
+    API – matching the approach used by dc-overview's fleet_manager.
+    """
     exporter = EXPORTERS[name]
     container = exporter["container_name"]
 
@@ -223,16 +292,28 @@ def _start_exporter_container(name: str, api_key: str) -> tuple:
         if pull.returncode != 0:
             logger.warning(f"Pull warning for {exporter['image']}: {pull.stderr}")
 
-        # Build command - format key as "Default:key" for the exporter
+        # Generate management API token (shared with dc-overview if present)
+        mgmt_token = _generate_mgmt_token()
+
+        # Build command with named volume for persistent account config
+        # This matches the approach in dc-overview's fleet_manager.py
+        volume_name = exporter.get("volume", f"{container}-data")
         cmd = [
             "docker", "run", "-d",
             "--name", container,
             "--restart", "unless-stopped",
             "--network", exporter["network"],
             "-p", f"{exporter['port']}:{exporter['port']}",
-            exporter["image"],
-            "-api-key", api_key,
+            "-v", f"{volume_name}:/data",
+            "-e", f"MGMT_TOKEN={mgmt_token}",
         ]
+
+        # Pass initial key via env var (exporter will save to /data/accounts.json
+        # on first run; on subsequent starts it will load from file instead)
+        env_key = "VASTAI_API_KEYS" if name == "vastai" else "RUNPOD_API_KEYS"
+        cmd.extend(["-e", f"{env_key}=Default:{api_key}"])
+
+        cmd.append(exporter["image"])
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
@@ -270,18 +351,11 @@ def _stop_exporter_container(name: str) -> tuple:
 # =============================================================================
 
 def _get_prometheus_config() -> tuple:
-    """Read Prometheus config. Returns (config_dict, raw_text).
+    """Read Prometheus config from the running container.
     
-    Reads from host file first (bind mount source), falls back to container.
+    Returns (config_dict, raw_text).
     """
     try:
-        # Try host file first (bind mount source)
-        host_path = Path("/etc/dc-overview/prometheus.yml")
-        if host_path.exists():
-            raw = host_path.read_text()
-            return yaml.safe_load(raw), raw
-        
-        # Fallback: read from container
         result = subprocess.run(
             ["docker", "exec", "prometheus", "cat", "/etc/prometheus/prometheus.yml"],
             capture_output=True, text=True, timeout=10,
@@ -295,47 +369,37 @@ def _get_prometheus_config() -> tuple:
 
 
 def _write_prometheus_config(config: dict) -> bool:
-    """Write Prometheus config and reload.
+    """Write Prometheus config to the host and restart the container.
     
-    Writes to the host file (/etc/dc-overview/prometheus.yml) which is
-    bind-mounted into the Prometheus container. Then signals Prometheus
-    to reload via its HTTP API.
+    The Prometheus container bind-mounts /etc/dc-overview/prometheus.yml as :ro.
+    We write the updated config to the HOST filesystem using a short-lived
+    container, then restart Prometheus so it picks up the new config.
     """
     try:
         config_yaml = yaml.dump(config, default_flow_style=False, sort_keys=False)
 
-        # Write to the host file directly (bind mount source)
-        # This ensures Prometheus sees the change even after container restart
-        host_path = Path("/etc/dc-overview/prometheus.yml")
-        if host_path.exists():
-            host_path.write_text(config_yaml)
-        else:
-            # Fallback: write via docker cp (works even if host path differs)
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
-                f.write(config_yaml)
-                tmp_path = f.name
-            result = subprocess.run(
-                ["docker", "cp", tmp_path, "prometheus:/etc/prometheus/prometheus.yml"],
-                capture_output=True, text=True, timeout=10,
-            )
-            Path(tmp_path).unlink(missing_ok=True)
-            if result.returncode != 0:
-                logger.error(f"Failed to write prometheus config: {result.stderr}")
-                return False
-
-        # Reload prometheus via lifecycle API
-        reload_result = subprocess.run(
-            ["docker", "exec", "prometheus", "wget", "-q", "--spider",
-             "--post-data", "", "http://localhost:9090/-/reload"],
-            capture_output=True, text=True, timeout=10,
+        # Write to the host path via a temporary container
+        # The proxy container has docker access but /etc/dc-overview/ is on the host
+        result = subprocess.run(
+            ["docker", "run", "--rm", "-i",
+             "-v", "/etc/dc-overview:/etc/dc-overview",
+             "alpine", "sh", "-c",
+             "cat > /etc/dc-overview/prometheus.yml"],
+            input=config_yaml.encode(),
+            capture_output=True, text=True, timeout=15,
         )
-        if reload_result.returncode != 0:
-            # Fallback: SIGHUP
-            subprocess.run(
-                ["docker", "kill", "-s", "HUP", "prometheus"],
-                capture_output=True, timeout=10,
-            )
+        if result.returncode != 0:
+            logger.error(f"Failed to write prometheus config: {result.stderr}")
+            return False
+
+        # Restart Prometheus so it picks up the new config
+        restart = subprocess.run(
+            ["docker", "restart", "prometheus"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if restart.returncode != 0:
+            logger.error(f"Failed to restart prometheus: {restart.stderr}")
+            return False
 
         return True
     except Exception as e:

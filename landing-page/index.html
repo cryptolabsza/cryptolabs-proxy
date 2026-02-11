@@ -753,7 +753,7 @@
                 path: '/ipmi/',
                 productUrl: 'https://www.cryptolabs.co.za/ipmi-monitor/',
                 docsUrl: 'https://www.cryptolabs.co.za/ipmi-monitor-support-documentation/',
-                installCommand: 'pip install ipmi-monitor && sudo ipmi-monitor quickstart',
+                installCommand: 'pip install ipmi-monitor && sudo ipmi-monitor setup',
                 isCryptoLabs: true
             },
             'dc-overview': {
@@ -763,7 +763,7 @@
                 path: '/dc/',
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
-                installCommand: 'pip install dc-overview && sudo dc-overview quickstart',
+                installCommand: 'pip install dc-overview && sudo dc-overview setup',
                 isCryptoLabs: true
             },
             'grafana': {
@@ -774,8 +774,8 @@
                 path: '/grafana/',
                 productUrl: 'https://grafana.com/',
                 external: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview quickstart',
-                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview quickstart'
+                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview setup'
             },
             'prometheus': {
                 displayName: 'Prometheus',
@@ -786,8 +786,8 @@
                 productUrl: 'https://prometheus.io/',
                 external: true,
                 authRequired: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview quickstart',
-                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview quickstart'
+                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview setup'
             },
             'runpod-exporter': {
                 displayName: 'RunPod Exporter',
@@ -798,7 +798,7 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview quickstart',
+                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview setup',
                 deployable: true,
                 exporterName: 'runpod',
                 keyPlaceholder: 'rpa_XXXXXXXXXXXXX'
@@ -812,7 +812,7 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview quickstart',
+                installNote: 'Deploy from this page, or: pip install dc-overview && sudo dc-overview setup',
                 deployable: true,
                 exporterName: 'vastai',
                 keyPlaceholder: 'Your Vast.ai API Key'
@@ -828,7 +828,7 @@
                 isCryptoLabs: true,
                 external: true,
                 requiresSubscription: true,
-                installNote: 'Enable via Fleet Management or: pip install dc-overview && sudo dc-overview quickstart',
+                installNote: 'Enable via Fleet Management or: pip install dc-overview && sudo dc-overview setup',
                 // Dynamic status - will be updated by checkWatchdogStatus()
                 needsApiKey: true  // Default to needing setup, will be updated
             }
@@ -992,7 +992,7 @@
                     } else {
                         installSection = `
                             <div class="install-section">
-                                <p class="install-note" style="color:var(--accent-yellow);">Requires Prometheus and Grafana. Run <code>dc-overview quickstart</code> first.</p>
+                                <p class="install-note" style="color:var(--accent-yellow);">Requires Prometheus and Grafana. Run <code>dc-overview setup</code> first.</p>
                             </div>
                         `;
                     }
@@ -1219,7 +1219,7 @@
                     let updateBtn = '';
                     if (!info.running) {
                         // Service not running - show deploy hint
-                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Deploy via dc-overview quickstart">Not deployed</span>';
+                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Deploy via dc-overview setup">Not deployed</span>';
                     } else if (info.external) {
                         // External services (Grafana, Prometheus) - can update to :latest
                         // Note: Can't compare versions (no Docker Hub API integration)
@@ -1459,7 +1459,7 @@
                         break;
                         
                     case 'agents_installed':
-                        // Go agents installed via dc-overview quickstart, waiting for heartbeats to watchdog
+                        // Go agents installed via dc-overview setup, waiting for heartbeats to watchdog
                         cardClass = 'running';
                         const installedCount = (status.local && status.local.installed) ? status.local.installed : 0;
                         versionText = `${installedCount} installed`;

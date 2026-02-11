@@ -86,7 +86,7 @@ def get_watchdog_api_key() -> str:
 def is_watchdog_verified() -> bool:
     """Check if DC Watchdog has been verified via SSO.
     
-    On fresh install, even if the API key is in env var (from quickstart config),
+    On fresh install, even if the API key is in env var (from setup config),
     we require the user to complete SSO to verify the account. Only then is
     DC Watchdog shown as "enabled" in Fleet Management.
     """
@@ -1335,9 +1335,73 @@ def create_flask_auth_app():
             'role': session.get('role'),
         })
     
+    def _get_exporter_mgmt_token() -> str:
+        """Get the exporter management API token.
+        
+        Checks multiple sources (in order):
+        1. Local file written by exporter_manager (Fleet Management UI deploy)
+        2. Running exporter container env var (fleet_manager.py / dc-overview deploy)
+        
+        Result is cached for 60s to avoid repeated docker inspect calls.
+        """
+        import time as _time
+        now = _time.time()
+        if not hasattr(_get_exporter_mgmt_token, '_cached'):
+            _get_exporter_mgmt_token._cached = ''
+            _get_exporter_mgmt_token._ts = 0
+        
+        # Return cache if fresh (60s TTL)
+        if _get_exporter_mgmt_token._cached and (now - _get_exporter_mgmt_token._ts) < 60:
+            return _get_exporter_mgmt_token._cached
+        
+        token = ''
+        
+        # Source 1: local file (written by exporter_manager._generate_mgmt_token)
+        token_file = DATA_DIR / 'exporter-mgmt-token'
+        try:
+            if token_file.exists():
+                token = token_file.read_text().strip()
+        except Exception:
+            pass
+        
+        # Source 2: read MGMT_TOKEN from a running exporter container
+        if not token:
+            for container in ('vastai-exporter', 'runpod-exporter'):
+                try:
+                    import subprocess as _sp
+                    result = _sp.run(
+                        ["docker", "inspect", "--format",
+                         "{{range .Config.Env}}{{println .}}{{end}}", container],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            if line.startswith('MGMT_TOKEN='):
+                                token = line.split('=', 1)[1]
+                                # Persist it so future lookups hit source 1
+                                try:
+                                    DATA_DIR.mkdir(parents=True, exist_ok=True)
+                                    token_file.write_text(token)
+                                except Exception:
+                                    pass
+                                break
+                    if token:
+                        break
+                except Exception:
+                    pass
+        
+        _get_exporter_mgmt_token._cached = token
+        _get_exporter_mgmt_token._ts = now
+        return token
+    
     @app.route('/auth/headers')
     def get_headers():
-        """Get auth headers for nginx subrequest."""
+        """Get auth headers for nginx subrequest.
+        
+        Also includes X-Mgmt-Token for exporter management API proxying.
+        Nginx captures this via auth_request_set and forwards it to
+        the exporter containers.
+        """
         # Check for logged in user first
         if session.get('logged_in'):
             # Check if password change required
@@ -1357,6 +1421,10 @@ def create_flask_auth_app():
             response.headers[AUTH_HEADER_USER] = username
             response.headers[AUTH_HEADER_ROLE] = role
             response.headers[AUTH_HEADER_TOKEN] = token
+            # Include exporter management token for nginx to forward
+            mgmt_token = _get_exporter_mgmt_token()
+            if mgmt_token:
+                response.headers['X-Mgmt-Token'] = mgmt_token
             return response
         
         # Check if anonymous access is allowed
@@ -1437,6 +1505,15 @@ def create_flask_auth_app():
         result = disable_exporter(name)
         return jsonify(result)
     
+    @app.route('/auth/api/exporters/<name>/restart', methods=['POST'])
+    @admin_required_decorator
+    def api_exporter_restart(name):
+        """Restart an exporter container."""
+        from cryptolabs_proxy.exporter_manager import restart_exporter
+        result = restart_exporter(name)
+        status = 200 if result.get('success') else 500
+        return jsonify(result), status
+    
     # =========================================================================
     # EXPORTER MANAGEMENT PAGES
     # =========================================================================
@@ -1482,6 +1559,8 @@ def create_flask_auth_app():
         .key-table { width: 100%; border-collapse: collapse; }
         .key-table th, .key-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border-color); }
         .key-table th { color: var(--text-secondary); font-size: 0.85rem; font-weight: 500; }
+        .key-masked { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; color: var(--text-secondary); background: var(--bg-secondary); padding: 2px 8px; border-radius: 4px; }
+        .key-meta { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; }
         .add-key-form { display: flex; gap: 10px; align-items: end; margin-top: 15px; }
         .add-key-form input { flex: 1; padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; }
         .add-key-form input::placeholder { color: var(--text-secondary); }
@@ -1489,6 +1568,8 @@ def create_flask_auth_app():
         .msg-success { background: rgba(76,175,80,0.15); color: var(--accent-green); }
         .msg-error { background: rgba(244,67,54,0.15); color: #f44336; }
         .msg-info { background: rgba(33,150,243,0.15); color: #2196f3; }
+        .btn-restart { background: rgba(255,152,0,0.15); color: #ff9800; border: 1px solid rgba(255,152,0,0.3); }
+        .btn-restart:hover { background: rgba(255,152,0,0.25); }
     </style>
 </head>
 <body>
@@ -1508,16 +1589,17 @@ def create_flask_auth_app():
         <div class="card">
             <h2>Service Status</h2>
             <div id="service-status">Loading...</div>
-            <div style="margin-top: 15px;">
+            <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                 <button id="btn-enable" class="btn" style="display:none;" onclick="showEnableForm()">Enable Service</button>
+                <button id="btn-restart" class="btn btn-restart" style="display:none;" onclick="restartService()">Restart Container</button>
                 <button id="btn-disable" class="btn btn-danger" style="display:none;" onclick="disableService()">Disable &amp; Remove</button>
             </div>
             <div id="enable-form" style="display:none; margin-top:15px;">
-                <div class="add-key-form">
-                    <input type="password" id="enable-key" placeholder="{{ config.key_placeholder }}">
-                    <button class="btn" onclick="enableService()">Enable</button>
-                    <button class="btn btn-secondary" onclick="hideEnableForm()">Cancel</button>
-                </div>
+                <form onsubmit="event.preventDefault(); enableService();" class="add-key-form">
+                    <input type="password" id="enable-key" placeholder="{{ config.key_placeholder }}" autocomplete="new-password">
+                    <button type="submit" class="btn">Enable</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideEnableForm()">Cancel</button>
+                </form>
                 <div style="font-size:0.8rem; color:var(--text-secondary); margin-top:6px;">{{ config.key_help|safe }}</div>
             </div>
             <div id="status-msg"></div>
@@ -1529,11 +1611,11 @@ def create_flask_auth_app():
                 Manage API key accounts for this exporter. Multiple accounts can be monitored simultaneously.
             </p>
             <div id="accounts-list">Loading...</div>
-            <div class="add-key-form" style="margin-top:20px; padding-top:15px; border-top:1px solid var(--border-color);">
-                <input type="text" id="new-account-name" placeholder="Account name" style="max-width:180px;">
-                <input type="password" id="new-account-key" placeholder="{{ config.key_placeholder }}">
-                <button class="btn" onclick="addAccount()">Add Account</button>
-            </div>
+            <form onsubmit="event.preventDefault(); addAccount();" class="add-key-form" style="margin-top:20px; padding-top:15px; border-top:1px solid var(--border-color);">
+                <input type="text" id="new-account-name" placeholder="Account name" style="max-width:180px;" autocomplete="off">
+                <input type="password" id="new-account-key" placeholder="{{ config.key_placeholder }}" autocomplete="new-password">
+                <button type="submit" class="btn">Add Account</button>
+            </form>
         </div>
     </div>
     
@@ -1557,6 +1639,7 @@ def create_flask_auth_app():
                 badge.className = 'status-badge status-running';
                 statusDiv.innerHTML = 'Container is running on port <strong>' + info.port + '</strong>';
                 document.getElementById('btn-disable').style.display = '';
+                document.getElementById('btn-restart').style.display = '';
                 document.getElementById('btn-enable').style.display = 'none';
                 loadAccounts();
             } else if (info.enabled) {
@@ -1564,10 +1647,12 @@ def create_flask_auth_app():
                 badge.className = 'status-badge status-stopped';
                 statusDiv.innerHTML = 'Service is enabled but the container is not running.';
                 document.getElementById('btn-disable').style.display = '';
+                document.getElementById('btn-restart').style.display = 'none';
                 document.getElementById('btn-enable').style.display = '';
             } else {
                 badge.textContent = 'Disabled';
                 badge.className = 'status-badge status-stopped';
+                document.getElementById('btn-restart').style.display = 'none';
                 if (info.can_deploy === false) {
                     statusDiv.innerHTML = '<span style="color:var(--accent-yellow);">' + (info.deploy_blocked_reason || 'Cannot deploy yet') + '</span>';
                     document.getElementById('btn-disable').style.display = 'none';
@@ -1597,14 +1682,30 @@ def create_flask_auth_app():
                 return;
             }
             
-            let html = '<table class="key-table"><thead><tr><th>Account</th><th>Status</th><th></th></tr></thead><tbody>';
+            let html = '<table class="key-table"><thead><tr><th>Account</th><th>API Key</th><th>Status</th><th>Details</th><th></th></tr></thead><tbody>';
             for (const acc of data.accounts) {
                 const name = acc.name || acc;
-                const status = acc.status || 'active';
-                html += '<tr><td><strong>' + name + '</strong></td>';
-                html += '<td><span style="color:var(--accent-green);">' + status + '</span></td>';
-                var safeN = name.replace(/"/g, '');
-                html += '<td><button class="btn btn-danger btn-sm" data-acct="' + safeN + '">Remove</button></td></tr>';
+                const keyMasked = acc.key_masked || '***';
+                const status = acc.status || 'unknown';
+                const statusColor = status === 'connected' ? 'var(--accent-green)' : '#f44336';
+                const statusIcon = status === 'connected' ? '&#9679;' : '&#9679;';
+                
+                let details = '';
+                if (acc.balance !== null && acc.balance !== undefined) {
+                    details += '$' + parseFloat(acc.balance).toFixed(2);
+                }
+                if (acc.machine_count !== null && acc.machine_count !== undefined) {
+                    details += (details ? ' &middot; ' : '') + acc.machine_count + ' machine' + (acc.machine_count !== 1 ? 's' : '');
+                }
+                
+                html += '<tr>';
+                html += '<td><strong>' + name + '</strong></td>';
+                html += '<td><code class="key-masked">' + keyMasked + '</code></td>';
+                html += '<td><span style="color:' + statusColor + ';">' + statusIcon + ' ' + status + '</span></td>';
+                html += '<td style="color:var(--text-secondary); font-size:0.85rem;">' + (details || '&mdash;') + '</td>';
+                var safeN = name.replace(/[^a-zA-Z0-9_-]/g, '');
+                html += '<td style="text-align:right;"><button class="btn btn-danger btn-sm" data-acct="' + safeN + '">Remove</button></td>';
+                html += '</tr>';
             }
             html += '</tbody></table>';
             listDiv.innerHTML = html;
@@ -1642,19 +1743,20 @@ def create_flask_auth_app():
     }
     
     async function removeAccount(name) {
-        if (!confirm('Remove account ' + name + '?')) return;
-        showMsg('Removing...', 'info');
+        if (!confirm('Remove account "' + name + '"? This will stop monitoring for this API key.')) return;
+        showMsg('Removing account...', 'info');
         try {
-            const resp = await fetch(API_PREFIX + '/accounts', {
-                method: 'DELETE',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name})
+            const resp = await fetch(API_PREFIX + '/accounts/' + encodeURIComponent(name), {
+                method: 'DELETE'
             });
             if (resp.ok) {
-                showMsg('Account removed', 'success');
+                showMsg('Account "' + name + '" removed successfully', 'success');
                 loadAccounts();
-            } else { showMsg('Failed to remove', 'error'); }
-        } catch (e) { showMsg('Request failed', 'error'); }
+            } else {
+                const data = await resp.json().catch(() => ({}));
+                showMsg(data.error || 'Failed to remove account', 'error');
+            }
+        } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
     }
     
     function showEnableForm() { document.getElementById('enable-form').style.display = ''; }
@@ -1676,6 +1778,22 @@ def create_flask_auth_app():
                 hideEnableForm();
                 setTimeout(loadStatus, 1500);
             } else { showMsg(data.error || 'Failed to enable', 'error'); }
+        } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
+    }
+    
+    async function restartService() {
+        if (!confirm('Restart the exporter container? Metrics will be briefly unavailable.')) return;
+        showMsg('Restarting container...', 'info');
+        try {
+            const resp = await fetch('/auth/api/exporters/' + EXPORTER + '/restart', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showMsg(data.message || 'Container restarted successfully', 'success');
+                setTimeout(loadStatus, 2000);
+            } else { showMsg(data.error || 'Failed to restart', 'error'); }
         } catch (e) { showMsg('Request failed: ' + e.message, 'error'); }
     }
     
@@ -1799,11 +1917,11 @@ def create_flask_auth_app():
         ).hexdigest()
         
         # Mark as verified - user is actively using DC Watchdog via SSO
-        # This handles the case where API key came from quickstart but user
+        # This handles the case where API key came from setup but user
         # never went through the WordPress callback flow
         if not is_watchdog_verified():
             set_watchdog_verified()
-            logger.info("DC Watchdog verified via direct SSO (API key from quickstart)")
+            logger.info("DC Watchdog verified via direct SSO (API key from setup)")
         
         # Build SSO redirect URL
         sso_url = f"{WATCHDOG_URL}/auth/sso?payload={payload}&signature={signature}"
@@ -1947,7 +2065,7 @@ def create_flask_auth_app():
         
         if not verified:
             # First-time: require user to enable DC Watchdog via "Link Account" + SSO.
-            # Even if quickstart passed API key via env var, user must complete SSO to
+            # Even if setup passed API key via env var, user must complete SSO to
             # verify account. After SSO, agents get worker tokens for encrypted comms.
             result['state'] = 'not_configured'
             result['message'] = 'Enable DC Watchdog to monitor server uptime'
@@ -2003,7 +2121,7 @@ def create_flask_auth_app():
                         result['state'] = 'active'
                         result['message'] = f"{online_count}/{total_registered} agents online"
                 else:
-                    # No agents reporting to watchdog yet - check if any are installed locally (e.g. via dc-overview quickstart)
+                    # No agents reporting to watchdog yet - check if any are installed locally (e.g. via dc-overview setup)
                     result['state'] = 'pending_agents'
                     result['message'] = 'API key configured, deploy agents to start monitoring'
                     

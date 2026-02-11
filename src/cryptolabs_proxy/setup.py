@@ -123,7 +123,7 @@ def wait_for_container_healthy(
 
 
 # Keys that should never be returned by get_proxy_config() to prevent leaking
-# secrets to callers that don't need them (e.g. quickstart scripts)
+# secrets to callers that don't need them (e.g. setup scripts)
 _SENSITIVE_ENV_KEYS = {'INTERNAL_API_TOKEN', 'AUTH_SECRET_KEY'}
 
 
@@ -144,7 +144,7 @@ def _save_internal_token(token: str):
 def get_internal_api_token() -> Optional[str]:
     """Read the internal API token from disk (for use by deployment scripts).
     
-    This is called by quickstart scripts to pass the token to dc-overview/ipmi-monitor
+    This is called by setup scripts to pass the token to dc-overview/ipmi-monitor
     containers as an environment variable.
     """
     token_file = CONFIG_DIR / "auth" / "internal_api_token"
