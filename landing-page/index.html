@@ -961,16 +961,18 @@
                 }
             } else {
                 // Local service not installed
-                if (service.isCryptoLabs && service.installCommand) {
+                if (service.installCommand) {
+                    const noteHtml = service.installNote ? `<p class="install-note" style="margin-bottom:8px;">${service.installNote}</p>` : '';
                     installSection = `
                         <div class="install-section">
+                            ${noteHtml}
                             <p class="install-label">Quick Install:</p>
                             <code class="install-command" onclick="copyCommand(this)">${service.installCommand}</code>
                             <span class="copy-hint">Click to copy</span>
                         </div>
                     `;
                     actions = `
-                        <a href="${service.productUrl}" target="_blank" class="btn btn-promo">Learn More</a>
+                        <a href="${service.productUrl}" target="_blank" class="${service.isCryptoLabs ? 'btn btn-promo' : 'btn btn-secondary'}">Learn More</a>
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                 } else if (service.deployable) {
