@@ -1410,7 +1410,7 @@ def create_flask_auth_app():
     # =========================================================================
     
     @app.route('/auth/api/exporters', methods=['GET'])
-    @admin_required_decorator
+    @login_required_decorator
     def api_exporters_status():
         """Get status of all optional exporters."""
         from cryptolabs_proxy.exporter_manager import get_exporter_status
@@ -1603,10 +1603,15 @@ def create_flask_auth_app():
                 const status = acc.status || 'active';
                 html += '<tr><td><strong>' + name + '</strong></td>';
                 html += '<td><span style="color:var(--accent-green);">' + status + '</span></td>';
-                html += '<td><button class="btn btn-danger btn-sm" onclick="removeAccount(&quot;' + name + '&quot;)">Remove</button></td></tr>';
+                var safeN = name.replace(/"/g, '');
+                html += '<td><button class="btn btn-danger btn-sm" data-acct="' + safeN + '">Remove</button></td></tr>';
             }
             html += '</tbody></table>';
             listDiv.innerHTML = html;
+            // Attach remove handlers via event delegation
+            listDiv.querySelectorAll('[data-acct]').forEach(function(btn) {
+                btn.onclick = function() { removeAccount(btn.dataset.acct); };
+            });
         } catch (e) {
             card.style.display = 'none';
         }
@@ -1637,7 +1642,7 @@ def create_flask_auth_app():
     }
     
     async function removeAccount(name) {
-        if (!confirm('Remove account "' + name + '"?')) return;
+        if (!confirm('Remove account ' + name + '?')) return;
         showMsg('Removing...', 'info');
         try {
             const resp = await fetch(API_PREFIX + '/accounts', {
