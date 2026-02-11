@@ -29,10 +29,10 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  # Watchtower for automatic updates
-  watchtower:
+  # Cryptolabs Watchtower - auto-updates cryptolabs-proxy (primary) and other labeled containers
+  cryptolabs-watchtower:
     image: containrrr/watchtower
-    container_name: watchtower
+    container_name: cryptolabs-watchtower
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -40,6 +40,8 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=300
       - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_ROLLING_RESTART=true
     networks:
       - cryptolabs
     labels:

@@ -499,7 +499,47 @@ def setup_proxy(
     else:
         log("Proxy already running with correct config")
     
-    # Step 5: Initialize service registry
+    # Step 5: Ensure watchtower is running (cryptolabs-proxy owns it; primary for auto-updates)
+    # Migrate from legacy dc-watchtower if present; then ensure cryptolabs-watchtower runs
+    WATCHTOWER_CONTAINER = "cryptolabs-watchtower"
+    LEGACY_WATCHTOWER = "dc-watchtower"
+    
+    wt_running = False
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", WATCHTOWER_CONTAINER, "--format", "{{.State.Status}}"],
+            capture_output=True, text=True, timeout=5
+        )
+        wt_running = r.returncode == 0 and r.stdout.strip() == "running"
+    except Exception:
+        pass
+    
+    if not wt_running:
+        # Stop and remove legacy dc-watchtower (was deployed by dc-overview/ipmi-monitor)
+        subprocess.run(["docker", "stop", LEGACY_WATCHTOWER], capture_output=True)
+        subprocess.run(["docker", "rm", LEGACY_WATCHTOWER], capture_output=True)
+        
+        log("Starting cryptolabs-watchtower for automatic proxy updates...")
+        wt_cmd = [
+            "docker", "run", "-d",
+            "--name", WATCHTOWER_CONTAINER,
+            "--restart", "unless-stopped",
+            "-v", "/var/run/docker.sock:/var/run/docker.sock",
+            "-e", "WATCHTOWER_CLEANUP=true",
+            "-e", "WATCHTOWER_POLL_INTERVAL=300",
+            "-e", "WATCHTOWER_LABEL_ENABLE=true",
+            "-e", "WATCHTOWER_INCLUDE_STOPPED=true",
+            "-e", "WATCHTOWER_ROLLING_RESTART=true",
+            "--network", DOCKER_NETWORK_NAME,
+            "--label", "com.centurylinklabs.watchtower.enable=true",
+            "containrrr/watchtower"
+        ]
+        subprocess.run(wt_cmd, capture_output=True)
+        log("Cryptolabs-watchtower started")
+    else:
+        log("Cryptolabs-watchtower already running")
+    
+    # Step 6: Initialize service registry
     registry = ServiceRegistry(CONFIG_DIR)
     registry.config["domain"] = config.domain
     registry.config["letsencrypt"] = config.use_letsencrypt and ssl_success

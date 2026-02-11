@@ -27,6 +27,7 @@ Unified reverse proxy and fleet management landing page for CryptoLabs products.
 
 ## Features
 
+- **cryptolabs-watchtower** - Auto-updates cryptolabs-proxy (primary) and other labeled containers (dc-overview, ipmi-monitor, etc.)
 - **Fleet Management Dashboard** - Landing page showing all CryptoLabs services
 - **Unified Authentication** - Single login for all services
 - **Site Name Branding** - Customize landing page with your datacenter name
