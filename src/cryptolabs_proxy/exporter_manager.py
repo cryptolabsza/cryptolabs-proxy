@@ -270,8 +270,18 @@ def _stop_exporter_container(name: str) -> tuple:
 # =============================================================================
 
 def _get_prometheus_config() -> tuple:
-    """Read Prometheus config from the container. Returns (config_dict, raw_text)."""
+    """Read Prometheus config. Returns (config_dict, raw_text).
+    
+    Reads from host file first (bind mount source), falls back to container.
+    """
     try:
+        # Try host file first (bind mount source)
+        host_path = Path("/etc/dc-overview/prometheus.yml")
+        if host_path.exists():
+            raw = host_path.read_text()
+            return yaml.safe_load(raw), raw
+        
+        # Fallback: read from container
         result = subprocess.run(
             ["docker", "exec", "prometheus", "cat", "/etc/prometheus/prometheus.yml"],
             capture_output=True, text=True, timeout=10,
@@ -285,29 +295,43 @@ def _get_prometheus_config() -> tuple:
 
 
 def _write_prometheus_config(config: dict) -> bool:
-    """Write Prometheus config back to the container and reload."""
+    """Write Prometheus config and reload.
+    
+    Writes to the host file (/etc/dc-overview/prometheus.yml) which is
+    bind-mounted into the Prometheus container. Then signals Prometheus
+    to reload via its HTTP API.
+    """
     try:
         config_yaml = yaml.dump(config, default_flow_style=False, sort_keys=False)
 
-        # Write via docker exec (pipe through sh -c)
-        result = subprocess.run(
-            ["docker", "exec", "-i", "prometheus", "sh", "-c",
-             "cat > /etc/prometheus/prometheus.yml"],
-            input=config_yaml, capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            logger.error(f"Failed to write prometheus config: {result.stderr}")
-            return False
+        # Write to the host file directly (bind mount source)
+        # This ensures Prometheus sees the change even after container restart
+        host_path = Path("/etc/dc-overview/prometheus.yml")
+        if host_path.exists():
+            host_path.write_text(config_yaml)
+        else:
+            # Fallback: write via docker cp (works even if host path differs)
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+                f.write(config_yaml)
+                tmp_path = f.name
+            result = subprocess.run(
+                ["docker", "cp", tmp_path, "prometheus:/etc/prometheus/prometheus.yml"],
+                capture_output=True, text=True, timeout=10,
+            )
+            Path(tmp_path).unlink(missing_ok=True)
+            if result.returncode != 0:
+                logger.error(f"Failed to write prometheus config: {result.stderr}")
+                return False
 
-        # Reload prometheus
+        # Reload prometheus via lifecycle API
         reload_result = subprocess.run(
             ["docker", "exec", "prometheus", "wget", "-q", "--spider",
-             "http://localhost:9090/-/reload", "--post-data=''"],
+             "--post-data", "", "http://localhost:9090/-/reload"],
             capture_output=True, text=True, timeout=10,
         )
-        # wget --spider returns 0 on success
         if reload_result.returncode != 0:
-            # Try kill -HUP instead
+            # Fallback: SIGHUP
             subprocess.run(
                 ["docker", "kill", "-s", "HUP", "prometheus"],
                 capture_output=True, timeout=10,
