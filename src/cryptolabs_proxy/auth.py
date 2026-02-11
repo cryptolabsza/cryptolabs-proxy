@@ -1568,9 +1568,15 @@ def create_flask_auth_app():
             } else {
                 badge.textContent = 'Disabled';
                 badge.className = 'status-badge status-stopped';
-                statusDiv.innerHTML = 'Service is not enabled. Click Enable to start.';
-                document.getElementById('btn-disable').style.display = 'none';
-                document.getElementById('btn-enable').style.display = '';
+                if (info.can_deploy === false) {
+                    statusDiv.innerHTML = '<span style="color:var(--accent-yellow);">' + (info.deploy_blocked_reason || 'Cannot deploy yet') + '</span>';
+                    document.getElementById('btn-disable').style.display = 'none';
+                    document.getElementById('btn-enable').style.display = 'none';
+                } else {
+                    statusDiv.innerHTML = 'Service is not enabled. Click Enable to start.';
+                    document.getElementById('btn-disable').style.display = 'none';
+                    document.getElementById('btn-enable').style.display = '';
+                }
             }
         } catch (e) {
             document.getElementById('service-status').textContent = 'Error loading status';

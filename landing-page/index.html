@@ -971,17 +971,28 @@
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;
                 } else if (service.deployable) {
-                    // Deployable exporter — show API key input and Deploy button
-                    installSection = `
-                        <div class="install-section" id="deploy-section-${key}">
-                            <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px;">
-                                <input type="password" id="deploy-key-${key}" placeholder="${service.keyPlaceholder || 'API Key'}"
-                                    style="flex:1;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.9rem;">
-                                <button class="btn btn-promo" onclick="deployExporter('${service.exporterName}','${key}')">Deploy</button>
+                    // Deployable exporter — check if Prometheus/Grafana are running first
+                    const prometheusUp = health['prometheus']?.running === true;
+                    const grafanaUp = health['grafana']?.running === true;
+                    
+                    if (prometheusUp && grafanaUp) {
+                        installSection = `
+                            <div class="install-section" id="deploy-section-${key}">
+                                <div style="display:flex;gap:8px;align-items:end;margin-bottom:8px;">
+                                    <input type="password" id="deploy-key-${key}" placeholder="${service.keyPlaceholder || 'API Key'}"
+                                        style="flex:1;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.9rem;">
+                                    <button class="btn btn-promo" onclick="deployExporter('${service.exporterName}','${key}')">Deploy</button>
+                                </div>
+                                <div id="deploy-status-${key}" style="font-size:0.85rem;"></div>
                             </div>
-                            <div id="deploy-status-${key}" style="font-size:0.85rem;"></div>
-                        </div>
-                    `;
+                        `;
+                    } else {
+                        installSection = `
+                            <div class="install-section">
+                                <p class="install-note" style="color:var(--accent-yellow);">Requires Prometheus and Grafana. Run <code>dc-overview quickstart</code> first.</p>
+                            </div>
+                        `;
+                    }
                     actions = `
                         ${service.docsUrl ? `<a href="${service.docsUrl}" target="_blank" class="btn btn-secondary">Docs</a>` : ''}
                     `;

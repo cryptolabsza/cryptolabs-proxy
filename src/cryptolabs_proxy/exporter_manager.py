@@ -74,6 +74,9 @@ def _save_config(config: dict):
 def get_exporter_status() -> dict:
     """Get status of all exporters."""
     config = _load_config()
+    prometheus_running = _is_container_running("prometheus")
+    grafana_running = _is_container_running("grafana")
+    can_deploy = prometheus_running and grafana_running
     status = {}
 
     for name, exporter in EXPORTERS.items():
@@ -90,6 +93,8 @@ def get_exporter_status() -> dict:
             "port": exporter["port"],
             "key_placeholder": exporter["key_placeholder"],
             "key_help": exporter["key_help"],
+            "can_deploy": can_deploy,
+            "deploy_blocked_reason": None if can_deploy else "Prometheus and Grafana must be running first (deploy dc-overview)",
         }
 
     return status
@@ -110,6 +115,12 @@ def enable_exporter(name: str, api_key: str) -> dict:
 
     if not api_key or not api_key.strip():
         return {"success": False, "error": "API key is required"}
+
+    # Require Prometheus and Grafana to be running (deployed by dc-overview)
+    if not _is_container_running("prometheus"):
+        return {"success": False, "error": "Prometheus is not running. Deploy dc-overview first (dc-overview quickstart) to set up Prometheus and Grafana."}
+    if not _is_container_running("grafana"):
+        return {"success": False, "error": "Grafana is not running. Deploy dc-overview first (dc-overview quickstart) to set up Prometheus and Grafana."}
 
     api_key = api_key.strip()
     exporter = EXPORTERS[name]
