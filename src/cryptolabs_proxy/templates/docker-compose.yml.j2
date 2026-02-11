@@ -27,7 +27,7 @@ services:
       timeout: 10s
       retries: 3
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+      com.centurylinklabs.watchtower.enable: "true"
 
   # Cryptolabs Watchtower - auto-updates cryptolabs-proxy (primary) and other labeled containers
   cryptolabs-watchtower:
@@ -45,7 +45,7 @@ services:
     networks:
       - cryptolabs
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+      com.centurylinklabs.watchtower.enable: "true"
 
 networks:
   cryptolabs:
