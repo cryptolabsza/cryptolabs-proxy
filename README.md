@@ -73,6 +73,8 @@ sudo ipmi-monitor quickstart -c /path/to/config.yaml -y
 ### Option 3: Standalone Installation
 
 ```bash
+apt install pipx -y && pipx ensurepath
+source ~/.bashrc
 pipx install cryptolabs-proxy
 sudo cryptolabs-proxy setup
 ```
