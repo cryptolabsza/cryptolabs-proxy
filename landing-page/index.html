@@ -1232,8 +1232,16 @@
                     
                     let updateBtn = '';
                     if (!info.running) {
-                        // Service not running - offer deploy button
-                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
+                        // Service not running - check dependencies before offering deploy
+                        const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
+                        const prometheusUp = health['prometheus']?.running === true;
+                        const grafanaUp = health['grafana']?.running === true;
+                        
+                        if (isExporter && (!prometheusUp || !grafanaUp)) {
+                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Requires Prometheus and Grafana">Needs dc-overview</span>';
+                        } else {
+                            updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
+                        }
                     } else if (info.external) {
                         // External services (Grafana, Prometheus) - can update to :latest
                         // Note: Can't compare versions (no Docker Hub API integration)
@@ -1480,6 +1488,7 @@
                         branchTag = '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">external</span>';
                         detailsHtml = `<span style="color: var(--accent-cyan); font-size: 0.85em;">Waiting for heartbeats to watchdog</span>`;
                         actionsHtml = `
+                            <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy agents to all servers via SSH">🚀 Deploy to All</button>
                             <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">🔍 Dashboard</a>
                         `;
                         break;
@@ -1536,8 +1545,9 @@
                                 ${siteBreakdown}
                             `;
                             actionsHtml = `
-                                <a href="/dc/servers" class="btn btn-primary btn-small" title="Open Server Manager to update agents">
-                                    ⬆️ Update
+                                <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy/update agents on all servers via SSH">🚀 Deploy to All</button>
+                                <a href="/dc/servers" class="btn btn-secondary btn-small" title="Open Server Manager to manage individually">
+                                    ⚙️ Manage
                                 </a>
                             `;
                         } else {
@@ -1549,6 +1559,7 @@
                                 ${siteBreakdown}
                             `;
                             actionsHtml = `
+                                <button class="btn btn-secondary btn-small" onclick="deployWatchdogAgents()" title="Reinstall agents on all servers via SSH">🚀 Deploy to All</button>
                                 <a href="/auth/watchdog/sso" class="btn btn-secondary btn-small" title="Open DC Watchdog dashboard">
                                     🔍 Dashboard
                                 </a>
