@@ -1572,7 +1572,7 @@
                         break;
                     
                     case 'agents_offline':
-                        // Agents registered but none online
+                        // Agents registered but none online - need redeployment
                         cardClass = 'stopped';
                         const offlineAgents = status.agents || {};
                         const offlineVer = status.latest_version || '1.0.0';
@@ -1585,8 +1585,7 @@
                             <span style="color: var(--accent-yellow); font-size: 0.85em;">⚠️ All agents offline</span>
                         `;
                         actionsHtml = `
-                            <a href="/dc/servers" class="btn btn-primary btn-small" title="Open Server Manager to check agents">
-                                🔍 Manage
+                            <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents(this)" title="Redeploy agents to all servers via SSH">🚀 Deploy to All</button>
                             </a>
                         `;
                         break;
