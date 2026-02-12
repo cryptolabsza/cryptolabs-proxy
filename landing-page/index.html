@@ -1236,13 +1236,18 @@
                     
                     let updateBtn = '';
                     if (!info.running) {
-                        // Service not running - check dependencies before offering deploy
+                        // Service not running - only CryptoLabs services (proxy, dc-overview, ipmi-monitor)
+                        // can be deployed via the update API. Grafana/Prometheus are installed
+                        // via dc-overview setup (docker-compose), and exporters need Prometheus+Grafana first.
                         const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
+                        const isExternal = info.external;  // Grafana, Prometheus
                         const prometheusUp = serviceHealth['prometheus']?.running === true;
                         const grafanaUp = serviceHealth['grafana']?.running === true;
                         
-                        if (isExporter && (!prometheusUp || !grafanaUp)) {
-                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Requires Prometheus and Grafana">Needs dc-overview</span>';
+                        if (isExternal || (isExporter && (!prometheusUp || !grafanaUp))) {
+                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pip install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
+                        } else if (isExporter) {
+                            updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         } else {
                             updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         }
