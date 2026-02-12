@@ -773,7 +773,7 @@
                 path: '/ipmi/',
                 productUrl: 'https://www.cryptolabs.co.za/ipmi-monitor/',
                 docsUrl: 'https://www.cryptolabs.co.za/ipmi-monitor-support-documentation/',
-                installCommand: 'pip install ipmi-monitor && sudo ipmi-monitor setup',
+                installCommand: 'pipx install ipmi-monitor && sudo ipmi-monitor setup',
                 isCryptoLabs: true
             },
             'dc-overview': {
@@ -783,7 +783,7 @@
                 path: '/dc/',
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
-                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installCommand: 'pipx install dc-overview && sudo dc-overview setup',
                 isCryptoLabs: true
             },
             'grafana': {
@@ -794,8 +794,8 @@
                 path: '/grafana/',
                 productUrl: 'https://grafana.com/',
                 external: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview setup',
-                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview setup'
+                installCommand: 'pipx install dc-overview && sudo dc-overview setup',
+                installNote: 'Installed with dc-overview: pipx install dc-overview && sudo dc-overview setup'
             },
             'prometheus': {
                 displayName: 'Prometheus',
@@ -806,8 +806,8 @@
                 productUrl: 'https://prometheus.io/',
                 external: true,
                 authRequired: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview setup',
-                installNote: 'Installed with dc-overview: pip install dc-overview && sudo dc-overview setup'
+                installCommand: 'pipx install dc-overview && sudo dc-overview setup',
+                installNote: 'Installed with dc-overview: pipx install dc-overview && sudo dc-overview setup'
             },
             'runpod-exporter': {
                 displayName: 'RunPod Exporter',
@@ -818,7 +818,7 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installCommand: 'pipx install dc-overview && sudo dc-overview setup',
                 installNote: 'Deploy from this page, or via setup:',
                 deployable: true,
                 exporterName: 'runpod',
@@ -833,7 +833,7 @@
                 productUrl: 'https://www.cryptolabs.co.za/dc-overview/',
                 docsUrl: 'https://www.cryptolabs.co.za/dc-overview-support-documentation/',
                 isCryptoLabs: true,
-                installCommand: 'pip install dc-overview && sudo dc-overview setup',
+                installCommand: 'pipx install dc-overview && sudo dc-overview setup',
                 installNote: 'Deploy from this page, or via setup:',
                 deployable: true,
                 exporterName: 'vastai',
@@ -850,7 +850,7 @@
                 isCryptoLabs: true,
                 external: true,
                 requiresSubscription: true,
-                installNote: 'Enable via Fleet Management or: pip install dc-overview && sudo dc-overview setup',
+                installNote: 'Enable via Fleet Management or: pipx install dc-overview && sudo dc-overview setup',
                 // Dynamic status - will be updated by checkWatchdogStatus()
                 needsApiKey: true  // Default to needing setup, will be updated
             }
@@ -1265,7 +1265,7 @@
                         const grafanaUp = serviceHealth['grafana']?.running === true;
                         
                         if (isExternal || (isExporter && (!prometheusUp || !grafanaUp))) {
-                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pip install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
+                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pipx install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
                         } else if (isExporter) {
                             updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         } else {
