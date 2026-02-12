@@ -836,6 +836,9 @@
             }
         };
 
+        // Shared service health data - populated by loadServices(), used by loadVersions()
+        let serviceHealth = {};
+        
         async function loadServices() {
             const grid = document.getElementById('servicesGrid');
             const productsGrid = document.getElementById('availableProducts');
@@ -847,6 +850,7 @@
                     const response = await fetch('/api/services');
                     if (response.ok) {
                         health = await response.json();
+                        serviceHealth = health;  // Share with loadVersions()
                     }
                 } catch (e) {
                     // API not available, try Docker detection via local endpoint
@@ -1234,8 +1238,8 @@
                     if (!info.running) {
                         // Service not running - check dependencies before offering deploy
                         const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
-                        const prometheusUp = health['prometheus']?.running === true;
-                        const grafanaUp = health['grafana']?.running === true;
+                        const prometheusUp = serviceHealth['prometheus']?.running === true;
+                        const grafanaUp = serviceHealth['grafana']?.running === true;
                         
                         if (isExporter && (!prometheusUp || !grafanaUp)) {
                             updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Requires Prometheus and Grafana">Needs dc-overview</span>';

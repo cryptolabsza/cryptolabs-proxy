@@ -1350,8 +1350,8 @@ def create_flask_auth_app():
             _get_exporter_mgmt_token._cached = ''
             _get_exporter_mgmt_token._ts = 0
         
-        # Return cache if fresh (60s TTL)
-        if _get_exporter_mgmt_token._cached and (now - _get_exporter_mgmt_token._ts) < 60:
+        # Return cache if fresh (60s TTL) - cache empty string too to avoid repeated docker inspect
+        if (now - _get_exporter_mgmt_token._ts) < 60:
             return _get_exporter_mgmt_token._cached
         
         token = ''
@@ -1703,8 +1703,7 @@ def create_flask_auth_app():
                 html += '<td><code class="key-masked">' + keyMasked + '</code></td>';
                 html += '<td><span style="color:' + statusColor + ';">' + statusIcon + ' ' + status + '</span></td>';
                 html += '<td style="color:var(--text-secondary); font-size:0.85rem;">' + (details || '&mdash;') + '</td>';
-                var safeN = name.replace(/[^a-zA-Z0-9_-]/g, '');
-                html += '<td style="text-align:right;"><button class="btn btn-danger btn-sm" data-acct="' + safeN + '">Remove</button></td>';
+                html += '<td style="text-align:right;"><button class="btn btn-danger btn-sm" data-acct="' + name.replace(/"/g, '&quot;') + '">Remove</button></td>';
                 html += '</tr>';
             }
             html += '</tbody></table>';
