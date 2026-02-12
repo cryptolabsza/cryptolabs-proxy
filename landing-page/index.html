@@ -1474,7 +1474,7 @@
                         branchTag = '<span class="branch-tag" style="background: rgba(255, 193, 7, 0.2); color: #ffc107;">setup</span>';
                         detailsHtml = `<span style="color: var(--text-secondary); font-size: 0.85em;">API key configured, ready to deploy</span>`;
                         actionsHtml = `
-                            <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy agents to all servers via SSH">
+                            <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents(this)" title="Deploy agents to all servers via SSH">
                                 🚀 Deploy Agents
                             </button>
                         `;
@@ -1544,7 +1544,7 @@
                                 ${siteBreakdown}
                             `;
                             actionsHtml = `
-                                <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Update agents on all servers to latest version via SSH">⬆️ Update All</button>
+                                <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents(this)" title="Update agents on all servers to latest version via SSH">⬆️ Update All</button>
                             `;
                         } else {
                             detailsHtml = `
@@ -1647,8 +1647,7 @@
         }
 
         // Deploy DC Watchdog agents to all servers
-        async function deployWatchdogAgents() {
-            const btn = event.target;
+        async function deployWatchdogAgents(btn) {
             const originalText = btn.innerHTML;
             
             if (!confirm('Deploy DC Watchdog agents to all configured servers?\n\nThis will install the monitoring agent via SSH on each server.')) {
