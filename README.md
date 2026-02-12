@@ -257,7 +257,7 @@ Once DC Watchdog is enabled, you can deploy agents to all your servers:
 
 ## Changelog
 
-### v1.1.0 (Feb 2026) - DC Watchdog Integration
+### v1.1.1 (Feb 2026) - DC Watchdog Integration
 
 **SSO & Verification:**
 - First-time SSO verification enforcement (even with pre-configured API key)

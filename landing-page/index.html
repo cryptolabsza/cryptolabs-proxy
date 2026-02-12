@@ -667,6 +667,26 @@
     </style>
 </head>
 <body>
+    <script>
+      // Suppress console.log/debug in production builds
+      // Dev mode is detected from APP_VERSION env var (contains 'dev' for dev builds)
+      // Default to production (suppress); the version API check below will restore if dev
+      (function() {
+        var _origLog = console.log, _origDebug = console.debug;
+        window.__DEV__ = false;
+        console.log = function(){};
+        console.debug = function(){};
+        // Check build info to detect dev mode
+        fetch('/api/version').then(function(r) { return r.json(); }).then(function(d) {
+          var branch = (d.branch || '').toLowerCase();
+          if (branch === 'dev' || branch === 'develop' || branch === 'unknown' || (d.version || '').includes('dev')) {
+            window.__DEV__ = true;
+            console.log = _origLog;
+            console.debug = _origDebug;
+          }
+        }).catch(function(){});
+      })();
+    </script>
     <div class="container">
         <header>
             <div class="header-brand">
