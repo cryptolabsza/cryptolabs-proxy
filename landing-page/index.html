@@ -1545,10 +1545,7 @@
                                 ${siteBreakdown}
                             `;
                             actionsHtml = `
-                                <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Deploy/update agents on all servers via SSH">🚀 Deploy to All</button>
-                                <a href="/dc/servers" class="btn btn-secondary btn-small" title="Open Server Manager to manage individually">
-                                    ⚙️ Manage
-                                </a>
+                                <button class="btn btn-primary btn-small" onclick="deployWatchdogAgents()" title="Update agents on all servers to latest version via SSH">⬆️ Update All</button>
                             `;
                         } else {
                             detailsHtml = `
