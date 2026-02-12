@@ -1232,8 +1232,8 @@
                     
                     let updateBtn = '';
                     if (!info.running) {
-                        // Service not running - show deploy hint
-                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Deploy via dc-overview setup">Not deployed</span>';
+                        // Service not running - offer deploy button
+                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                     } else if (info.external) {
                         // External services (Grafana, Prometheus) - can update to :latest
                         // Note: Can't compare versions (no Docker Hub API integration)
