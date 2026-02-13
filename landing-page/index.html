@@ -1219,7 +1219,6 @@
                     if (name === '_settings') continue;
                     
                     const statusClass = info.running ? 'running' : 'stopped';
-                    const externalClass = info.external ? 'external' : '';
                     const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
                     // --- Version display ---
@@ -1253,7 +1252,6 @@
                     let updateBtn = '';
                     if (!info.running) {
                         const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
-                        const isExternal = info.external;
                         const prometheusUp = serviceHealth['prometheus']?.running === true;
                         const grafanaUp = serviceHealth['grafana']?.running === true;
                         
@@ -1274,7 +1272,7 @@
                     const selfBadge = info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">self</span>' : '';
                     
                     html += `
-                        <div class="version-card ${statusClass} ${externalClass}">
+                        <div class="version-card ${statusClass}">
                             <div class="version-info">
                                 <div class="service-name">
                                     ${displayName}

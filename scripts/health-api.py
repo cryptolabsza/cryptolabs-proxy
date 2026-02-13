@@ -39,8 +39,8 @@ SERVICES = {
     'cryptolabs-proxy': {'container': 'cryptolabs-proxy', 'port': 8080, 'image': 'ghcr.io/cryptolabsza/cryptolabs-proxy', 'self': True},
     'ipmi-monitor': {'container': 'ipmi-monitor', 'port': 5000, 'image': 'ghcr.io/cryptolabsza/ipmi-monitor'},
     'dc-overview': {'container': 'dc-overview', 'port': 5001, 'image': 'ghcr.io/cryptolabsza/dc-overview'},
-    'grafana': {'container': 'grafana', 'port': 3000, 'image': 'grafana/grafana', 'external': True},
-    'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus', 'external': True},
+    'grafana': {'container': 'grafana', 'port': 3000, 'image': 'grafana/grafana'},
+    'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus'},
     'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'ghcr.io/cryptolabsza/vastai-exporter'},
     'runpod-exporter': {'container': 'runpod-exporter', 'port': 8623, 'image': 'ghcr.io/cryptolabsza/runpod-exporter'},
 }
@@ -449,8 +449,8 @@ def update_container(container_name, service_config, target_branch='main'):
     is_self = service_config.get('self', False)
     tag = target_branch if target_branch in ['dev', 'main'] else 'latest'
     
-    # For external images, always use latest
-    if service_config.get('external'):
+    # Default to latest for all images
+    if not tag or tag == 'main':
         tag = 'latest'
     
     full_image = f"{image}:{tag}"
@@ -544,7 +544,6 @@ def get_all_service_status(include_versions=False):
             'container': container,
             'port': config['port'],
             'image': config.get('image', ''),
-            'external': config.get('external', False),
             'self': config.get('self', False),
         }
         
@@ -574,7 +573,6 @@ def get_all_versions():
             'container': container,
             'running': running,
             'image': config.get('image', ''),
-            'external': config.get('external', False),
             'self': config.get('self', False),
         }
         
@@ -763,16 +761,13 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             results = {}
             
             if service == 'all':
-                # Update all services (including external like Grafana/Prometheus)
+                # Update all services
                 for name, config in SERVICES.items():
                     if config.get('self'):
                         # Handle self-update last
                         continue
-                    # For external services, we pull :latest (no branch suffix)
-                    if config.get('external'):
-                        success, msg = update_container(name, config, 'latest')
-                    else:
-                        success, msg = update_container(name, config, target_branch)
+                    tag = 'dev' if target_branch == 'dev' else 'latest'
+                    success, msg = update_container(name, config, tag)
                     results[name] = {'success': success, 'message': msg}
                 
                 # Handle proxy self-update last (if requested)
@@ -787,13 +782,9 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             
             elif service in SERVICES:
                 config = SERVICES[service]
-                if config.get('external'):
-                    # External services use :latest tag
-                    success, msg = update_container(service, config, 'latest')
-                    results[service] = {'success': success, 'message': msg}
-                else:
-                    success, msg = update_container(service, config, target_branch)
-                    results[service] = {'success': success, 'message': msg}
+                tag = 'dev' if target_branch == 'dev' else 'latest'
+                success, msg = update_container(service, config, tag)
+                results[service] = {'success': success, 'message': msg}
             
             else:
                 self.send_json({'error': f'Unknown service: {service}'}, 400)
@@ -815,10 +806,7 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
                     continue
                 
                 config = SERVICES[name]
-                if config.get('external'):
-                    tag = 'latest'
-                else:
-                    tag = target_branch if target_branch in ['dev', 'main'] else 'latest'
+                tag = 'dev' if target_branch == 'dev' else 'latest'
                 
                 image = config.get('image', '')
                 if image:

@@ -1,6 +1,6 @@
 """CryptoLabs Proxy - Unified reverse proxy for CryptoLabs products."""
 
-__version__ = "1.1.6"
+__version__ = "1.1.7"
 
 # Export programmatic setup API
 from .setup import (
