@@ -1188,8 +1188,9 @@
                     const version = data.version || 'dev';
                     const buildDate = data.build_date || '';
                     const dateStr = buildDate ? `, ${buildDate}` : '';
+                    const vPrefix = version.startsWith('v') ? '' : 'v';
                     document.getElementById('buildInfo').textContent = 
-                        `Fleet Management v${version}${dateStr}`;
+                        `Fleet Management ${vPrefix}${version}${dateStr}`;
                 }
             } catch (e) {
                 document.getElementById('buildInfo').textContent = 'Fleet Management (dev build)';
@@ -1261,11 +1262,6 @@
                         } else {
                             updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         }
-                    } else if (info.external) {
-                        // External images (Grafana, Prometheus) - just a discreet refresh
-                        updateBtn = `
-                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image - safe, data preserved" style="opacity: 0.6; font-size: 0.75em;">🔄 Refresh</button>
-                        `;
                     } else if (!tagMatches) {
                         // Tag mismatch (e.g. running :dev but target is main/latest)
                         updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch from :${currentTag} to :${expectedTag}">⬆️ Update</button>`;
