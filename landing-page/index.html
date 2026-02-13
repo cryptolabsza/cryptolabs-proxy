@@ -1186,11 +1186,10 @@
                 if (response.ok) {
                     const data = await response.json();
                     const version = data.version || 'dev';
-                    const branch = data.branch || 'unknown';
-                    const commit = data.commit ? data.commit.substring(0, 7) : 'unknown';
-                    const buildDate = data.build_date || 'unknown';
+                    const buildDate = data.build_date || '';
+                    const dateStr = buildDate ? `, ${buildDate}` : '';
                     document.getElementById('buildInfo').textContent = 
-                        `Fleet Management v${version} (${branch}@${commit}, ${buildDate})`;
+                        `Fleet Management v${version}${dateStr}`;
                 }
             } catch (e) {
                 document.getElementById('buildInfo').textContent = 'Fleet Management (dev build)';
@@ -1220,84 +1219,70 @@
                     
                     const statusClass = info.running ? 'running' : 'stopped';
                     const externalClass = info.external ? 'external' : '';
-                    const branchClass = info.branch === 'dev' ? 'dev' : 'main';
-                    const branchLabel = info.branch || 'unknown';
-                    
                     const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
-                    // Build version display with commit and build time
+                    // --- Version display ---
+                    // Show OCI version label (e.g. "v1.1.7") if available, else just the tag
                     let versionText = '';
                     let detailsText = '';
                     if (info.running) {
+                        // Prefer OCI version label, fallback to tag
+                        const ver = info.version && info.version !== 'unknown' && info.version !== info.tag ? info.version : '';
                         versionText = info.tag || 'latest';
-                        // Show commit if available
-                        if (info.commit && info.commit !== 'unknown' && info.commit !== '') {
-                            detailsText += `<span class="version-commit" title="Git commit">📦 ${info.commit}</span>`;
+                        if (ver) {
+                            versionText = `<span class="branch-tag" style="background: rgba(0,212,255,0.2); color: var(--accent-cyan);">${ver}</span> ${info.tag || 'latest'}`;
                         }
-                        // Show build time if available
+                        // Build time only (skip commit hash - not useful for users)
                         if (info.build_time && info.build_time !== 'unknown' && info.build_time !== '') {
-                            detailsText += `<span class="version-build" title="Build date">🕐 ${info.build_time}</span>`;
+                            detailsText = `<span class="version-build" title="Build date">🕐 ${info.build_time}</span>`;
                         }
                     } else {
                         versionText = 'Not running';
                     }
                     
-                    // Update button - only show if branch mismatch or not our container
+                    // --- Update logic ---
+                    // Simple: compare the Docker image TAG against target.
+                    // Target "main" means containers should be on ":latest" tag.
+                    // Target "dev" means containers should be on ":dev" tag.
                     const targetBranch = settings.target_branch || 'main';
-                    const currentBranch = info.branch || '';
-                    
-                    // Normalize branch names - treat 'latest' as 'main'
-                    // Normalize branch names: 'latest', '', and version tags (v1.x.x) all map to 'main'
-                    const isVersionTag = (b) => /^v?\d+\.\d+/.test(b);
-                    const normalizedCurrent = (currentBranch === 'latest' || currentBranch === '' || isVersionTag(currentBranch)) ? 'main' : currentBranch;
-                    const normalizedTarget = (targetBranch === 'latest' || isVersionTag(targetBranch)) ? 'main' : targetBranch;
-                    
-                    // Check if update is needed - only when we know the branch and it differs
-                    const branchKnown = currentBranch && currentBranch !== 'unknown' && currentBranch !== '';
-                    const needsUpdate = branchKnown && normalizedCurrent !== normalizedTarget;
+                    const currentTag = info.tag || '';
+                    const expectedTag = targetBranch === 'dev' ? 'dev' : 'latest';
+                    const tagMatches = currentTag === expectedTag || currentTag === targetBranch;
                     
                     let updateBtn = '';
                     if (!info.running) {
-                        // Service not running - only CryptoLabs services (proxy, dc-overview, ipmi-monitor)
-                        // can be deployed via the update API. Grafana/Prometheus are installed
-                        // via dc-overview setup (docker-compose), and exporters need Prometheus+Grafana first.
                         const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
-                        const isExternal = info.external;  // Grafana, Prometheus
+                        const isExternal = info.external;
                         const prometheusUp = serviceHealth['prometheus']?.running === true;
                         const grafanaUp = serviceHealth['grafana']?.running === true;
                         
                         if (isExternal || (isExporter && (!prometheusUp || !grafanaUp))) {
                             updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pipx install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
-                        } else if (isExporter) {
-                            updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         } else {
                             updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
                         }
                     } else if (info.external) {
-                        // External services (Grafana, Prometheus) - can update to :latest
-                        // Note: Can't compare versions (no Docker Hub API integration)
-                        // Don't count towards updatableCount - we can't know if they need updating
+                        // External images (Grafana, Prometheus) - just a discreet refresh
                         updateBtn = `
-                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image from Docker Hub - safe, data preserved">⬆️ Update</button>
-                            <span style="color: var(--text-muted); font-size: 0.7em; margin-left: 4px;" title="External image - can't check if newer version exists. Safe to click: pulls latest image and restarts container. Your data (dashboards, settings) is preserved in Docker volumes.">ℹ️</span>
+                            <button class="btn btn-secondary btn-small" onclick="updateService('${name}')" title="Pull latest image - safe, data preserved" style="opacity: 0.6; font-size: 0.75em;">🔄 Refresh</button>
                         `;
-                    } else if (needsUpdate) {
-                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch to ${targetBranch} branch">⬆️ Update</button>`;
-                        updatableCount++;  // This service can be updated
-                    } else if (!branchKnown) {
-                        // Branch unknown - show refresh option
-                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">🔄 Unknown</span>';
+                    } else if (!tagMatches) {
+                        // Tag mismatch (e.g. running :dev but target is main/latest)
+                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch from :${currentTag} to :${expectedTag}">⬆️ Update</button>`;
+                        updatableCount++;
                     } else {
                         updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Up to date</span>';
                     }
+                    
+                    // Self badge for proxy
+                    const selfBadge = info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">self</span>' : '';
                     
                     html += `
                         <div class="version-card ${statusClass} ${externalClass}">
                             <div class="version-info">
                                 <div class="service-name">
                                     ${displayName}
-                                    ${info.running ? `<span class="branch-tag ${branchClass}">${branchLabel}</span>` : ''}
-                                    ${info.self ? '<span class="branch-tag" style="background: rgba(0, 212, 255, 0.2); color: var(--accent-cyan);">self</span>' : ''}
+                                    ${selfBadge}
                                 </div>
                                 <div class="version-details">
                                     <span class="version-tag">${versionText}</span>
