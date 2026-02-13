@@ -455,7 +455,7 @@ def setup_proxy(
         
         # Pull latest image
         subprocess.run(
-            ["docker", "pull", "ghcr.io/cryptolabsza/cryptolabs-proxy:dev"],
+            ["docker", "pull", "ghcr.io/cryptolabsza/cryptolabs-proxy:latest"],
             capture_output=True, timeout=120
         )
         
@@ -479,7 +479,7 @@ def setup_proxy(
             "--network", DOCKER_NETWORK_NAME,
             "--ip", PROXY_STATIC_IP,
             "--label", "com.centurylinklabs.watchtower.enable=true",
-            "ghcr.io/cryptolabsza/cryptolabs-proxy:dev"
+            "ghcr.io/cryptolabsza/cryptolabs-proxy:latest"
         ]
         
         # Save internal API token to shared volume so other containers can read it
@@ -602,7 +602,7 @@ def update_proxy_credentials(
         "--network", DOCKER_NETWORK_NAME,
         "--ip", PROXY_STATIC_IP,
         "--label", "com.centurylinklabs.watchtower.enable=true",
-        "ghcr.io/cryptolabsza/cryptolabs-proxy:dev"
+        "ghcr.io/cryptolabsza/cryptolabs-proxy:latest"
     ]
     
     _save_internal_token(internal_api_token)
