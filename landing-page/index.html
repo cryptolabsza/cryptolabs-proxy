@@ -1247,8 +1247,10 @@
                     const currentBranch = info.branch || '';
                     
                     // Normalize branch names - treat 'latest' as 'main'
-                    const normalizedCurrent = (currentBranch === 'latest' || currentBranch === '') ? 'main' : currentBranch;
-                    const normalizedTarget = targetBranch === 'latest' ? 'main' : targetBranch;
+                    // Normalize branch names: 'latest', '', and version tags (v1.x.x) all map to 'main'
+                    const isVersionTag = (b) => /^v?\d+\.\d+/.test(b);
+                    const normalizedCurrent = (currentBranch === 'latest' || currentBranch === '' || isVersionTag(currentBranch)) ? 'main' : currentBranch;
+                    const normalizedTarget = (targetBranch === 'latest' || isVersionTag(targetBranch)) ? 'main' : targetBranch;
                     
                     // Check if update is needed - only when we know the branch and it differs
                     const branchKnown = currentBranch && currentBranch !== 'unknown' && currentBranch !== '';
