@@ -1255,7 +1255,7 @@
                         const prometheusUp = serviceHealth['prometheus']?.running === true;
                         const grafanaUp = serviceHealth['grafana']?.running === true;
                         
-                        if (isExternal || (isExporter && (!prometheusUp || !grafanaUp))) {
+                        if (isExporter && (!prometheusUp || !grafanaUp)) {
                             updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pipx install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
                         } else {
                             updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
