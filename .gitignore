@@ -55,3 +55,6 @@ ssl/
 *.pem
 *.crt
 *.key
+
+# ffmpeg artifacts
+ffmpeg2pass-*.log*
