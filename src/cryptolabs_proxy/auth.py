@@ -1338,9 +1338,9 @@ def create_flask_auth_app():
     def _get_exporter_mgmt_token() -> str:
         """Get the exporter management API token.
         
-        Checks multiple sources (in order):
-        1. Local file written by exporter_manager (Fleet Management UI deploy)
-        2. Running exporter container env var (fleet_manager.py / dc-overview deploy)
+        The container env var is the source of truth (set by whoever deployed
+        the exporter — either fleet_manager.py or exporter_manager.py).
+        Docker inspect is checked first; local file is only a fallback.
         
         Result is cached for 60s to avoid repeated docker inspect calls.
         """
@@ -1350,45 +1350,46 @@ def create_flask_auth_app():
             _get_exporter_mgmt_token._cached = ''
             _get_exporter_mgmt_token._ts = 0
         
-        # Return cache if fresh (60s TTL) - cache empty string too to avoid repeated docker inspect
+        # Return cache if fresh (60s TTL)
         if (now - _get_exporter_mgmt_token._ts) < 60:
             return _get_exporter_mgmt_token._cached
         
         token = ''
         
-        # Source 1: local file (written by exporter_manager._generate_mgmt_token)
-        token_file = DATA_DIR / 'exporter-mgmt-token'
-        try:
-            if token_file.exists():
-                token = token_file.read_text().strip()
-        except Exception:
-            pass
+        # Source 1 (truth): read MGMT_TOKEN from a running exporter container
+        for container in ('vastai-exporter', 'runpod-exporter'):
+            try:
+                import subprocess as _sp
+                result = _sp.run(
+                    ["docker", "inspect", "--format",
+                     "{{range .Config.Env}}{{println .}}{{end}}", container],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split('\n'):
+                        if line.startswith('MGMT_TOKEN='):
+                            token = line.split('=', 1)[1]
+                            # Persist to file so it stays in sync
+                            try:
+                                token_file = DATA_DIR / 'exporter-mgmt-token'
+                                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                                token_file.write_text(token)
+                            except Exception:
+                                pass
+                            break
+                if token:
+                    break
+            except Exception:
+                pass
         
-        # Source 2: read MGMT_TOKEN from a running exporter container
+        # Source 2 (fallback): local file (if no exporter containers are running)
         if not token:
-            for container in ('vastai-exporter', 'runpod-exporter'):
-                try:
-                    import subprocess as _sp
-                    result = _sp.run(
-                        ["docker", "inspect", "--format",
-                         "{{range .Config.Env}}{{println .}}{{end}}", container],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    if result.returncode == 0:
-                        for line in result.stdout.strip().split('\n'):
-                            if line.startswith('MGMT_TOKEN='):
-                                token = line.split('=', 1)[1]
-                                # Persist it so future lookups hit source 1
-                                try:
-                                    DATA_DIR.mkdir(parents=True, exist_ok=True)
-                                    token_file.write_text(token)
-                                except Exception:
-                                    pass
-                                break
-                    if token:
-                        break
-                except Exception:
-                    pass
+            token_file = DATA_DIR / 'exporter-mgmt-token'
+            try:
+                if token_file.exists():
+                    token = token_file.read_text().strip()
+            except Exception:
+                pass
         
         _get_exporter_mgmt_token._cached = token
         _get_exporter_mgmt_token._ts = now
