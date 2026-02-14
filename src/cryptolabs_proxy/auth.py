@@ -911,7 +911,8 @@ def create_flask_auth_app():
                                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                             </form>
                             {% else %}
-                            <span style="color: var(--text-secondary);">(current user)</span>
+                            <a href="/auth/change-password" class="btn btn-secondary btn-sm" title="Change your password">🔑 Change Password</a>
+                            <span style="color: var(--text-secondary); margin-left: 4px;">(you)</span>
                             {% endif %}
                         </td>
                     </tr>
