@@ -2264,13 +2264,29 @@ def create_flask_auth_app():
 # =============================================================================
 
 def ensure_default_user():
-    """Ensure at least one user exists."""
+    """Ensure at least one user exists, and sync admin password from env if changed.
+    
+    On fresh install: creates admin user from FLEET_ADMIN_PASS env var.
+    On redeploy with persistent volume: if FLEET_ADMIN_PASS env var differs
+    from the stored hash, update the password. This handles the case where
+    fleet-auth-data volume survives cleanup and contains stale credentials.
+    """
+    default_user = os.environ.get('FLEET_ADMIN_USER', 'admin')
+    default_pass = os.environ.get('FLEET_ADMIN_PASS')
+    
     if not user_exists():
-        # Check for environment variables
-        default_user = os.environ.get('FLEET_ADMIN_USER', 'admin')
-        default_pass = os.environ.get('FLEET_ADMIN_PASS')
-        
+        # Fresh install - create admin from env vars
         if default_pass:
             create_user(default_user, default_pass, 'admin')
+            return True
+    elif default_pass:
+        # Volume persisted from previous deploy - sync password if env var changed
+        users = load_users()
+        admin = users.get(default_user)
+        if admin and not check_password_hash(admin['password_hash'], default_pass):
+            # Env var password differs from stored hash - update it
+            users[default_user]['password_hash'] = generate_password_hash(default_pass)
+            users[default_user]['require_password_change'] = False
+            save_users(users)
             return True
     return False
