@@ -49,6 +49,7 @@ Thumbs.db
 *.local
 .env
 .env.*
+!.env.example
 
 # SSL certs (generated)
 ssl/
