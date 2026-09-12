@@ -31,6 +31,11 @@ def generate_nginx_config(config_dir: Path, domain: str, letsencrypt: bool = Fal
     (config_dir / "nginx.conf").write_text(content)
 
 
+def render_vpm_fragment() -> str:
+    """Render the exact VPM route shared by generated and custom configs."""
+    return get_jinja_env().get_template("vast-price-manager.conf.j2").render()
+
+
 def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencrypt: bool = False):
     """Generate docker-compose.yml from template."""
     env = get_jinja_env()

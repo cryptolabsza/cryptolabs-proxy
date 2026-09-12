@@ -11,13 +11,16 @@ import socketserver
 import threading
 import os
 import re
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, parse_qs
+from urllib.request import Request, urlopen
 from pathlib import Path
 
 PORT = 8080
 BUILD_INFO_FILE = '/app/BUILD_INFO'
 SETTINGS_FILE = '/data/auth/update-settings.json'
 SHARED_CONFIG_FILE = '/data/auth/shared-config.json'
+VPM_READY_URL = 'http://vast-price-manager:8088/readyz'
 
 # Internal Docker network subnet - only allow requests from this range
 INTERNAL_NETWORK = '172.30.'
@@ -42,6 +45,15 @@ SERVICES = {
     'grafana': {'container': 'grafana', 'port': 3000, 'image': 'grafana/grafana'},
     'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus'},
     'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'ghcr.io/cryptolabsza/vastai-exporter'},
+    # The optional VPM service is installed and lifecycle-managed by
+    # dc-overview.  The proxy only reports its status and proxies its UI.
+    'vast-price-manager': {
+        'container': 'vast-price-manager',
+        'port': 8088,
+        'image': '',
+        'lifecycle_manager': 'dc-overview',
+        'update_supported': False,
+    },
     'runpod-exporter': {'container': 'runpod-exporter', 'port': 8623, 'image': 'ghcr.io/cryptolabsza/runpod-exporter'},
 }
 
@@ -229,6 +241,67 @@ def check_container_running(container_name):
         return result.stdout.strip() == 'true'
     except:
         return False
+
+
+def get_vast_price_manager_allowed_host():
+    """Read only VPM's non-secret public-host setting from Docker inspect."""
+    try:
+        result = subprocess.run(
+            ['docker', 'inspect', '--format', '{{range .Config.Env}}{{println .}}{{end}}', 'vast-price-manager'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        for env_line in result.stdout.splitlines():
+            if env_line.startswith('VPM_ALLOWED_HOSTS='):
+                host = env_line.split('=', 1)[1].split(',', 1)[0].strip()
+                return host or None
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def get_vast_price_manager_docker_health():
+    """Return Docker's VPM healthcheck result without treating running as healthy."""
+    try:
+        result = subprocess.run(
+            ['docker', 'inspect', 'vast-price-manager'], capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        return data[0].get('State', {}).get('Health', {}).get('Status') if data else None
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, IndexError):
+        return None
+
+
+def get_vast_price_manager_readiness():
+    """Report VPM account setup separately from Docker liveness.
+
+    VPM's Docker healthcheck uses ``/healthz``.  Its ``/readyz`` endpoint is
+    surfaced for Fleet status only, so an unconfigured account never creates a
+    liveness restart loop.
+    """
+    allowed_host = get_vast_price_manager_allowed_host()
+    if not allowed_host:
+        return 'unavailable'
+    try:
+        request = Request(VPM_READY_URL, headers={'Host': allowed_host})
+        with urlopen(request, timeout=2) as response:
+            return 'ready' if response.status == 200 else 'unavailable'
+    except HTTPError as error:
+        return 'unconfigured' if error.code == 503 else 'unavailable'
+    except (URLError, OSError, TimeoutError):
+        return 'unavailable'
+
+
+def service_action_error(service_name):
+    """Return an error when lifecycle is owned outside generic proxy updates."""
+    config = SERVICES.get(service_name, {})
+    if config.get('update_supported') is False:
+        display_name = 'Vast Price Manager' if service_name == 'vast-price-manager' else service_name
+        return f"{display_name} lifecycle is managed by {config['lifecycle_manager']}."
+    return None
 
 
 def get_container_version(container_name):
@@ -546,6 +619,21 @@ def get_all_service_status(include_versions=False):
             'image': config.get('image', ''),
             'self': config.get('self', False),
         }
+
+        if config.get('lifecycle_manager'):
+            service_info['lifecycle_manager'] = config['lifecycle_manager']
+            service_info['update_supported'] = config.get('update_supported', True)
+
+        if name == 'vast-price-manager':
+            readiness = get_vast_price_manager_readiness() if running else 'not-installed'
+            docker_health = get_vast_price_manager_docker_health() if running else None
+            service_info.update({
+                'healthy': docker_health == 'healthy',
+                'docker_health': docker_health,
+                'readiness': readiness,
+                'configured': readiness == 'ready',
+                'state': 'running' if readiness == 'ready' else readiness,
+            })
         
         if include_versions and running:
             version_info = get_container_version(container)
@@ -575,6 +663,9 @@ def get_all_versions():
             'image': config.get('image', ''),
             'self': config.get('self', False),
         }
+        if config.get('lifecycle_manager'):
+            version_info['lifecycle_manager'] = config['lifecycle_manager']
+            version_info['update_supported'] = config.get('update_supported', True)
         
         if running:
             v = get_container_version(container)
@@ -763,6 +854,8 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             if service == 'all':
                 # Update all services
                 for name, config in SERVICES.items():
+                    if service_action_error(name):
+                        continue
                     if config.get('self'):
                         # Handle self-update last
                         continue
@@ -781,6 +874,10 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
                 results[service] = {'success': success, 'message': msg}
             
             elif service in SERVICES:
+                action_error = service_action_error(service)
+                if action_error:
+                    self.send_json({'error': action_error}, 400)
+                    return
                 config = SERVICES[service]
                 tag = 'dev' if target_branch == 'dev' else 'latest'
                 success, msg = update_container(service, config, tag)
@@ -804,6 +901,13 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
                 if name not in SERVICES:
                     results[name] = {'success': False, 'message': 'Unknown service'}
                     continue
+
+                action_error = service_action_error(name)
+                if action_error:
+                    if service == 'all':
+                        continue
+                    self.send_json({'error': action_error}, 400)
+                    return
                 
                 config = SERVICES[name]
                 tag = 'dev' if target_branch == 'dev' else 'latest'

@@ -839,6 +839,16 @@
                 exporterName: 'vastai',
                 keyPlaceholder: 'Your Vast.ai API Key'
             },
+            'vast-price-manager': {
+                displayName: 'Vast Price Manager',
+                icon: '💰',
+                description: 'Optional pricing-management service for Vast. It keeps its own login, CSRF protection, and password reauthentication.',
+                path: '/vast-pricing/',
+                productUrl: 'https://github.com/cryptolabsza/vast-price-manager',
+                isCryptoLabs: true,
+                installNote: 'Install and manage this service from the Vast setup in Server Manager. Fleet access is restricted to administrators.',
+                lifecycleManager: 'dc-overview'
+            },
             'dc-watchdog': {
                 displayName: 'DC Watchdog',
                 icon: '<svg style="width:20px;height:20px;vertical-align:middle;" viewBox="0 0 64 64" fill="none"><path d="M32 4 L56 14 L56 32 C56 48 32 60 32 60 C32 60 8 48 8 32 L8 14 Z" fill="#00b4d8"/><circle cx="32" cy="32" r="14" fill="none" stroke="white" stroke-width="2.5"/><circle cx="32" cy="32" r="2" fill="white"/><line x1="32" y1="32" x2="32" y2="23" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="32" y1="32" x2="40" y2="32" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
@@ -900,6 +910,7 @@
                 for (const [key, service] of Object.entries(DEFAULT_SERVICES)) {
                     const serviceHealth = health[key] || {};
                     const isRunning = serviceHealth.running === true;
+                    const isUnconfigured = serviceHealth.state === 'unconfigured';
                     const isExternalUrl = service.externalUrl ? true : false;
                     
                     // Determine if this service belongs in "Services" or "Available Products"
@@ -912,7 +923,7 @@
                     
                     if (isRunning || (isExternalUrl && isConfigured && !service.needsApiKey)) {
                         runningCount++;
-                        runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : 'running', health);
+                        runningHtml += renderServiceCard(key, service, isExternalUrl ? 'external' : (isUnconfigured ? 'unconfigured' : 'running'), health);
                     } else {
                         availableHtml += renderServiceCard(key, service, isRunning ? 'running' : 'not-installed', health);
                     }
@@ -947,6 +958,10 @@
                 statusClass = 'running';
                 statusText = 'Running';
                 statusDot = 'running';
+            } else if (status === 'unconfigured') {
+                statusClass = 'not-installed';
+                statusText = 'Setup Required';
+                statusDot = 'not-installed';
             } else {
                 statusClass = 'not-installed';
                 statusText = 'Not Installed';
@@ -956,7 +971,7 @@
             let actions = '';
             let installSection = '';
             
-            if (status === 'running' || status === 'external') {
+            if (status === 'running' || status === 'unconfigured' || status === 'external') {
                 // Active service - show Open button
                 const openUrl = service.externalUrl || service.path;
                 const target = service.externalUrl ? ' target="_blank"' : '';
@@ -1250,7 +1265,9 @@
                     const tagMatches = currentTag === expectedTag || currentTag === targetBranch;
                     
                     let updateBtn = '';
-                    if (!info.running) {
+                    if (info.lifecycle_manager) {
+                        updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;" title="Managed by ${info.lifecycle_manager}">Managed by Server Manager</span>`;
+                    } else if (!info.running) {
                         const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
                         const prometheusUp = serviceHealth['prometheus']?.running === true;
                         const grafanaUp = serviceHealth['grafana']?.running === true;

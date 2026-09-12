@@ -1442,6 +1442,20 @@ def create_flask_auth_app():
             return response
         
         return '', 401
+
+    @app.route('/auth/vast-price-manager/authorize')
+    def authorize_vast_price_manager():
+        """Authorize the Fleet administrator-only VPM proxy route.
+
+        This endpoint is used only by Nginx's internal ``auth_request``
+        subrequest.  It reads the signed-in Flask session and deliberately
+        ignores incoming role headers, which a client could forge.
+        """
+        if not session.get('logged_in') or session.get('require_password_change'):
+            return '', 401
+        if session.get('role') != 'admin':
+            return '', 403
+        return '', 204
     
     # API endpoints for programmatic access
     @app.route('/auth/api/users', methods=['GET'])

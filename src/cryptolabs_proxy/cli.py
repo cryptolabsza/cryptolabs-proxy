@@ -1,6 +1,9 @@
 """CryptoLabs Proxy CLI - Setup and manage the unified reverse proxy."""
 
 import click
+import copy
+from contextlib import contextmanager
+import fcntl
 import os
 import subprocess
 import sys
@@ -14,9 +17,21 @@ import yaml
 
 from . import __version__
 from .config import CONFIG_DIR, get_jinja_env, generate_nginx_config, generate_docker_compose
-from .services import ServiceRegistry
+from .custom_config import (
+    CustomConfigError,
+    custom_config_settings,
+    ensure_vpm_only_change,
+    load_verified_baseline,
+    render_managed_vpm_config,
+)
+from .services import DEFAULT_SERVICES, ServiceRegistry
 
 console = Console()
+
+# A registry mutation can invoke the proxy container, but each command is
+# bounded so a stalled Docker daemon cannot indefinitely block other lifecycle
+# operations waiting for the registry lock.
+NGINX_COMMAND_TIMEOUT = 15
 
 custom_style = questionary.Style([
     ('qmark', 'fg:cyan bold'),
@@ -88,6 +103,140 @@ def get_local_ip() -> str:
     except:
         pass
     return "127.0.0.1"
+
+
+def validate_nginx_config():
+    """Validate the mounted proxy configuration before asking Nginx to reload."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "cryptolabs-proxy", "nginx", "-t"],
+            capture_output=True,
+            text=True,
+            timeout=NGINX_COMMAND_TIMEOUT,
+        )
+        return result.returncode == 0, result.stderr or result.stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, str(error)
+
+
+def reload_nginx_config():
+    """Reload Nginx and return its output to the caller."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "cryptolabs-proxy", "nginx", "-s", "reload"],
+            capture_output=True,
+            text=True,
+            timeout=NGINX_COMMAND_TIMEOUT,
+        )
+        return result.returncode == 0, result.stderr or result.stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, str(error)
+
+
+def proxy_uses_generated_config(config_path: Path) -> bool:
+    """Confirm the active container sees exactly the generated host config.
+
+    The image's bundled nginx.conf is a bootstrap configuration. Lifecycle
+    registration is supported only for deployments that mount the generated
+    config into /etc/nginx/nginx.conf; otherwise a reload would not change the
+    active routes.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "exec", "cryptolabs-proxy", "cat", "/etc/nginx/nginx.conf"],
+            capture_output=True,
+            text=True,
+            timeout=NGINX_COMMAND_TIMEOUT,
+        )
+        return result.returncode == 0 and config_path.read_text() == result.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+@contextmanager
+def registry_lock(config_dir: Path):
+    """Serialize lifecycle changes to one generated proxy configuration.
+
+    The lock deliberately covers registry loading through validation, reload,
+    and rollback. Docker calls made during that interval use a timeout so a
+    competing install or disable action is never held behind an unbounded
+    command.
+    """
+    config_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = config_dir / ".registry.lock"
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _snapshot_files(paths):
+    return {path: path.read_bytes() if path.exists() else None for path in paths}
+
+
+def _restore_files(snapshot):
+    for path, content in snapshot.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+
+
+def apply_registry_change(registry: ServiceRegistry, services: dict):
+    """Persist, validate, and reload a registry mutation with file rollback.
+
+    The route remains active until Nginx successfully reloads. If validation or
+    reload fails, registry/settings/config files are restored; a failed reload
+    also triggers an old-config reload attempt to make the active state match
+    the restored files.
+    """
+    nginx_path = registry.config_dir / "nginx.conf"
+    snapshot = _snapshot_files([registry.services_file, registry.config_file, nginx_path])
+    try:
+        if custom_config_settings(registry.config):
+            ensure_vpm_only_change(registry.services, services)
+            baseline = load_verified_baseline(registry.config)
+            rendered_config = render_managed_vpm_config(
+                baseline,
+                enabled="vast-price-manager" in services,
+            )
+        else:
+            rendered_config = None
+        registry.services = services
+        registry.save()
+        if rendered_config is None:
+            generate_nginx_config(
+                registry.config_dir,
+                domain=registry.config.get("domain", get_local_ip()),
+                letsencrypt=registry.config.get("letsencrypt", False),
+                services=registry.services,
+            )
+        else:
+            nginx_path.write_bytes(rendered_config)
+        if not proxy_uses_generated_config(nginx_path):
+            raise RuntimeError(
+                "Proxy is not using the generated /etc/cryptolabs-proxy/nginx.conf; "
+                "route change was not applied."
+            )
+        valid, validation_output = validate_nginx_config()
+        if not valid:
+            raise RuntimeError(f"Nginx configuration validation failed: {validation_output.strip()}")
+        reloaded, reload_output = reload_nginx_config()
+        if reloaded:
+            return True, ""
+
+        _restore_files(snapshot)
+        rollback_ok, rollback_output = reload_nginx_config()
+        detail = f"Nginx reload failed: {reload_output.strip()}"
+        if not rollback_ok:
+            detail += f"; rollback reload also failed: {rollback_output.strip()}"
+        return False, detail
+    except (OSError, RuntimeError, CustomConfigError) as error:
+        _restore_files(snapshot)
+        return False, str(error)
 
 
 # Docker network subnet for UFW rules
@@ -385,34 +534,51 @@ def setup():
 def register(service_name, container_name, path, port, display_name, icon, description):
     """Register a service with the proxy."""
     check_root()
-    
-    registry = ServiceRegistry(CONFIG_DIR)
-    
-    if path is None:
-        path = f"/{service_name}/"
-    
-    registry.add_service(
-        name=service_name,
-        container_name=container_name,
-        path=path,
-        port=port,
-        display_name=display_name or service_name.replace("-", " ").title(),
-        icon=icon,
-        description=description
-    )
-    
-    # Regenerate nginx config
-    generate_nginx_config(
-        CONFIG_DIR,
-        domain=registry.config.get("domain", get_local_ip()),
-        letsencrypt=registry.config.get("letsencrypt", False),
-        services=registry.services
-    )
-    
-    # Reload nginx
-    subprocess.run(["docker", "exec", "cryptolabs-proxy", "nginx", "-s", "reload"], capture_output=True)
-    
+    with registry_lock(CONFIG_DIR):
+        registry = ServiceRegistry(CONFIG_DIR)
+
+        if path is None:
+            path = f"/{service_name}/"
+        services = copy.deepcopy(registry.services)
+        service = copy.deepcopy(services.get(service_name, {}))
+        defaults = DEFAULT_SERVICES.get(service_name, {})
+        service.update({
+            "container_name": container_name,
+            "path": path,
+            "port": port,
+            "display_name": display_name or defaults.get("display_name") or service_name.replace("-", " ").title(),
+            "icon": icon if icon != "🔧" else defaults.get("icon", icon),
+            "description": description or defaults.get("description", ""),
+        })
+        # VPM registration is intentionally narrow: the route fragment has one
+        # fixed container/path/port contract, so retain every canonical field
+        # even when the installer invokes the generic CLI command.
+        if service_name == "vast-price-manager":
+            service = copy.deepcopy(defaults)
+        services[service_name] = service
+        applied, message = apply_registry_change(registry, services)
+    if not applied:
+        raise click.ClickException(message)
     console.print(f"[green]✓[/green] Registered {service_name} at {path}")
+
+
+@main.command()
+@click.argument("service_name")
+def unregister(service_name):
+    """Remove a service route while preserving unrelated proxy settings."""
+    check_root()
+    with registry_lock(CONFIG_DIR):
+        registry = ServiceRegistry(CONFIG_DIR)
+        if service_name not in registry.services:
+            console.print(f"[yellow]•[/yellow] {service_name} is not registered")
+            return
+
+        services = copy.deepcopy(registry.services)
+        del services[service_name]
+        applied, message = apply_registry_change(registry, services)
+    if not applied:
+        raise click.ClickException(message)
+    console.print(f"[green]✓[/green] Unregistered {service_name}")
 
 
 @main.command()

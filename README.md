@@ -126,6 +126,29 @@ Config files are stored in `/etc/cryptolabs-proxy/`:
 └── ssl/                # SSL certificates
 ```
 
+The image ships a bootstrap Nginx configuration. Service lifecycle commands
+regenerate the configuration above and require it to be mounted at
+`/etc/nginx/nginx.conf` in the running proxy container. This is how optional
+Vast Price Manager routing is enabled and removed; the CLI refuses to claim a
+route change when the container is still using the bundled configuration.
+The bootstrap configuration intentionally contains no Vast Price Manager route.
+Before an installer enables or disables VPM, it must first create the registry
+configuration, render `/etc/cryptolabs-proxy/nginx.conf`, bind-mount that file
+as `/etc/nginx/nginx.conf`, and verify the proxy is using it. The subsequent
+`cryptolabs-proxy register` or `unregister` command then validates and reloads
+that mounted configuration atomically with the registry update.
+
+### Existing custom proxy configuration
+
+Do not use the generic CLI alone to migrate a proxy that already runs a custom
+unmounted `nginx.conf`: it regenerates the full configuration. Use the reviewed
+`scripts/vpm-custom-config-migrate.py` helper first. Its read-only `plan` mode
+derives a migration ID from the source container and config hash. Its explicit
+`apply` stores root-only backups, mounts a byte-preserved custom baseline with
+only the canonical managed VPM block added, and can perform a proxy-only
+`rollback`. Custom-config mode then permits only normal VPM
+`register`/`unregister`; it rejects changes to every other service.
+
 User authentication data is stored in `/data/auth/`:
 
 ```
