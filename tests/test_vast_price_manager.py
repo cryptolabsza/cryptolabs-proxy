@@ -117,6 +117,9 @@ def test_cli_register_unregister_toggles_generated_vpm_route_and_preserves_metad
 
     monkeypatch.setattr(cli, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(cli, "check_root", lambda: None)
+    monkeypatch.setattr(cli, "get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
     monkeypatch.setattr(cli, "proxy_uses_generated_config", lambda path: True)
     monkeypatch.setattr(cli, "validate_nginx_config", lambda: (True, ""))
     monkeypatch.setattr(cli, "reload_nginx_config", lambda: (True, ""))
@@ -154,6 +157,107 @@ def test_cli_register_unregister_toggles_generated_vpm_route_and_preserves_metad
     assert reregister.exit_code == 0, reregister.output
     assert ServiceRegistry(tmp_path).get_service("vast-price-manager")["lifecycle_manager"] == "dc-overview"
     assert "location = /vast-pricing {" in (tmp_path / "nginx.conf").read_text()
+
+
+def test_cli_rejects_first_vpm_registration_without_mutating_files(monkeypatch, tmp_path):
+    import cryptolabs_proxy.cli as cli
+
+    monkeypatch.setattr(cli, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(cli, "check_root", lambda: None)
+    monkeypatch.setattr(cli, "get_vpm_prerequisite", lambda: {
+        "configured": False, "reason": "no-connected-account", "connected_account_count": 0,
+    })
+
+    result = CliRunner().invoke(
+        cli.main,
+        ["register", "vast-price-manager", "vast-price-manager", "--path", "/vast-pricing/", "--port", "8088"],
+    )
+
+    assert result.exit_code != 0
+    assert "Requires Vast.ai setup" in result.output
+    assert not (tmp_path / "services.yaml").exists()
+    assert not (tmp_path / "config.yaml").exists()
+    assert not (tmp_path / "nginx.conf").exists()
+
+
+def test_cli_allows_existing_vpm_maintenance_when_exporter_is_unavailable(monkeypatch, tmp_path):
+    import cryptolabs_proxy.cli as cli
+    from cryptolabs_proxy.services import DEFAULT_SERVICES, ServiceRegistry
+
+    registry = ServiceRegistry(tmp_path)
+    registry.services["vast-price-manager"] = deepcopy(DEFAULT_SERVICES["vast-price-manager"])
+    registry.save()
+    monkeypatch.setattr(cli, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(cli, "check_root", lambda: None)
+    monkeypatch.setattr(cli, "get_vpm_prerequisite", lambda: {
+        "configured": False, "reason": "exporter-not-running", "connected_account_count": 0,
+    })
+    monkeypatch.setattr(cli, "proxy_uses_generated_config", lambda path: True)
+    monkeypatch.setattr(cli, "validate_nginx_config", lambda: (True, ""))
+    monkeypatch.setattr(cli, "reload_nginx_config", lambda: (True, ""))
+
+    result = CliRunner().invoke(
+        cli.main,
+        ["register", "vast-price-manager", "vast-price-manager", "--path", "/vast-pricing/", "--port", "8088"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert ServiceRegistry(tmp_path).get_service("vast-price-manager") is not None
+
+
+def test_custom_migration_denies_first_enable_before_files_or_engine_changes(monkeypatch, tmp_path):
+    from cryptolabs_proxy.migration import CustomConfigMigrator, MigrationError
+
+    class Engine:
+        def inspect(self, container):
+            raise AssertionError("migration must not inspect or change the engine")
+
+    migrator = CustomConfigMigrator(tmp_path, tmp_path / "backups", engine=Engine())
+    monkeypatch.setattr("cryptolabs_proxy.migration.os.geteuid", lambda: 0)
+    monkeypatch.setattr("cryptolabs_proxy.migration.get_vpm_prerequisite", lambda: {
+        "configured": False, "reason": "unavailable", "connected_account_count": 0,
+    })
+
+    with pytest.raises(MigrationError, match="Requires Vast.ai setup"):
+        migrator.apply("cryptolabs-proxy", "proxy@sha256:reviewed", "migration", enable_vpm=True)
+
+    assert not (tmp_path / "backups").exists()
+    assert not (tmp_path / "nginx.conf").exists()
+
+
+def test_vpm_health_includes_only_the_sanitized_prerequisite(monkeypatch):
+    health_api = load_health_api()
+    expected = {"configured": False, "reason": "no-connected-account", "connected_account_count": 0}
+    monkeypatch.setattr(health_api, "get_vpm_prerequisite", lambda: expected)
+
+    status = health_api.get_all_service_status()["vast-price-manager"]
+
+    assert status["prerequisite"] == expected
+    assert set(status["prerequisite"]) == {"configured", "reason", "connected_account_count"}
+
+
+def test_vpm_health_caches_the_display_prerequisite_without_affecting_lifecycle_checks(monkeypatch):
+    health_api = load_health_api()
+    health_api._VPM_PREREQUISITE_CACHE = {"expires_at": 0, "value": None}
+    calls = []
+    monkeypatch.setattr(health_api.time, "monotonic", lambda: 100)
+    monkeypatch.setattr(health_api, "get_vpm_prerequisite", lambda: calls.append(True) or {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
+
+    first = health_api.get_all_service_status()["vast-price-manager"]["prerequisite"]
+    second = health_api.get_all_service_status()["vast-price-manager"]["prerequisite"]
+
+    assert first == second == {"configured": True, "reason": "ready", "connected_account_count": 1}
+    assert calls == [True]
+
+
+def test_landing_page_vpm_card_requires_vast_setup_before_installing():
+    page = (REPOSITORY / "landing-page" / "index.html").read_text()
+
+    assert "Requires Vast.ai setup" in page
+    assert 'href="/vastai/"' in page
+    assert "vpmPrerequisite" in page
 
 
 def test_cli_unregister_rolls_back_registry_and_generated_config_when_reload_fails(monkeypatch, tmp_path):
@@ -437,6 +541,9 @@ def test_cli_vpm_lifecycle_preserves_custom_baseline_and_rejects_unrelated_route
     monkeypatch.setattr(cli, "proxy_uses_generated_config", lambda path: True)
     monkeypatch.setattr(cli, "validate_nginx_config", lambda: (True, ""))
     monkeypatch.setattr(cli, "reload_nginx_config", lambda: (True, ""))
+    monkeypatch.setattr(cli, "get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
     runner = CliRunner()
 
     enabled = runner.invoke(cli.main, ["register", "vast-price-manager", "vast-price-manager", "--path", "/vast-pricing/", "--port", "8088"])
@@ -493,6 +600,9 @@ def test_custom_mode_refuses_changed_baseline_before_mutating_registry(monkeypat
 
     monkeypatch.setattr(cli, "CONFIG_DIR", tmp_path)
     monkeypatch.setattr(cli, "check_root", lambda: None)
+    monkeypatch.setattr(cli, "get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
     result = CliRunner().invoke(cli.main, ["register", "vast-price-manager", "vast-price-manager", "--path", "/vast-pricing/", "--port", "8088"])
 
     assert result.exit_code != 0
@@ -855,6 +965,9 @@ def test_apply_uses_engine_health_polling_with_the_real_switch_controller(monkey
     monkeypatch.setattr(migrator, "_read_active_config", lambda *args: CUSTOM_PROXY_CONFIG)
     monkeypatch.setattr(migrator, "_validate_candidate", lambda *args: None)
     monkeypatch.setattr(migrator, "_anonymous_auth_is_rejected", lambda: True)
+    monkeypatch.setattr("cryptolabs_proxy.migration.get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
 
     outcome = migrator.apply("cryptolabs-proxy", image, plan.migration_id, enable_vpm=True)
 
@@ -886,6 +999,9 @@ def test_apply_retains_registry_and_candidate_config_for_recovered_candidate(mon
     monkeypatch.setattr(migrator, "plan", lambda *args: plan)
     monkeypatch.setattr(migrator, "_read_active_config", lambda *args: CUSTOM_PROXY_CONFIG)
     monkeypatch.setattr(migrator, "_validate_candidate", lambda *args: None)
+    monkeypatch.setattr("cryptolabs_proxy.migration.get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
     monkeypatch.setattr(
         SwitchController,
         "apply",
@@ -932,6 +1048,9 @@ def test_apply_keeps_recovered_candidate_when_outcome_marker_cannot_be_written(m
     monkeypatch.setattr(migrator, "_read_active_config", lambda *args: CUSTOM_PROXY_CONFIG)
     monkeypatch.setattr(migrator, "_validate_candidate", lambda *args: None)
     monkeypatch.setattr(migrator, "_write_private", write_private)
+    monkeypatch.setattr("cryptolabs_proxy.migration.get_vpm_prerequisite", lambda: {
+        "configured": True, "reason": "ready", "connected_account_count": 1,
+    })
     monkeypatch.setattr(
         SwitchController,
         "apply",

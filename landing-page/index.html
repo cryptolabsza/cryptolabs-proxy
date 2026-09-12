@@ -846,7 +846,7 @@
                 path: '/vast-pricing/',
                 productUrl: 'https://github.com/cryptolabsza/vast-price-manager',
                 isCryptoLabs: true,
-                installNote: 'Install and manage this service from the Vast setup in Server Manager. Fleet access is restricted to administrators.',
+                installNote: 'Install and manage this service from the Vast setup in Server Manager.',
                 lifecycleManager: 'dc-overview'
             },
             'dc-watchdog': {
@@ -1002,7 +1002,28 @@
                 }
             } else {
                 // Local service not installed
-                if (service.deployable) {
+                const vpmPrerequisite = key === 'vast-price-manager'
+                    ? health['vast-price-manager']?.prerequisite
+                    : null;
+                if (key === 'vast-price-manager' && !vpmPrerequisite?.configured) {
+                    installSection = `
+                        <div class="install-section">
+                            <p class="install-note" style="color:var(--accent-yellow);">Requires Vast.ai setup with a connected account.</p>
+                        </div>
+                    `;
+                    actions = `
+                        <a href="/vastai/" class="btn btn-promo">Set up Vast.ai</a>
+                    `;
+                } else if (key === 'vast-price-manager') {
+                    installSection = `
+                        <div class="install-section">
+                            <p class="install-note">Available to install from the Vast.ai setup in Server Manager.</p>
+                        </div>
+                    `;
+                    actions = `
+                        <a href="${service.productUrl}" target="_blank" class="btn btn-secondary">Learn More</a>
+                    `;
+                } else if (service.deployable) {
                     // Deployable exporter — check if Prometheus/Grafana are running first
                     const prometheusUp = health['prometheus']?.running === true;
                     const grafanaUp = health['grafana']?.running === true;

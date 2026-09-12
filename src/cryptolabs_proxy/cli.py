@@ -25,6 +25,7 @@ from .custom_config import (
     render_managed_vpm_config,
 )
 from .services import DEFAULT_SERVICES, ServiceRegistry
+from .vpm_prerequisite import get_vpm_prerequisite
 
 console = Console()
 
@@ -536,6 +537,16 @@ def register(service_name, container_name, path, port, display_name, icon, descr
     check_root()
     with registry_lock(CONFIG_DIR):
         registry = ServiceRegistry(CONFIG_DIR)
+
+        # Only the first registration creates VPM access. Existing instances
+        # remain manageable when the exporter later becomes unavailable.
+        if service_name == "vast-price-manager" and service_name not in registry.services:
+            prerequisite = get_vpm_prerequisite()
+            if not prerequisite["configured"]:
+                raise click.ClickException(
+                    "Requires Vast.ai setup with at least one connected account. "
+                    "Open /vastai/ to finish setup."
+                )
 
         if path is None:
             path = f"/{service_name}/"

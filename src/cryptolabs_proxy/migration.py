@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 from .custom_config import configure_custom_config_mode, render_managed_vpm_config
+from .vpm_prerequisite import get_vpm_prerequisite
 
 
 _LOCAL_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -471,7 +472,19 @@ class CustomConfigMigrator:
         if os.geteuid() != 0:
             raise MigrationError("custom proxy migration must run as root")
         from .cli import registry_lock
+        from .services import ServiceRegistry
         with registry_lock(self.config_dir):
+            registry = ServiceRegistry(self.config_dir)
+            # Existing registered VPM services remain maintainable when their
+            # exporter later goes down. A first custom enable needs fresh proof
+            # before backups, candidate files, or Docker changes are created.
+            if enable_vpm and registry.get_service("vast-price-manager") is None:
+                prerequisite = get_vpm_prerequisite()
+                if not prerequisite["configured"]:
+                    raise MigrationError(
+                        "Requires Vast.ai setup with at least one connected account. "
+                        "Open /vastai/ to finish setup."
+                    )
             # Rebuild the read-only plan while holding the same lock that
             # serializes later VPM register/unregister writes.
             plan = self.plan(container, image)
@@ -491,8 +504,6 @@ class CustomConfigMigrator:
                 raise MigrationError("source container ID or config changed before switch")
             self._write_private(backup / "baseline.nginx.conf", baseline)
             self._write_private(backup / "inspect.json", json.dumps(inspect, sort_keys=True).encode())
-            from .services import ServiceRegistry
-            registry = ServiceRegistry(self.config_dir)
             previous = _snapshot_registry_files(registry)
             _write_registry_backup(backup, previous)
             candidate = self.config_dir / "nginx.conf"

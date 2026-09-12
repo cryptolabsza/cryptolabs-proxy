@@ -6,21 +6,28 @@ Detects running Docker containers, reports their status, and manages updates.
 
 import json
 import subprocess
+import time
 import http.server
 import socketserver
 import threading
 import os
 import re
+import sys
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from pathlib import Path
+
+sys.path.insert(0, '/app/src')
+from cryptolabs_proxy.vpm_prerequisite import get_vpm_prerequisite
 
 PORT = 8080
 BUILD_INFO_FILE = '/app/BUILD_INFO'
 SETTINGS_FILE = '/data/auth/update-settings.json'
 SHARED_CONFIG_FILE = '/data/auth/shared-config.json'
 VPM_READY_URL = 'http://vast-price-manager:8088/readyz'
+VPM_PREREQUISITE_CACHE_TTL_SECONDS = 30
+_VPM_PREREQUISITE_CACHE = {'expires_at': 0, 'value': None}
 
 # Internal Docker network subnet - only allow requests from this range
 INTERNAL_NETWORK = '172.30.'
@@ -633,6 +640,7 @@ def get_all_service_status(include_versions=False):
                 'readiness': readiness,
                 'configured': readiness == 'ready',
                 'state': 'running' if readiness == 'ready' else readiness,
+                'prerequisite': get_vpm_prerequisite_for_display(),
             })
         
         if include_versions and running:
@@ -646,6 +654,18 @@ def get_all_service_status(include_versions=False):
         status[name] = service_info
     
     return status
+
+
+def get_vpm_prerequisite_for_display():
+    """Cache the sanitized prerequisite only for status-page polling."""
+    now = time.monotonic()
+    cached = _VPM_PREREQUISITE_CACHE
+    if cached['value'] is not None and now < cached['expires_at']:
+        return cached['value']
+    value = get_vpm_prerequisite()
+    _VPM_PREREQUISITE_CACHE['value'] = value
+    _VPM_PREREQUISITE_CACHE['expires_at'] = now + VPM_PREREQUISITE_CACHE_TTL_SECONDS
+    return value
 
 
 def get_all_versions():

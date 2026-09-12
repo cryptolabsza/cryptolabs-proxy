@@ -155,6 +155,18 @@ original stored baseline exactly.
 
 ### Vast Price Manager Fleet sign-in
 
+### Vast Price Manager prerequisite
+
+Before a new Vast Price Manager route can be added, the local Vast.ai exporter
+must be running and report at least one connected account. Complete setup at
+`/vastai/`. Existing VPM installations remain available for maintenance if the
+exporter later loses connectivity; they are never automatically disabled.
+
+The proxy checks the exporter from inside its container using its internal
+management token, which must be provisioned by the exporter setup. It records
+only whether setup is ready and the count of connected accounts; API keys,
+account names, balances, and tokens are not returned.
+
 When Vast Price Manager runs in Fleet mode, it uses the existing Fleet
 `fleet_session` cookie and does not create a second VPM account or login. VPM
 introspects the current Fleet session on the Docker network at
