@@ -27,12 +27,17 @@
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Host $host;
             proxy_set_header X-Forwarded-Proto $scheme;
-            # VPM retains its own login. Never pass client-supplied Fleet
-            # identity headers to it.
+            # VPM directly introspects the signed Fleet session on its
+            # configured internal origin. Never pass client identity headers.
             proxy_set_header X-Fleet-Auth-User "";
             proxy_set_header X-Fleet-Auth-Role "";
             proxy_set_header X-Fleet-Auth-Token "";
             proxy_set_header X-Fleet-Authenticated "";
-            proxy_intercept_errors on;
+            # Preserve the browser Fleet cookie for VPM's direct introspection.
+            proxy_set_header Cookie $http_cookie;
+            # Auth-request failures still use the redirect above. Do not
+            # intercept VPM's own 401 reauthentication result, which must
+            # reach its caller as an error rather than a Fleet login redirect.
+            proxy_intercept_errors off;
             error_page 502 503 504 = @service_unavailable;
         }

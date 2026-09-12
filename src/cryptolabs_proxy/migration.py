@@ -14,6 +14,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
 import time
@@ -21,6 +22,9 @@ from typing import Any
 from urllib.parse import quote
 
 from .custom_config import configure_custom_config_mode, render_managed_vpm_config
+
+
+_LOCAL_IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class MigrationError(RuntimeError):
@@ -395,7 +399,7 @@ class CustomConfigMigrator:
 
     def plan(self, container: str, image: str) -> MigrationPlan:
         """Read only: return a deterministic, sanitized migration identity."""
-        if "@sha256:" not in image:
+        if "@sha256:" not in image and _LOCAL_IMAGE_ID.fullmatch(image) is None:
             raise MigrationError("proxy image must be an immutable sha256 digest")
         inspect = self.engine.inspect(container)
         return MigrationPlan.from_source(inspect["Id"], self._read_active_config(container), image)
@@ -409,6 +413,21 @@ class CustomConfigMigrator:
         path.chmod(0o600)
 
     def _validate_candidate(self, image: str, candidate: Path, inspect: dict[str, Any], migration_id: str):
+        if _LOCAL_IMAGE_ID.fullmatch(image) is not None:
+            # Docker otherwise treats an absent sha256:<id> argument as a
+            # repository/tag candidate for `docker run`. Verify the exact
+            # locally loaded content ID before creating any validator.
+            try:
+                local = subprocess.run(
+                    ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise MigrationError(f"offline image missing: exact local immutable image ID is unavailable ({error})") from error
+            if local.returncode != 0 or local.stdout.strip() != image:
+                raise MigrationError("offline image missing: exact local immutable image ID is unavailable")
         ssl_mount = next((m for m in inspect.get("Mounts", []) if m.get("Destination") == "/etc/nginx/ssl"), None)
         if not ssl_mount:
             raise MigrationError("source proxy has no /etc/nginx/ssl mount for candidate validation")

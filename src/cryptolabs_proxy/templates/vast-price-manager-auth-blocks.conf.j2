@@ -1,0 +1,7 @@
+        # VPM calls these endpoints only over the Docker network on port 8081.
+        # Exact locations keep the generic public /auth/ forwarding route from
+        # exposing the session authority or password reauthentication API.
+        location = /auth/vast-price-manager/session { return 404; }
+        location = /auth/vast-price-manager/session/ { return 404; }
+        location = /auth/vast-price-manager/reauth { return 404; }
+        location = /auth/vast-price-manager/reauth/ { return 404; }

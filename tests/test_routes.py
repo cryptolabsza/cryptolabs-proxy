@@ -1,6 +1,9 @@
 """Tests for Flask routes: login/logout, user management, settings, API endpoints."""
 
+import hashlib
+import hmac
 import json
+from datetime import timedelta
 import pytest
 
 
@@ -109,6 +112,157 @@ class TestLogoutRoute:
 
         with logged_in_admin.session_transaction() as sess:
             assert 'logged_in' not in sess
+
+
+# ---------------------------------------------------------------------------
+# Vast Price Manager Fleet session authority
+# ---------------------------------------------------------------------------
+
+class TestVastPriceManagerFleetSession:
+    def _login(self, client, admin_user):
+        response = client.post('/auth/login', data={
+            'username': admin_user['username'],
+            'password': admin_user['password'],
+        })
+        assert response.status_code == 302
+
+    def _vpm_session(self, client):
+        """Model VPM's direct call without forwarding Fleet's Set-Cookie back."""
+        incoming_cookie = client.get_cookie('fleet_session')
+        response = client.get('/auth/vast-price-manager/session')
+        if incoming_cookie:
+            client.set_cookie('fleet_session', incoming_cookie.value)
+        return response
+
+    def test_session_uses_real_fleet_cookie_and_returns_only_contract_fields(self, client, admin_user):
+        import cryptolabs_proxy.auth as auth
+
+        self._login(client, admin_user)
+        signed_cookie = client.get_cookie('fleet_session').value.encode('utf-8')
+
+        response = self._vpm_session(client)
+
+        assert response.status_code == 200
+        assert response.get_json() == {
+            'authenticated': True,
+            'username': admin_user['username'],
+            'role': 'admin',
+            'subject': response.get_json()['subject'],
+            'csrf_token': response.get_json()['csrf_token'],
+        }
+        payload = response.get_json()
+        assert len(payload['subject']) == 64
+        assert len(payload['csrf_token']) == 64
+        assert payload['subject'] != payload['csrf_token']
+        assert all(character in '0123456789abcdef' for character in payload['subject'])
+        assert all(character in '0123456789abcdef' for character in payload['csrf_token'])
+        assert payload['subject'] == hmac.new(
+            auth.AUTH_SECRET_KEY.encode('utf-8'),
+            b'cryptolabs/vpm/subject/v1:' + signed_cookie,
+            hashlib.sha256,
+        ).hexdigest()
+        assert payload['csrf_token'] == hmac.new(
+            auth.AUTH_SECRET_KEY.encode('utf-8'),
+            b'cryptolabs/vpm/csrf/v1:' + signed_cookie,
+            hashlib.sha256,
+        ).hexdigest()
+        assert b'fleet_session=' not in response.data
+        assert b'password' not in response.data
+
+    def test_session_rechecks_current_user_state_instead_of_cached_session_role(self, client, admin_user):
+        import cryptolabs_proxy.auth as auth
+
+        self._login(client, admin_user)
+        auth.update_user(admin_user['username'], role='readonly')
+
+        assert client.get('/auth/vast-price-manager/session').status_code == 403
+        assert client.get('/auth/vast-price-manager/authorize').status_code == 403
+
+    @pytest.mark.parametrize('change', [
+        lambda auth, username: auth.update_user(username, enabled=False),
+        lambda auth, username: auth.update_user(username, require_password_change=True),
+        lambda auth, username: auth.delete_user(username),
+    ])
+    def test_session_rejects_disabled_forced_change_or_deleted_user(self, client, admin_user, change):
+        import cryptolabs_proxy.auth as auth
+
+        # Keep a second admin so the delete operation is valid.
+        auth.create_user('other-admin', 'otherpass', role='admin')
+        self._login(client, admin_user)
+        change(auth, admin_user['username'])
+
+        expected = 401 if auth.get_user(admin_user['username']) and auth.get_user(admin_user['username']).get('require_password_change') else 403
+        assert client.get('/auth/vast-price-manager/session').status_code == expected
+
+    def test_session_requires_a_signed_logged_in_fleet_session(self, client, admin_user):
+        assert client.get('/auth/vast-price-manager/session').status_code == 401
+        client.set_cookie('fleet_session', 'forged-session')
+        assert client.get('/auth/vast-price-manager/session').status_code == 401
+
+    def test_session_rejects_an_expired_signed_fleet_session(self, client, admin_user):
+        self._login(client, admin_user)
+        client.application.config['PERMANENT_SESSION_LIFETIME'] = timedelta(seconds=-1)
+
+        assert client.get('/auth/vast-price-manager/session').status_code == 401
+
+    def test_reauth_validates_csrf_and_current_fleet_password(self, client, admin_user):
+        self._login(client, admin_user)
+        session = self._vpm_session(client).get_json()
+
+        invalid_csrf = client.post('/auth/vast-price-manager/reauth', json={
+            'password': admin_user['password'], 'csrf_token': '0' * 64,
+        })
+        assert invalid_csrf.status_code == 403
+
+        wrong_password = client.post('/auth/vast-price-manager/reauth', json={
+            'password': 'incorrect', 'csrf_token': session['csrf_token'],
+        })
+        assert wrong_password.status_code == 401
+
+        session = self._vpm_session(client).get_json()
+        valid = client.post('/auth/vast-price-manager/reauth', json={
+            'password': admin_user['password'], 'csrf_token': session['csrf_token'],
+        })
+        assert valid.status_code == 200
+        assert valid.get_json() == session
+
+    def test_reauth_rejects_unbounded_or_non_json_input(self, client, admin_user):
+        self._login(client, admin_user)
+        session = client.get('/auth/vast-price-manager/session').get_json()
+
+        assert client.post('/auth/vast-price-manager/reauth', data='not-json').status_code == 400
+        assert client.post('/auth/vast-price-manager/reauth', json={
+            'password': 'x' * 4097, 'csrf_token': session['csrf_token'],
+        }).status_code == 400
+
+    def test_reauth_reports_detectable_password_throttling(self, client, admin_user):
+        import cryptolabs_proxy.auth as auth
+
+        auth.save_settings({'max_login_attempts': 3, 'lockout_duration_minutes': 15})
+        self._login(client, admin_user)
+        for _ in range(2):
+            csrf_token = self._vpm_session(client).get_json()['csrf_token']
+            assert client.post('/auth/vast-price-manager/reauth', json={
+                'password': 'incorrect', 'csrf_token': csrf_token,
+            }).status_code == 401
+
+        csrf_token = self._vpm_session(client).get_json()['csrf_token']
+        limited = client.post('/auth/vast-price-manager/reauth', json={
+            'password': 'incorrect', 'csrf_token': csrf_token,
+        })
+        assert limited.status_code == 429
+
+    def test_reauth_rechecks_live_user_state(self, client, admin_user):
+        import cryptolabs_proxy.auth as auth
+
+        self._login(client, admin_user)
+        csrf_token = self._vpm_session(client).get_json()['csrf_token']
+        auth.update_user(admin_user['username'], enabled=False)
+
+        response = client.post('/auth/vast-price-manager/reauth', json={
+            'password': admin_user['password'], 'csrf_token': csrf_token,
+        })
+        assert response.status_code == 403
 
 
 # ---------------------------------------------------------------------------

@@ -145,9 +145,32 @@ unmounted `nginx.conf`: it regenerates the full configuration. Use the reviewed
 `scripts/vpm-custom-config-migrate.py` helper first. Its read-only `plan` mode
 derives a migration ID from the source container and config hash. Its explicit
 `apply` stores root-only backups, mounts a byte-preserved custom baseline with
-only the canonical managed VPM block added, and can perform a proxy-only
+only the canonical managed blocks added, and can perform a proxy-only
 `rollback`. Custom-config mode then permits only normal VPM
-`register`/`unregister`; it rejects changes to every other service.
+`register`/`unregister`; it rejects changes to every other service. Its managed
+Fleet auth deny block remains installed in every HTTP server block after VPM is unregistered, so the
+always-running internal VPM session and reauthentication endpoints cannot fall
+through a preserved public <code>/auth/</code> route. Rollback restores the
+original stored baseline exactly.
+
+### Vast Price Manager Fleet sign-in
+
+When Vast Price Manager runs in Fleet mode, it uses the existing Fleet
+`fleet_session` cookie and does not create a second VPM account or login. VPM
+introspects the current Fleet session on the Docker network at
+`http://cryptolabs-proxy:8081/auth/vast-price-manager/session`; the public
+Nginx configuration explicitly returns `404` for that endpoint and its
+reauthentication companion, including their trailing-slash variants.
+
+The internal session response is limited to the current enabled Fleet admin's
+username, role, and two purpose-separated HMAC values derived from the signed
+cookie: a subject and a CSRF token. It never returns the cookie, password,
+password hash, or signing key. The proxy rereads the user record for every
+session, reauthentication, and VPM proxy authorization check, so a disabled,
+deleted, demoted, or password-change-required account loses VPM access
+immediately. Sensitive VPM confirmation calls
+`POST /auth/vast-price-manager/reauth` internally with the Fleet password and
+the returned CSRF token; it uses the normal Fleet password throttle.
 
 User authentication data is stored in `/data/auth/`:
 

@@ -36,6 +36,11 @@ def render_vpm_fragment() -> str:
     return get_jinja_env().get_template("vast-price-manager.conf.j2").render()
 
 
+def render_vpm_internal_auth_blocks() -> str:
+    """Render public-Nginx blocks for Docker-only VPM Fleet auth endpoints."""
+    return get_jinja_env().get_template("vast-price-manager-auth-blocks.conf.j2").render()
+
+
 def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencrypt: bool = False):
     """Generate docker-compose.yml from template."""
     env = get_jinja_env()

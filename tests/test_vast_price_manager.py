@@ -81,6 +81,8 @@ def test_rendered_vpm_route_authorizes_session_admin_and_preserves_uri(tmp_path)
     config = (tmp_path / "nginx.conf").read_text()
 
     assert "location = /vast-pricing {" not in config
+    assert 'location = /auth/vast-price-manager/session { return 404; }' in config
+    assert 'location = /auth/vast-price-manager/reauth { return 404; }' in config
 
     generate_nginx_config(
         tmp_path,
@@ -100,6 +102,13 @@ def test_rendered_vpm_route_authorizes_session_admin_and_preserves_uri(tmp_path)
     assert "proxy_set_header X-Forwarded-Host $host;" in vpm_route
     assert "proxy_set_header X-Forwarded-Proto $scheme;" in vpm_route
     assert 'proxy_set_header X-Fleet-Auth-Role "";' in vpm_route
+    assert 'location = /auth/vast-price-manager/session { return 404; }' in config
+    assert 'location = /auth/vast-price-manager/session/ { return 404; }' in config
+    assert 'location = /auth/vast-price-manager/reauth { return 404; }' in config
+    assert 'location = /auth/vast-price-manager/reauth/ { return 404; }' in config
+    assert 'proxy_set_header Cookie $http_cookie;' in vpm_route
+    assert 'proxy_intercept_errors off;' in vpm_route
+    assert 'error_page 502 503 504 = @service_unavailable;' in vpm_route
 
 
 def test_cli_register_unregister_toggles_generated_vpm_route_and_preserves_metadata(monkeypatch, tmp_path):
@@ -342,18 +351,56 @@ http {
 
 def test_custom_config_render_preserves_baseline_bytes_and_uses_canonical_fragment(tmp_path):
     from cryptolabs_proxy.custom_config import render_managed_vpm_config
-    from cryptolabs_proxy.config import render_vpm_fragment
+    from cryptolabs_proxy.config import render_vpm_fragment, render_vpm_internal_auth_blocks
 
     rendered = render_managed_vpm_config(CUSTOM_PROXY_CONFIG, enabled=True)
+    auth_denies = render_vpm_internal_auth_blocks().encode().rstrip()
+    managed_auth_block = (
+        b"\n# BEGIN CRYPTOLABS MANAGED INTERNAL AUTH DENIES\n"
+        + auth_denies
+        + b"\n# END CRYPTOLABS MANAGED INTERNAL AUTH DENIES\n"
+    )
+    managed_vpm_block = (
+        b"# BEGIN CRYPTOLABS MANAGED VPM\n"
+        + render_vpm_fragment().encode().rstrip()
+        + b"\n# END CRYPTOLABS MANAGED VPM\n"
+    )
 
     assert b'# BEGIN CRYPTOLABS MANAGED VPM' in rendered
     assert render_vpm_fragment().encode() in rendered
-    before, managed = rendered.split(b'# BEGIN CRYPTOLABS MANAGED VPM', 1)
-    managed, after = managed.split(b'# END CRYPTOLABS MANAGED VPM', 1)
-    assert before == CUSTOM_PROXY_CONFIG[:len(before)]
-    assert after == CUSTOM_PROXY_CONFIG[len(CUSTOM_PROXY_CONFIG) - len(after):]
+    assert rendered.count(b'# BEGIN CRYPTOLABS MANAGED INTERNAL AUTH DENIES') == 3
+    assert rendered.replace(managed_vpm_block, b'').replace(managed_auth_block, b'') == CUSTOM_PROXY_CONFIG
     assert b'location /unrelated/ { default_type application/json; return 200 \'{"keep":"bytes"}\'; }' in rendered
-    assert render_managed_vpm_config(CUSTOM_PROXY_CONFIG, enabled=False) == CUSTOM_PROXY_CONFIG
+    assert b'location = /auth/vast-price-manager/session { return 404; }' in rendered
+    assert b'location = /auth/vast-price-manager/session/ { return 404; }' in rendered
+    assert b'location = /auth/vast-price-manager/reauth { return 404; }' in rendered
+    assert b'location = /auth/vast-price-manager/reauth/ { return 404; }' in rendered
+    disabled = render_managed_vpm_config(CUSTOM_PROXY_CONFIG, enabled=False)
+    assert b'# BEGIN CRYPTOLABS MANAGED VPM' not in disabled
+    assert b'location = /auth/vast-price-manager/session { return 404; }' in disabled
+    assert b'location = /auth/vast-price-manager/session/ { return 404; }' in disabled
+    assert b'location = /auth/vast-price-manager/reauth { return 404; }' in disabled
+    assert b'location = /auth/vast-price-manager/reauth/ { return 404; }' in disabled
+    assert b'location = /vast-pricing {' not in disabled
+    assert b'proxy_pass http://$upstream_vast_price_manager:8088' not in disabled
+    assert disabled.count(b'# BEGIN CRYPTOLABS MANAGED INTERNAL AUTH DENIES') == 3
+    assert disabled.replace(managed_auth_block, b'') == CUSTOM_PROXY_CONFIG
+
+
+def test_custom_config_blocks_internal_vpm_auth_in_each_http_server_block():
+    from cryptolabs_proxy.custom_config import render_managed_vpm_config
+
+    multi_server_baseline = CUSTOM_PROXY_CONFIG.replace(
+        b"server { listen 80; location /legacy/ { proxy_pass http://legacy; } }",
+        b"server { listen 80; location /auth/ { proxy_pass http://auth_server/auth/; } location /legacy/ { proxy_pass http://legacy; } }",
+    )
+
+    disabled = render_managed_vpm_config(multi_server_baseline, enabled=False)
+
+    assert b"location /auth/ { proxy_pass http://auth_server/auth/; }" in disabled
+    assert disabled.count(b"location = /auth/vast-price-manager/session { return 404; }") == 3
+    assert disabled.count(b"location = /auth/vast-price-manager/reauth { return 404; }") == 3
+    assert b"proxy_pass http://$upstream_vast_price_manager:8088" not in disabled
 
 
 @pytest.mark.parametrize(
@@ -408,8 +455,28 @@ def test_cli_vpm_lifecycle_preserves_custom_baseline_and_rejects_unrelated_route
 
     disabled = runner.invoke(cli.main, ["unregister", "vast-price-manager"])
     assert disabled.exit_code == 0, disabled.output
-    assert (tmp_path / "nginx.conf").read_bytes() == CUSTOM_PROXY_CONFIG
+    disabled_config = (tmp_path / "nginx.conf").read_bytes()
+    assert b"location /unrelated/" in disabled_config
+    assert b"# BEGIN CRYPTOLABS MANAGED VPM" not in disabled_config
+    assert b"location = /auth/vast-price-manager/session { return 404; }" in disabled_config
+    assert b"location = /auth/vast-price-manager/session/ { return 404; }" in disabled_config
+    assert b"location = /auth/vast-price-manager/reauth { return 404; }" in disabled_config
+    assert b"location = /auth/vast-price-manager/reauth/ { return 404; }" in disabled_config
+    assert b"location = /vast-pricing {" not in disabled_config
+    assert b"proxy_pass http://$upstream_vast_price_manager:8088" not in disabled_config
     assert ServiceRegistry(tmp_path).config["custom_config"]["baseline_sha256"] == hashlib.sha256(CUSTOM_PROXY_CONFIG).hexdigest()
+
+    reenabled = runner.invoke(cli.main, ["register", "vast-price-manager", "vast-price-manager", "--path", "/vast-pricing/", "--port", "8088"])
+    assert reenabled.exit_code == 0, reenabled.output
+    reenabled_config = (tmp_path / "nginx.conf").read_bytes()
+    assert reenabled_config.count(b"# BEGIN CRYPTOLABS MANAGED INTERNAL AUTH DENIES") == 3
+    assert reenabled_config.count(b"# BEGIN CRYPTOLABS MANAGED VPM") == 1
+
+    disabled_again = runner.invoke(cli.main, ["unregister", "vast-price-manager"])
+    assert disabled_again.exit_code == 0, disabled_again.output
+    disabled_again_config = (tmp_path / "nginx.conf").read_bytes()
+    assert disabled_again_config.count(b"# BEGIN CRYPTOLABS MANAGED INTERNAL AUTH DENIES") == 3
+    assert b"# BEGIN CRYPTOLABS MANAGED VPM" not in disabled_again_config
 
 
 def test_custom_mode_refuses_changed_baseline_before_mutating_registry(monkeypatch, tmp_path):

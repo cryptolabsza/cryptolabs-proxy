@@ -158,6 +158,8 @@ http {
             return 302 /auth/login?next=$request_uri;
         }
 
+        {% include "vast-price-manager-auth-blocks.conf.j2" %}
+
         {% if 'vast-price-manager' in services %}
         {% include "vast-price-manager.conf.j2" %}
         {% endif %}
