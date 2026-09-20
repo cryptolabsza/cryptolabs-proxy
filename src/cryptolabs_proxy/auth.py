@@ -1121,6 +1121,55 @@ def create_flask_auth_app():
             return f(*args, **kwargs)
         return decorated
 
+    def current_vast_price_manager_user():
+        """Return the live Fleet administrator behind this signed session.
+
+        Flask has already verified ``fleet_session`` before exposing ``session``.
+        The database lookup is deliberately repeated for every VPM request so a
+        role change, disablement, deletion, or forced password change takes
+        effect immediately instead of trusting values cached in the cookie.
+        """
+        if not session.get('logged_in') or session.get('require_password_change'):
+            return None, 401
+
+        username = session.get('username')
+        if not isinstance(username, str) or not username:
+            return None, 401
+
+        user = get_user(username)
+        if not user or not user.get('enabled', True) or user.get('role') != 'admin':
+            return None, 403
+        if user.get('require_password_change', False):
+            return None, 401
+        return user, 200
+
+    def vast_price_manager_session_payload():
+        """Build the bounded VPM authority response from the signed cookie."""
+        user, status = current_vast_price_manager_user()
+        if not user:
+            return None, status
+
+        signed_cookie = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        if not signed_cookie:
+            return None, 401
+
+        cookie_bytes = signed_cookie.encode('utf-8')
+
+        def derive(purpose: bytes) -> str:
+            return hmac.new(
+                AUTH_SECRET_KEY.encode('utf-8'), purpose + cookie_bytes, hashlib.sha256
+            ).hexdigest()
+
+        return {
+            'authenticated': True,
+            'username': user['username'],
+            'role': 'admin',
+            # Purpose separation prevents either stable value from standing in
+            # for the other while avoiding disclosure of the signed cookie.
+            'subject': derive(b'cryptolabs/vpm/subject/v1:'),
+            'csrf_token': derive(b'cryptolabs/vpm/csrf/v1:'),
+        }, 200
+
     # =========================================================================
     # ROUTES
     # =========================================================================
@@ -1442,6 +1491,69 @@ def create_flask_auth_app():
             return response
         
         return '', 401
+
+    @app.route('/auth/vast-price-manager/authorize')
+    def authorize_vast_price_manager():
+        """Authorize the Fleet administrator-only VPM proxy route.
+
+        This endpoint is used only by Nginx's internal ``auth_request``
+        subrequest.  It reads the signed-in Flask session and deliberately
+        ignores incoming role headers, which a client could forge.
+        """
+        _, status = current_vast_price_manager_user()
+        if status != 200:
+            return '', status
+        return '', 204
+
+    @app.route('/auth/vast-price-manager/session')
+    def vast_price_manager_session():
+        """Expose current Fleet authority only to VPM's Docker-network client."""
+        payload, status = vast_price_manager_session_payload()
+        if not payload:
+            return '', status
+        return jsonify(payload)
+
+    @app.route('/auth/vast-price-manager/reauth', methods=['POST'])
+    def reauthenticate_vast_price_manager():
+        """Recheck the current Fleet password for one sensitive VPM action."""
+        payload, status = vast_price_manager_session_payload()
+        if not payload:
+            return '', status
+
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return '', 400
+        password = data.get('password')
+        csrf_token = data.get('csrf_token')
+        if (
+            not isinstance(password, str)
+            or not isinstance(csrf_token, str)
+            or len(password) > 4096
+            or len(csrf_token) != 64
+        ):
+            return '', 400
+        if not hmac.compare_digest(csrf_token, payload['csrf_token']):
+            return '', 403
+
+        verified = verify_user(payload['username'], password)
+        if not verified:
+            # ``verify_user`` records failures and applies the existing Fleet
+            # lockout policy. Surface a rate limit only once it is observable.
+            current = get_user(payload['username'])
+            try:
+                locked = current and current.get('locked_until') and (
+                    datetime.fromisoformat(current['locked_until']) > datetime.utcnow()
+                )
+            except (TypeError, ValueError):
+                locked = False
+            return '', 429 if locked else 401
+
+        # Re-read after password verification so a concurrent state change
+        # cannot turn this endpoint into a stale authority grant.
+        payload, status = vast_price_manager_session_payload()
+        if not payload:
+            return '', status
+        return jsonify(payload)
     
     # API endpoints for programmatic access
     @app.route('/auth/api/users', methods=['GET'])

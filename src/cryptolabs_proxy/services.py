@@ -71,6 +71,18 @@ DEFAULT_SERVICES = {
         "icon": "💎",
         "description": "Prometheus exporter for Vast.ai metrics",
     },
+    "vast-price-manager": {
+        "container_name": "vast-price-manager",
+        "path": "/vast-pricing/",
+        "port": 8088,
+        "display_name": "Vast Price Manager",
+        "icon": "💰",
+        "description": "Optional Vast pricing management service with its own secure login.",
+        "product_url": "https://github.com/cryptolabsza/vast-price-manager",
+        "admin_only": True,
+        "lifecycle_manager": "dc-overview",
+        "optional": True,
+    },
     "runpod-exporter": {
         "container_name": "runpod-exporter",
         "path": "/runpod-metrics/",
