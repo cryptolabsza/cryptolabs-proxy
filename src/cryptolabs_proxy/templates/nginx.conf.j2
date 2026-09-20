@@ -158,8 +158,16 @@ http {
             return 302 /auth/login?next=$request_uri;
         }
 
+        {% include "vast-price-manager-auth-blocks.conf.j2" %}
+
+        {% if 'vast-price-manager' in services %}
+        {% include "vast-price-manager.conf.j2" %}
+        {% endif %}
+
         {% for name, service in services.items() %}
-        {% if not service.path %}
+        {% if name == 'vast-price-manager' %}
+        # Vast Price Manager uses its dedicated admin-only route above.
+        {% elif not service.path %}
         # {{ service.get('display_name', name) }} - external service, no local proxy route
         {% else %}
         # {{ service.get('display_name', name) }} - uses variable for runtime DNS resolution
