@@ -20,6 +20,10 @@ from pathlib import Path
 
 sys.path.insert(0, '/app/src')
 from cryptolabs_proxy.vpm_prerequisite import get_vpm_prerequisite
+from cryptolabs_proxy.updates import (
+    SERVICES, UpdateBusy, UpdateError, job_status,
+    submit_job as submit_update_job, update_status,
+)
 
 PORT = 8080
 BUILD_INFO_FILE = '/app/BUILD_INFO'
@@ -44,25 +48,6 @@ PUBLIC_CONFIG_KEYS = {'site_name', 'watchdog_url'}
 INTERNAL_CONFIG_KEYS = {'watchdog_api_key'}
 NEVER_EXPOSE_KEYS = {'fleet_admin_pass', 'fleet_admin_user', 'auth_secret'}
 
-# Services to check (Docker containers)
-SERVICES = {
-    'cryptolabs-proxy': {'container': 'cryptolabs-proxy', 'port': 8080, 'image': 'ghcr.io/cryptolabsza/cryptolabs-proxy', 'self': True},
-    'ipmi-monitor': {'container': 'ipmi-monitor', 'port': 5000, 'image': 'ghcr.io/cryptolabsza/ipmi-monitor'},
-    'dc-overview': {'container': 'dc-overview', 'port': 5001, 'image': 'ghcr.io/cryptolabsza/dc-overview'},
-    'grafana': {'container': 'grafana', 'port': 3000, 'image': 'grafana/grafana'},
-    'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus'},
-    'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'ghcr.io/cryptolabsza/vastai-exporter'},
-    # The optional VPM service is installed and lifecycle-managed by
-    # dc-overview.  The proxy only reports its status and proxies its UI.
-    'vast-price-manager': {
-        'container': 'vast-price-manager',
-        'port': 8088,
-        'image': '',
-        'lifecycle_manager': 'dc-overview',
-        'update_supported': False,
-    },
-    'runpod-exporter': {'container': 'runpod-exporter', 'port': 8623, 'image': 'ghcr.io/cryptolabsza/runpod-exporter'},
-}
 
 
 def load_update_settings():
@@ -397,218 +382,6 @@ def get_container_version(container_name):
         return None
 
 
-def pull_image(image_name, tag='latest'):
-    """Pull a Docker image."""
-    full_image = f"{image_name}:{tag}"
-    try:
-        result = subprocess.run(
-            ['docker', 'pull', full_image],
-            capture_output=True, text=True, timeout=300
-        )
-        return result.returncode == 0, result.stdout + result.stderr
-    except Exception as e:
-        return False, str(e)
-
-
-def get_container_config(container_name):
-    """Get the configuration of a running container for restart."""
-    try:
-        result = subprocess.run(
-            ['docker', 'inspect', container_name],
-            capture_output=True, text=True, timeout=10
-        )
-        if result.returncode != 0:
-            return None
-        
-        data = json.loads(result.stdout)
-        if not data:
-            return None
-        
-        container = data[0]
-        config = container.get('Config', {})
-        host_config = container.get('HostConfig', {})
-        network_settings = container.get('NetworkSettings', {})
-        
-        # Get network names
-        networks = list(network_settings.get('Networks', {}).keys())
-        
-        # Get port bindings
-        port_bindings = host_config.get('PortBindings', {})
-        
-        # Get volume bindings
-        binds = host_config.get('Binds', []) or []
-        
-        # Get environment variables
-        env_vars = config.get('Env', []) or []
-        
-        # Get restart policy
-        restart_policy = host_config.get('RestartPolicy', {}).get('Name', 'unless-stopped')
-        
-        return {
-            'networks': networks,
-            'port_bindings': port_bindings,
-            'binds': binds,
-            'env_vars': env_vars,
-            'restart_policy': restart_policy,
-        }
-    except Exception as e:
-        print(f"Error getting container config for {container_name}: {e}")
-        return None
-
-
-def restart_container(container_name, image_with_tag, container_config):
-    """Restart a container with the same configuration but new image."""
-    if not container_config:
-        return False, "No container configuration available"
-    
-    try:
-        # Build docker run command
-        cmd = ['docker', 'run', '-d', '--name', container_name]
-        
-        # Restart policy
-        cmd.extend(['--restart', container_config.get('restart_policy', 'unless-stopped')])
-        
-        # Networks - docker run only supports one --network, use first non-bridge network
-        # Additional networks will be connected after container starts
-        networks = container_config.get('networks', ['cryptolabs'])
-        non_bridge_networks = [n for n in networks if n and n != 'bridge']
-        primary_network = non_bridge_networks[0] if non_bridge_networks else None
-        additional_networks = non_bridge_networks[1:] if len(non_bridge_networks) > 1 else []
-        
-        if primary_network:
-            cmd.extend(['--network', primary_network])
-        
-        # Port bindings
-        for container_port, host_bindings in container_config.get('port_bindings', {}).items():
-            if host_bindings:
-                for binding in host_bindings:
-                    host_port = binding.get('HostPort', '')
-                    host_ip = binding.get('HostIp', '')
-                    if host_ip:
-                        cmd.extend(['-p', f"{host_ip}:{host_port}:{container_port.split('/')[0]}"])
-                    else:
-                        cmd.extend(['-p', f"{host_port}:{container_port.split('/')[0]}"])
-        
-        # Volume bindings
-        for bind in container_config.get('binds', []):
-            cmd.extend(['-v', bind])
-        
-        # Environment variables (filter out build-time vars that we'll update)
-        for env in container_config.get('env_vars', []):
-            # Skip PATH and other system vars, keep user-defined ones
-            if env.startswith('PATH=') or env.startswith('HOME='):
-                continue
-            cmd.extend(['-e', env])
-        
-        # Image
-        cmd.append(image_with_tag)
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode != 0:
-            return False, f"Failed to start container: {result.stderr}"
-        
-        # Connect to additional networks (docker run only supports one --network)
-        for network in additional_networks:
-            try:
-                subprocess.run(['docker', 'network', 'connect', network, container_name],
-                             capture_output=True, timeout=10)
-            except Exception as e:
-                print(f"Warning: Failed to connect {container_name} to network {network}: {e}")
-        
-        return True, "Container restarted successfully"
-    except Exception as e:
-        return False, f"Error restarting container: {e}"
-
-
-def update_container(container_name, service_config, target_branch='main'):
-    """Update a container to a new image version."""
-    image = service_config.get('image', '')
-    if not image:
-        return False, "No image configured for service"
-    
-    is_self = service_config.get('self', False)
-    tag = target_branch if target_branch in ['dev', 'main'] else 'latest'
-    
-    # Default to latest for all images
-    if not tag or tag == 'main':
-        tag = 'latest'
-    
-    full_image = f"{image}:{tag}"
-    
-    # Pull new image first
-    success, output = pull_image(image, tag)
-    if not success:
-        return False, f"Failed to pull image: {output}"
-    
-    if is_self:
-        # For self-update, we need special handling
-        # Create a script that will restart the container after we exit
-        return True, "self-update-required"
-    
-    # Get current container configuration before stopping
-    container_config = get_container_config(container_name)
-    
-    # Stop and remove old container
-    try:
-        subprocess.run(['docker', 'stop', container_name], capture_output=True, timeout=30)
-        subprocess.run(['docker', 'rm', container_name], capture_output=True, timeout=10)
-    except:
-        pass
-    
-    # Restart container with new image
-    if container_config:
-        success, msg = restart_container(container_name, full_image, container_config)
-        if success:
-            return True, f"Updated to {tag} and restarted"
-        else:
-            return False, f"Image pulled but restart failed: {msg}"
-    else:
-        # Fallback: container wasn't running or couldn't get config
-        return True, f"Image pulled. Container needs manual restart (was not running)."
-
-
-def trigger_self_update(target_branch='main'):
-    """Trigger self-update for the proxy container."""
-    # Pull the new image
-    image = 'ghcr.io/cryptolabsza/cryptolabs-proxy'
-    tag = target_branch if target_branch in ['dev', 'main'] else 'latest'
-    
-    success, output = pull_image(image, tag)
-    if not success:
-        return False, f"Failed to pull image: {output}"
-    
-    # Create a restart script that runs after the API responds
-    # This uses docker to restart the container from outside
-    script = f"""#!/bin/bash
-sleep 2
-docker stop cryptolabs-proxy
-docker rm cryptolabs-proxy
-# The container should be recreated by docker-compose or systemd
-# For safety, try to start it using the same command pattern
-docker run -d --name cryptolabs-proxy \\
-  --restart unless-stopped \\
-  --network cryptolabs \\
-  -v /var/run/docker.sock:/var/run/docker.sock \\
-  -v /data/auth:/data/auth \\
-  -p 80:80 -p 443:443 \\
-  {image}:{tag}
-"""
-    
-    # Write script and execute in background
-    script_path = '/tmp/proxy-update.sh'
-    try:
-        with open(script_path, 'w') as f:
-            f.write(script)
-        os.chmod(script_path, 0o755)
-        subprocess.Popen(['/bin/bash', script_path], 
-                        stdout=subprocess.DEVNULL, 
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True)
-        return True, "Self-update initiated. Proxy will restart in a few seconds."
-    except Exception as e:
-        return False, f"Failed to initiate self-update: {e}"
-
-
 def get_all_service_status(include_versions=False):
     """Get status of all services."""
     status = {}
@@ -707,6 +480,8 @@ def get_all_versions():
             })
         
         versions[name] = version_info
+        if running and config.get('update_supported') is not False:
+            version_info.update(update_status(name, settings.get('branch', 'main')))
     
     # Add configured branch
     versions['_settings'] = {
@@ -780,6 +555,12 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
         elif path == '/api/update-settings':
             settings = load_update_settings()
             self.send_json(settings)
+
+        elif path == '/api/update-status':
+            try:
+                self.send_json(job_status(query.get('id', [''])[0]))
+            except UpdateError as error:
+                self.send_json({'error': str(error)}, 404)
         
         # ---- Internal Config API (fleet services only) ----
         # Security: 4 layers of protection
@@ -864,83 +645,21 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_json({'error': 'Failed to save settings'}, 500)
         
-        elif path == '/api/update':
-            # Trigger update for one or all services
-            service = data.get('service', 'all')
-            target_branch = data.get('branch', load_update_settings().get('branch', 'main'))
-            
-            results = {}
-            
-            if service == 'all':
-                # Update all services
-                for name, config in SERVICES.items():
-                    if service_action_error(name):
-                        continue
-                    if config.get('self'):
-                        # Handle self-update last
-                        continue
-                    tag = 'dev' if target_branch == 'dev' else 'latest'
-                    success, msg = update_container(name, config, tag)
-                    results[name] = {'success': success, 'message': msg}
-                
-                # Handle proxy self-update last (if requested)
-                if 'cryptolabs-proxy' in SERVICES:
-                    success, msg = trigger_self_update(target_branch)
-                    results['cryptolabs-proxy'] = {'success': success, 'message': msg}
-            
-            elif service == 'cryptolabs-proxy':
-                # Self-update
-                success, msg = trigger_self_update(target_branch)
-                results[service] = {'success': success, 'message': msg}
-            
-            elif service in SERVICES:
-                action_error = service_action_error(service)
-                if action_error:
-                    self.send_json({'error': action_error}, 400)
-                    return
-                config = SERVICES[service]
-                tag = 'dev' if target_branch == 'dev' else 'latest'
-                success, msg = update_container(service, config, tag)
-                results[service] = {'success': success, 'message': msg}
-            
-            else:
-                self.send_json({'error': f'Unknown service: {service}'}, 400)
-                return
-            
-            self.send_json({'success': True, 'results': results})
-        
-        elif path == '/api/pull':
-            # Just pull images without restarting
-            service = data.get('service', 'all')
-            target_branch = data.get('branch', load_update_settings().get('branch', 'main'))
-            
-            results = {}
-            services_to_pull = [service] if service != 'all' else list(SERVICES.keys())
-            
-            for name in services_to_pull:
-                if name not in SERVICES:
-                    results[name] = {'success': False, 'message': 'Unknown service'}
-                    continue
+        elif path in ('/api/update', '/api/pull'):
+            try:
+                job = submit_update_job(
+                    data.get('service', 'all'),
+                    data.get('branch', load_update_settings().get('branch', 'main')),
+                    'pull' if path == '/api/pull' else 'update',
+                )
+                self.send_json({'success': True, 'job': job}, 202)
+            except UpdateBusy as error:
+                self.send_json({'success': False, 'error': str(error), 'job': error.job}, 409)
+            except UpdateError as error:
+                self.send_json({'success': False, 'error': str(error)}, 400)
+            except Exception:
+                self.send_json({'success': False, 'error': 'Updater unavailable; no update confirmed.'}, 503)
 
-                action_error = service_action_error(name)
-                if action_error:
-                    if service == 'all':
-                        continue
-                    self.send_json({'error': action_error}, 400)
-                    return
-                
-                config = SERVICES[name]
-                tag = 'dev' if target_branch == 'dev' else 'latest'
-                
-                image = config.get('image', '')
-                if image:
-                    success, msg = pull_image(image, tag)
-                    results[name] = {'success': success, 'message': msg[:200] if len(msg) > 200 else msg}
-                else:
-                    results[name] = {'success': False, 'message': 'No image configured'}
-            
-            self.send_json({'success': True, 'results': results})
-        
         # ---- Internal Config API: SET values (always requires token) ----
         elif path == '/internal/api/config':
             if not is_internal_request(self.client_address):

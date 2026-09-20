@@ -1276,34 +1276,20 @@
                         versionText = 'Not running';
                     }
                     
-                    // --- Update logic ---
-                    // Simple: compare the Docker image TAG against target.
-                    // Target "main" means containers should be on ":latest" tag.
-                    // Target "dev" means containers should be on ":dev" tag.
-                    const targetBranch = settings.target_branch || 'main';
-                    const currentTag = info.tag || '';
-                    const expectedTag = targetBranch === 'dev' ? 'dev' : 'latest';
-                    const tagMatches = currentTag === expectedTag || currentTag === targetBranch;
-                    
                     let updateBtn = '';
                     if (info.lifecycle_manager) {
                         updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;" title="Managed by ${info.lifecycle_manager}">Managed by Server Manager</span>`;
+                    } else if (info.pinned) {
+                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
                     } else if (!info.running) {
-                        const isExporter = name === 'vastai-exporter' || name === 'runpod-exporter';
-                        const prometheusUp = serviceHealth['prometheus']?.running === true;
-                        const grafanaUp = serviceHealth['grafana']?.running === true;
-                        
-                        if (isExporter && (!prometheusUp || !grafanaUp)) {
-                            updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;" title="Install via: pipx install dc-overview && sudo dc-overview setup">Needs dc-overview</span>';
-                        } else {
-                            updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Pull image and deploy ${displayName}">🚀 Deploy</button>`;
-                        }
-                    } else if (!tagMatches) {
-                        // Tag mismatch (e.g. running :dev but target is main/latest)
-                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')" title="Switch from :${currentTag} to :${expectedTag}">⬆️ Update</button>`;
+                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Use service setup to start</span>';
+                    } else if (info.update_available === true) {
+                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
                         updatableCount++;
+                    } else if (info.update_available === false) {
+                        updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Downloaded image running</span>';
                     } else {
-                        updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Up to date</span>';
+                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Check for updates first</span>';
                     }
                     
                     // Self badge for proxy
@@ -1349,7 +1335,7 @@
                         updateAllBtn.style.cursor = 'pointer';
                     } else {
                         updateAllBtn.disabled = true;
-                        updateAllBtn.title = 'All services are up to date or not running';
+                        updateAllBtn.title = 'Check for updates; pinned and stopped services are preserved';
                         updateAllBtn.style.opacity = '0.5';
                         updateAllBtn.style.cursor = 'not-allowed';
                     }
@@ -1374,90 +1360,89 @@
                 });
                 if (!response.ok) throw new Error('Failed to save');
                 showUpdateStatus('info', `Target branch set to: ${branch}`);
+                loadVersions();
             } catch (e) {
                 showUpdateStatus('error', `Failed to save branch setting: ${e.message}`);
             }
         }
 
-        async function checkForUpdates() {
-            showUpdateStatus('info', '🔍 Checking for updates...');
-            const branch = document.getElementById('targetBranch').value;
+        let activeUpdateJob = null;
+        let updatePollTimer = null;
+        const UPDATE_JOB_KEY = 'fleet-update-job';
+
+        function rememberUpdateJob(id) {
             try {
-                const response = await fetch('/api/pull', {
+                if (id) localStorage.setItem(UPDATE_JOB_KEY, id);
+                else localStorage.removeItem(UPDATE_JOB_KEY);
+            } catch (e) { /* Storage may be disabled; this page can still poll. */ }
+        }
+
+        async function pollUpdateJob(id, failures = 0) {
+            activeUpdateJob = id;
+            clearTimeout(updatePollTimer);
+            try {
+                const response = await fetch(`/api/update-status?id=${encodeURIComponent(id)}`);
+                if (!response.ok) throw new Error('Update status unavailable');
+                const job = await response.json();
+                if (job.state === 'queued' || job.state === 'running') {
+                    showUpdateStatus('info', 'Update operation in progress. Services restart only after their images are ready.');
+                    updatePollTimer = setTimeout(() => pollUpdateJob(id), 2000);
+                    return;
+                }
+                const details = Object.entries(job.results || {}).map(([name, result]) =>
+                    `${name}: ${result.message || result.state}`).join(' · ');
+                showUpdateStatus(job.success === true ? 'success' : 'error',
+                    details || job.message || `Update operation ${job.state}`);
+                activeUpdateJob = null;
+                rememberUpdateJob(null);
+                loadVersions();
+                loadServices();
+            } catch (e) {
+                if (failures >= 60) {
+                    showUpdateStatus('error', 'Update status is unavailable. Reload to reconnect before starting another update.');
+                    return;
+                }
+                showUpdateStatus('info', 'Reconnecting to update status. The operation may still be running.');
+                updatePollTimer = setTimeout(() => pollUpdateJob(id, failures + 1), 3000);
+            }
+        }
+
+        async function startUpdateJob(action, service) {
+            if (activeUpdateJob) {
+                showUpdateStatus('info', 'An update operation is already in progress.');
+                return;
+            }
+            const branch = document.getElementById('targetBranch').value;
+            showUpdateStatus('info', action === 'pull' ? 'Checking images…' : 'Preparing update…');
+            try {
+                const response = await fetch(action === 'pull' ? '/api/pull' : '/api/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ service: 'all', branch })
+                    body: JSON.stringify({ service, branch })
                 });
                 const data = await response.json();
-                if (data.success) {
-                    showUpdateStatus('success', '✓ Images pulled. Restart containers to apply updates.');
-                    loadVersions();
+                if (data.job && (response.ok || response.status === 409)) {
+                    rememberUpdateJob(data.job.id);
+                    await pollUpdateJob(data.job.id);
                 } else {
-                    showUpdateStatus('error', 'Failed to pull updates');
+                    showUpdateStatus('error', data.error || 'Could not start update operation.');
                 }
             } catch (e) {
-                showUpdateStatus('error', `Error: ${e.message}`);
+                showUpdateStatus('error', 'Could not confirm whether the update started. Refresh status before retrying.');
             }
+        }
+
+        async function checkForUpdates() {
+            return startUpdateJob('pull', 'all');
         }
 
         async function updateService(serviceName) {
-            const branch = document.getElementById('targetBranch').value;
-            showUpdateStatus('info', `⬆️ Updating ${serviceName}...`);
-            try {
-                const response = await fetch('/api/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ service: serviceName, branch })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    const result = data.results[serviceName] || {};
-                    if (result.message === 'self-update-required') {
-                        showUpdateStatus('info', '🔄 Proxy is updating... Page will reload shortly.');
-                        setTimeout(() => location.reload(), 5000);
-                    } else {
-                        showUpdateStatus('success', `✓ ${serviceName} updated: ${result.message}`);
-                    }
-                    setTimeout(loadVersions, 2000);
-                } else {
-                    showUpdateStatus('error', `Failed to update ${serviceName}`);
-                }
-            } catch (e) {
-                showUpdateStatus('error', `Error: ${e.message}`);
-            }
+            return startUpdateJob('update', serviceName);
         }
 
         async function updateAll() {
-            if (!confirm('Update all running services to the target branch? This may cause brief downtime. Non-running services will not be started.')) return;
-            
-            const branch = document.getElementById('targetBranch').value;
-            showUpdateStatus('info', '⬆️ Updating all services...');
-            try {
-                const response = await fetch('/api/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ service: 'all', branch })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    let msg = 'Updated: ';
-                    for (const [name, result] of Object.entries(data.results || {})) {
-                        msg += `${name}(${result.success ? '✓' : '✗'}) `;
-                    }
-                    if (data.results['cryptolabs-proxy']?.message?.includes('self-update')) {
-                        showUpdateStatus('info', '🔄 Proxy is updating... Page will reload shortly.');
-                        setTimeout(() => location.reload(), 5000);
-                    } else {
-                        showUpdateStatus('success', msg);
-                    }
-                    setTimeout(loadVersions, 2000);
-                    setTimeout(loadServices, 2000);
-                } else {
-                    showUpdateStatus('error', 'Update failed');
-                }
-            } catch (e) {
-                showUpdateStatus('error', `Error: ${e.message}`);
-            }
+            if (!confirm('Update eligible running services? Services will briefly restart. Pinned images and stopped services are preserved.')) return;
+            return startUpdateJob('update', 'all');
         }
 
         function showUpdateStatus(type, message) {
@@ -1733,6 +1718,10 @@
         loadServices();
         loadBuildInfo();
         loadVersions();  // This calls loadWatchdogStatus() at the end
+        try {
+            const pendingUpdate = localStorage.getItem(UPDATE_JOB_KEY);
+            if (pendingUpdate) pollUpdateJob(pendingUpdate);
+        } catch (e) { /* Browser storage is optional. */ }
 
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);
