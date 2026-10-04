@@ -46,6 +46,15 @@ Unified reverse proxy and fleet management landing page for CryptoLabs products.
 | Grafana | `/grafana/` | Metrics visualization |
 | Prometheus | `/prometheus/` | Metrics collection (with auth) |
 
+### CryptoLabs' own public sites
+
+This product is the fleet proxy for customer datacenters. It does **not** route
+CryptoLabs' own public sites (`kb`, `api.ai`, `webui.ai`, `ipmi-ai`, `tts`,
+`wpbm.ai`, `framepack.ai` under `cryptolabs.co.za`). Those are served by the
+common proxy owned by `cryptolabs-ai-platform`
+(`services/nginx-configs`, deployed by its Synchronized Platform Deployment).
+Add or change public-site routing there, not here.
+
 ## Quick Start
 
 The easiest way to deploy is through **DC Overview** or **IPMI Monitor** quickstart, which automatically sets up cryptolabs-proxy:
