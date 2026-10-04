@@ -70,3 +70,18 @@ def test_readme_points_to_the_common_proxy():
     text = (REPOSITORY / "README.md").read_text()
     assert "cryptolabs-ai-platform" in text
     assert "services/nginx-configs" in text
+
+
+COMMON_PROXY_LINK = "https://github.com/cryptolabsza/cryptolabs-ai-platform/tree/dev/services/nginx-configs"
+
+
+def test_readme_links_to_the_common_proxy_and_names_no_hosts():
+    text = (REPOSITORY / "README.md").read_text()
+    assert COMMON_PROXY_LINK in text
+    assert "framepack" not in text
+
+
+def test_agents_md_forbids_routing_cryptolabs_sites():
+    text = (REPOSITORY / "AGENTS.md").read_text()
+    assert "common proxy" in text
+    assert COMMON_PROXY_LINK in text

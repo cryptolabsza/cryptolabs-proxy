@@ -49,10 +49,10 @@ Unified reverse proxy and fleet management landing page for CryptoLabs products.
 ### CryptoLabs' own public sites
 
 This product is the fleet proxy for customer datacenters. It does **not** route
-CryptoLabs' own public sites (`kb`, `api.ai`, `webui.ai`, `ipmi-ai`, `tts`,
-`wpbm.ai`, `framepack.ai` under `cryptolabs.co.za`). Those are served by the
+CryptoLabs' own public sites under `cryptolabs.co.za`. Those are served by the
 common proxy owned by `cryptolabs-ai-platform`
-(`services/nginx-configs`, deployed by its Synchronized Platform Deployment).
+([services/nginx-configs](https://github.com/cryptolabsza/cryptolabs-ai-platform/tree/dev/services/nginx-configs),
+deployed by its Synchronized Platform Deployment).
 Add or change public-site routing there, not here.
 
 ## Quick Start
