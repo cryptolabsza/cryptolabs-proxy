@@ -272,6 +272,17 @@ Docker:
 
 ---
 
+## 8. CryptoLabs Public Sites Are Not Routed Here
+
+This repository is the fleet proxy product for customer datacenters. It never
+routes CryptoLabs' own public sites (`*.cryptolabs.co.za` on wk01). Those are
+served by the common proxy in `cryptolabs-ai-platform`:
+https://github.com/cryptolabsza/cryptolabs-ai-platform/tree/dev/services/nginx-configs
+— change public-site routing by a PR there. `tests/test_edge_ownership.py`
+keeps wk01 routes out of the shipped nginx config and templates.
+
+---
+
 ## Summary
 
 | Policy | One-Liner |
