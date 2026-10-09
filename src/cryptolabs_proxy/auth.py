@@ -25,11 +25,13 @@ import hmac
 import json
 import time
 import logging
+import tempfile
 import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Optional, Tuple, List
+from urllib.parse import urlsplit
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -152,6 +154,7 @@ def load_settings() -> dict:
         'session_timeout_hours': 24,
         'max_login_attempts': 5,
         'lockout_duration_minutes': 15,
+        'netbox_url': '',
     }
     
     if settings_file.exists():
@@ -167,7 +170,20 @@ def load_settings() -> dict:
 def save_settings(settings: dict):
     """Save settings to file."""
     settings_file = get_settings_file()
-    settings_file.write_text(json.dumps(settings, indent=2))
+    mode = settings_file.stat().st_mode & 0o777 if settings_file.exists() else 0o600
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=DATA_DIR,
+                                         prefix='.settings-', delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(settings, temporary, indent=2)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, settings_file)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def get_setting(key: str, default=None):
@@ -181,6 +197,28 @@ def set_setting(key: str, value):
     settings = load_settings()
     settings[key] = value
     save_settings(settings)
+
+
+def validate_netbox_url(value) -> str:
+    """Accept an ordinary environment link, without embedded credentials."""
+    error = 'Enter an absolute HTTP or HTTPS NetBox URL without credentials.'
+    if not isinstance(value, str) or len(value) > 2048:
+        raise ValueError(error)
+    if any(ord(char) < 32 or ord(char) == 127 for char in value) or '\\' in value:
+        raise ValueError(error)
+    value = value.strip()
+    if not value:
+        return ''
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port  # Validate malformed and out-of-range ports.
+        if (parsed.scheme not in ('http', 'https') or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or any(char.isspace() for char in parsed.netloc)):
+            raise ValueError(error)
+    except ValueError:
+        raise ValueError(error) from None
+    return value
 
 
 # =============================================================================
@@ -966,11 +1004,39 @@ def create_flask_auth_app():
             <a href="/auth/logout">Logout</a>
         </div>
         
-        <h1 style="margin-bottom: 30px;">Security Settings</h1>
+        <h1 style="margin-bottom: 30px;">Fleet Settings</h1>
         
         {% if success %}
         <div class="success">{{ success }}</div>
         {% endif %}
+
+        {% if error %}
+        <div class="error" role="alert">{{ error }}</div>
+        {% endif %}
+
+        <div class="card" id="netbox">
+            <h2>NetBox</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                Link this site's NetBox environment for device, rack and network inventory.
+                Saving a URL moves NetBox into Services on the dashboard.
+            </p>
+            <form method="POST" action="/auth/settings#netbox">
+                <input type="hidden" name="settings_section" value="netbox">
+                <input type="hidden" name="netbox_csrf_token" value="{{ netbox_csrf_token }}">
+                <div class="form-group">
+                    <label for="netbox_url">NetBox environment URL</label>
+                    <input type="url" id="netbox_url" name="netbox_url" value="{{ settings.netbox_url }}"
+                           placeholder="https://netbox.example.com/" maxlength="2048">
+                    <p style="color: var(--text-secondary); margin-top: 8px; font-size: 0.9rem;">
+                        Use the environment URL. NetBox manages its own login and permissions.
+                    </p>
+                </div>
+                <button type="submit" class="btn">Save NetBox</button>
+                {% if settings.netbox_url %}
+                <button type="submit" name="netbox_action" value="remove" class="btn btn-secondary" formnovalidate>Remove NetBox</button>
+                {% endif %}
+            </form>
+        </div>
         
         <div class="card">
             <h2>Access Control</h2>
@@ -1322,20 +1388,68 @@ def create_flask_auth_app():
     @admin_required_decorator
     def settings_page():
         success = None
+        error = None
+        status = 200
         
         if request.method == 'POST':
             settings = load_settings()
-            settings['allow_anonymous'] = 'allow_anonymous' in request.form
-            settings['anonymous_role'] = request.form.get('anonymous_role', 'readonly')
-            settings['session_timeout_hours'] = int(request.form.get('session_timeout_hours', 24))
-            settings['max_login_attempts'] = int(request.form.get('max_login_attempts', 5))
-            settings['lockout_duration_minutes'] = int(request.form.get('lockout_duration_minutes', 15))
-            save_settings(settings)
-            success = 'Settings saved successfully'
+            if request.form.get('settings_section') == 'netbox':
+                if not valid_netbox_csrf(request.form.get('netbox_csrf_token')):
+                    error, status = 'Invalid form token. Reload Settings and try again.', 403
+                else:
+                    try:
+                        settings['netbox_url'] = validate_netbox_url(
+                            '' if request.form.get('netbox_action') == 'remove'
+                            else request.form.get('netbox_url', '')
+                        )
+                    except ValueError as exc:
+                        error, status = str(exc), 400
+                    else:
+                        try:
+                            save_settings(settings)
+                        except OSError:
+                            error, status = 'NetBox link could not be saved. Try again.', 503
+                        else:
+                            success = 'NetBox link saved. Open Dashboard to use it.'
+            else:
+                settings['allow_anonymous'] = 'allow_anonymous' in request.form
+                settings['anonymous_role'] = request.form.get('anonymous_role', 'readonly')
+                settings['session_timeout_hours'] = int(request.form.get('session_timeout_hours', 24))
+                settings['max_login_attempts'] = int(request.form.get('max_login_attempts', 5))
+                settings['lockout_duration_minutes'] = int(request.form.get('lockout_duration_minutes', 15))
+                save_settings(settings)
+                success = 'Settings saved successfully'
         
         return render_template_string(SETTINGS_TEMPLATE,
                                       settings=load_settings(),
-                                      success=success)
+                                      success=success, error=error,
+                                      netbox_csrf_token=netbox_csrf_token()), status
+
+    def netbox_csrf_token():
+        if not session.get('netbox_csrf_token'):
+            session['netbox_csrf_token'] = secrets.token_urlsafe(32)
+        return session['netbox_csrf_token']
+
+    def valid_netbox_csrf(value):
+        expected = session.get('netbox_csrf_token')
+        return (isinstance(value, str) and isinstance(expected, str)
+                and value.isascii() and len(value) == len(expected)
+                and hmac.compare_digest(value, expected))
+
+    @app.route('/auth/api/netbox')
+    @login_required_decorator
+    def netbox_metadata():
+        try:
+            url = validate_netbox_url(get_setting('netbox_url', ''))
+        except ValueError:
+            url = ''
+        can_configure = session.get('role') == 'admin'
+        data = {'configured': bool(url), 'url': url, 'can_configure': can_configure}
+        if can_configure:
+            data['csrf_token'] = netbox_csrf_token()
+        response = jsonify(data)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     
     @app.route('/auth/check')
     def check_auth():
@@ -1582,9 +1696,22 @@ def create_flask_auth_app():
     @app.route('/auth/api/settings', methods=['POST'])
     @admin_required_decorator
     def api_settings_set():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Settings must be a JSON object'}), 400
+        if 'netbox_url' in data:
+            if not valid_netbox_csrf(request.headers.get('X-CSRF-Token')):
+                return jsonify({'error': 'Invalid form token. Reload Settings and try again.'}), 403
+            try:
+                data['netbox_url'] = validate_netbox_url(data['netbox_url'])
+            except ValueError as exc:
+                return jsonify({'error': str(exc)}), 400
         settings = load_settings()
-        settings.update(request.json)
-        save_settings(settings)
+        settings.update(data)
+        try:
+            save_settings(settings)
+        except OSError:
+            return jsonify({'error': 'Settings could not be saved. Try again.'}), 503
         return jsonify({'success': True})
     
     # =========================================================================

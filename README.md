@@ -359,3 +359,28 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 - [CryptoLabs](https://cryptolabs.co.za)
 - [Documentation](https://cryptolabs.co.za/dc-monitoring/)
+
+## NetBox environment link
+
+NetBox starts in **Available Products** on the Fleet dashboard. An administrator
+can select **Set up NetBox**, enter that site's environment URL, and select
+**Save NetBox**. The card then moves to **Services**, where **Open NetBox** opens
+the saved environment in a new tab. NetBox keeps its own login and permissions.
+
+Use **Configure** to edit the destination. **Remove NetBox**, or saving an empty
+URL, returns the card to Available Products. Each installation keeps its own
+link in the existing persistent Fleet authentication data volume. Ordinary
+Fleet users can open the link; only administrators can change it.
+
+URLs must be absolute HTTP or HTTPS links without embedded credentials. Use
+HTTPS for NetBox Cloud. The card indicates a configured external service; it
+does not poll NetBox or claim that the environment is healthy.
+
+For API configuration, authenticate to Fleet and fetch `/auth/api/netbox`.
+Administrators receive a session-bound `csrf_token` with the public link
+metadata. POST JSON containing `netbox_url` to `/auth/api/settings`, with that
+token in the `X-CSRF-Token` header. An empty string clears the link; omitting
+the field preserves it. Invalid URLs or failed saves preserve existing settings.
+
+SSO is a separate integration. A NetBox environment link does not establish
+NetBox authentication or grant inventory permissions.
