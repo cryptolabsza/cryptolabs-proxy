@@ -765,6 +765,14 @@
     <script>
         // Default service definitions
         const DEFAULT_SERVICES = {
+            'netbox': {
+                displayName: 'NetBox',
+                icon: '🗂️',
+                description: 'Device, rack and network inventory for this site.',
+                configured: false,
+                canConfigure: false,
+                externalUrl: null
+            },
             'ipmi-monitor': {
                 displayName: 'IPMI Monitor',
                 icon: '<img src="/ipmi/static/favicon.png" alt="IPMI" style="width:32px;height:32px;border-radius:6px;" onerror="this.onerror=null;this.outerHTML=\'🖥️\';">',
@@ -901,6 +909,29 @@
                     console.log('Could not check watchdog status');
                 }
 
+                // NetBox is a configured external environment, not a local container.
+                const netbox = DEFAULT_SERVICES['netbox'];
+                netbox.configured = false;
+                netbox.canConfigure = false;
+                netbox.externalUrl = null;
+                try {
+                    const response = await fetch('/auth/api/netbox');
+                    if (response.ok) {
+                        const data = await response.json();
+                        netbox.canConfigure = data.can_configure === true;
+                        if (data.configured === true && typeof data.url === 'string') {
+                            const destination = new URL(data.url);
+                            if (['http:', 'https:'].includes(destination.protocol)
+                                    && !destination.username && !destination.password) {
+                                netbox.configured = true;
+                                netbox.externalUrl = data.url;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not load NetBox configuration');
+                }
+
                 // Render services
                 let runningHtml = '';
                 let availableHtml = '';
@@ -908,6 +939,16 @@
                 let totalCount = Object.keys(DEFAULT_SERVICES).length;
 
                 for (const [key, service] of Object.entries(DEFAULT_SERVICES)) {
+                    if (key === 'netbox') {
+                        const card = renderNetBoxCard(service);
+                        if (service.configured) {
+                            runningCount++;
+                            runningHtml += card;
+                        } else {
+                            availableHtml += card;
+                        }
+                        continue;
+                    }
                     const serviceHealth = health[key] || {};
                     const isRunning = serviceHealth.running === true;
                     const isUnconfigured = serviceHealth.state === 'unconfigured';
@@ -930,7 +971,7 @@
                 }
 
                 grid.innerHTML = runningHtml || '<p style="color: var(--text-secondary);">No services running. Install a CryptoLabs product to get started!</p>';
-                productsGrid.innerHTML = availableHtml || '<p style="color: var(--text-secondary);">All products are installed and running!</p>';
+                productsGrid.innerHTML = availableHtml || '<p style="color: var(--text-secondary);">All products are configured.</p>';
 
                 // Update stats
                 document.getElementById('servicesRunning').textContent = runningCount;
@@ -945,6 +986,30 @@
                 console.error('Failed to load services:', e);
                 grid.innerHTML = `<p style="color: var(--accent-red);">Failed to load services: ${e.message}</p>`;
             }
+        }
+
+        function renderNetBoxCard(service) {
+            const escape = value => String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[char]));
+            const actions = service.configured
+                ? `<a href="${escape(service.externalUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Open NetBox</a>`
+                : '';
+            const configure = service.canConfigure
+                ? `<a href="/auth/settings#netbox" class="btn ${service.configured ? 'btn-secondary' : 'btn-primary'}">${service.configured ? 'Configure' : 'Set up NetBox'}</a>`
+                : (!service.configured ? '<p class="install-note">Ask a Fleet administrator to set up NetBox.</p>' : '');
+            return `
+                <div class="service-card" data-service="netbox">
+                    <div class="service-header">
+                        <span class="service-icon">${service.icon}</span>
+                        <div class="service-info">
+                            <h3>NetBox</h3>
+                            <div class="status">${service.configured ? 'External Service' : 'Setup Required'}</div>
+                        </div>
+                    </div>
+                    <p class="service-description">${service.description}</p>
+                    <div class="service-actions">${actions}${configure}</div>
+                </div>`;
         }
 
         function renderServiceCard(key, service, status, health) {
