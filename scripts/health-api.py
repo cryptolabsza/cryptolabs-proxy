@@ -480,7 +480,7 @@ def get_all_versions():
             })
         
         versions[name] = version_info
-        if running and config.get('update_supported') is not False:
+        if config.get('update_supported') is not False:
             version_info.update(update_status(name, settings.get('branch', 'main')))
     
     # Add configured branch
@@ -646,11 +646,16 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({'error': 'Failed to save settings'}, 500)
         
         elif path in ('/api/update', '/api/pull'):
+            if set(data) - {'service', 'branch', 'selection_id', 'selection_sha256'}:
+                self.send_json({'success': False, 'error': 'Unsupported updater request fields.'}, 400)
+                return
             try:
                 job = submit_update_job(
                     data.get('service', 'all'),
                     data.get('branch', load_update_settings().get('branch', 'main')),
                     'pull' if path == '/api/pull' else 'update',
+                    selection_id=data.get('selection_id'),
+                    selection_sha256=data.get('selection_sha256'),
                 )
                 self.send_json({'success': True, 'job': job}, 202)
             except UpdateBusy as error:

@@ -348,6 +348,15 @@ def main():
 def setup():
     """Interactive setup wizard for the proxy."""
     check_root()
+    installed=ServiceRegistry(CONFIG_DIR).config
+    if installed.get('standard_adoption'):
+        from .standard_adoption import StandardAdoption
+        ok,detail=StandardAdoption(CONFIG_DIR).repeat_setup()
+        if not ok: raise click.ClickException(detail)
+        click.echo(detail)
+        return
+    if installed.get('custom_config'):
+        raise click.ClickException('Custom routes require configuration plan/adopt before ordinary setup')
     
     console.print()
     console.print(Panel(
@@ -738,6 +747,59 @@ def firewall_apply():
     console.print("\n[bold]Applied Ports:[/bold]")
     console.print(f"  TCP: {tcp_ports}")
     console.print(f"  UDP: {udp_ports}")
+
+
+
+
+@main.group()
+def configuration():
+    """Inspect, plan and adopt supported standard proxy configuration."""
+
+
+@configuration.command('inspect')
+def configuration_inspect():
+    """Read sanitized active route, TLS, service and mount metadata."""
+    import json
+    from .standard_adoption import StandardAdoption, AdoptionError
+    try: click.echo(json.dumps(StandardAdoption(CONFIG_DIR).inspect(),sort_keys=True))
+    except AdoptionError as error: raise click.ClickException(str(error))
+
+
+def _adoption_declaration(path):
+    import json
+    from .standard_adoption import AdoptionError
+    try:
+        data=Path(path).read_bytes()
+        if len(data)>1024*1024: raise ValueError()
+        def unique(pairs):
+            result={}
+            for key,value in pairs:
+                if key in result: raise ValueError()
+                result[key]=value
+            return result
+        return json.loads(data,object_pairs_hook=unique)
+    except (OSError,ValueError): raise AdoptionError('declaration_file_invalid') from None
+
+
+@configuration.command('plan')
+@click.option('--declaration',required=True,type=click.Path(exists=True,dir_okay=False,path_type=Path))
+def configuration_plan(declaration):
+    """Read-only deterministic plan from explicit declarative service/TLS fields."""
+    import json
+    from .standard_adoption import StandardAdoption, AdoptionError, SelectionError
+    try: click.echo(json.dumps(StandardAdoption(CONFIG_DIR).plan(_adoption_declaration(declaration)),sort_keys=True))
+    except (AdoptionError,SelectionError) as error: raise click.ClickException(str(error))
+
+
+@configuration.command('adopt')
+@click.option('--declaration',required=True,type=click.Path(exists=True,dir_okay=False,path_type=Path))
+@click.option('--plan-id',required=True)
+def configuration_adopt(declaration,plan_id):
+    """Root-only compensated adoption of the reviewed plan identity."""
+    import json
+    from .standard_adoption import StandardAdoption, AdoptionError
+    try: click.echo(json.dumps(StandardAdoption(CONFIG_DIR).adopt(_adoption_declaration(declaration),plan_id),sort_keys=True))
+    except AdoptionError as error: raise click.ClickException(str(error))
 
 
 if __name__ == "__main__":

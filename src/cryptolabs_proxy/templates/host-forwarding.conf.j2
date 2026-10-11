@@ -1,0 +1,61 @@
+{% for group in host_forward_groups | default([]) %}
+{% for protocol in ['http','https'] %}
+{% set forwarding = group[protocol] %}
+    server {
+{% if protocol == 'http' %}
+        listen 80;
+{% else %}
+        listen 443 ssl;
+{% if group.get('http2', true) %}
+        http2 on;
+{% endif %}
+{% endif %}
+        server_name {{ group.hostnames | join(' ') }};
+{% if protocol == 'https' %}
+        ssl_certificate {{ group.certificate }};
+        ssl_certificate_key {{ group.certificate_key }};
+        ssl_protocols TLSv1.2 TLSv1.3;
+{% endif %}
+        location / {
+            proxy_pass {{ forwarding.origin }};
+{% if protocol == 'https' %}
+            proxy_ssl_verify {{ 'on' if forwarding.get('verify_tls', true) else 'off' }};
+{% if forwarding.get('verify_tls', true) %}
+            proxy_ssl_trusted_certificate {{ forwarding.get('ca_certificate', '/etc/ssl/certs/ca-certificates.crt') }};
+{% endif %}
+            proxy_ssl_server_name {{ 'on' if forwarding.get('sni', true) else 'off' }};
+{% endif %}
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto {{ '$scheme' if forwarding.get('forwarded_proto', 'scheme') == 'scheme' else forwarding.forwarded_proto }};
+{% if forwarding.get('websocket', false) %}
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+{% endif %}
+{% for key, directive in [('read_timeout_seconds','proxy_read_timeout'),('send_timeout_seconds','proxy_send_timeout'),('connect_timeout_seconds','proxy_connect_timeout')] %}
+{% if key in forwarding %}
+            {{ directive }} {{ forwarding[key] }}s;
+{% endif %}
+{% endfor %}
+{% if 'buffering' in forwarding %}
+            proxy_buffering {{ 'on' if forwarding.buffering else 'off' }};
+{% endif %}
+{% if 'max_body_size_mb' in forwarding %}
+            client_max_body_size {{ forwarding.max_body_size_mb }}M;
+{% endif %}
+{% if not legacy_forward_profile | default(false) %}
+            # External backends own their authentication; Fleet authorities
+            # and exporter management tokens are never forwarded.
+            proxy_set_header X-Mgmt-Token "";
+            proxy_set_header X-Fleet-Auth-Token "";
+            proxy_set_header X-Fleet-Auth-User "";
+            proxy_set_header X-Fleet-Auth-Role "";
+            proxy_set_header X-Fleet-Authenticated "";
+{% endif %}
+        }
+{% include 'vast-price-manager-auth-blocks.conf.j2' %}
+    }
+{% endfor %}
+{% endfor %}

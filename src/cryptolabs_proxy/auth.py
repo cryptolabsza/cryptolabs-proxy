@@ -34,6 +34,7 @@ from typing import Optional, Tuple, List
 from urllib.parse import urlsplit
 
 from werkzeug.security import generate_password_hash, check_password_hash
+from .identity import VALID_ROLES, validate_identity_users
 
 # Module-level logger for auth operations
 logger = logging.getLogger('cryptolabs_proxy.auth')
@@ -121,9 +122,6 @@ def save_watchdog_api_key(api_key: str) -> bool:
         return True
     except Exception:
         return False
-
-# Valid roles (ordered by privilege level)
-VALID_ROLES = ['admin', 'readwrite', 'readonly']
 
 # Role hierarchy for permission checks
 ROLE_HIERARCHY = {
@@ -602,9 +600,21 @@ def create_flask_auth_app():
     This runs alongside nginx to handle login/logout/session management.
     """
     from flask import Flask, request, jsonify, session, redirect, render_template_string
+    from flask.sessions import SecureCookieSessionInterface
+
+    class TransportSessionInterface(SecureCookieSessionInterface):
+        def get_cookie_secure(self, app):
+            # Supported Nginx and auth server share a container. Only that
+            # loopback peer may report the TLS scheme it terminated; a Docker
+            # network client cannot choose cookie transport via a header.
+            return (super().get_cookie_secure(app) or request.is_secure or (
+                request.remote_addr in ('127.0.0.1', '::1')
+                and request.headers.get('X-Forwarded-Proto') == 'https'
+            ))
     
     app = Flask(__name__)
     app.secret_key = AUTH_SECRET_KEY
+    app.session_interface = TransportSessionInterface()
     
     # Session cookie settings
     app.config['SESSION_COOKIE_NAME'] = 'fleet_session'
@@ -1187,11 +1197,11 @@ def create_flask_auth_app():
             return f(*args, **kwargs)
         return decorated
 
-    def current_vast_price_manager_user():
+    def current_admin_user():
         """Return the live Fleet administrator behind this signed session.
 
         Flask has already verified ``fleet_session`` before exposing ``session``.
-        The database lookup is deliberately repeated for every VPM request so a
+        The lookup is repeated for every VPM or exporter admin request so a
         role change, disablement, deletion, or forced password change takes
         effect immediately instead of trusting values cached in the cookie.
         """
@@ -1209,9 +1219,18 @@ def create_flask_auth_app():
             return None, 401
         return user, 200
 
+    def exporter_admin_required(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            _, status = current_admin_user()
+            if status != 200:
+                return jsonify({'error': 'Admin access required'}), status
+            return f(*args, **kwargs)
+        return decorated
+
     def vast_price_manager_session_payload():
         """Build the bounded VPM authority response from the signed cookie."""
-        user, status = current_vast_price_manager_user()
+        user, status = current_admin_user()
         if not user:
             return None, status
 
@@ -1563,9 +1582,8 @@ def create_flask_auth_app():
     def get_headers():
         """Get auth headers for nginx subrequest.
         
-        Also includes X-Mgmt-Token for exporter management API proxying.
-        Nginx captures this via auth_request_set and forwards it to
-        the exporter containers.
+        Exporter management authority is issued separately after checking
+        the current administrator, rather than exposing it to every reader.
         """
         # Check for logged in user first
         if session.get('logged_in'):
@@ -1586,10 +1604,6 @@ def create_flask_auth_app():
             response.headers[AUTH_HEADER_USER] = username
             response.headers[AUTH_HEADER_ROLE] = role
             response.headers[AUTH_HEADER_TOKEN] = token
-            # Include exporter management token for nginx to forward
-            mgmt_token = _get_exporter_mgmt_token()
-            if mgmt_token:
-                response.headers['X-Mgmt-Token'] = mgmt_token
             return response
         
         # Check if anonymous access is allowed
@@ -1606,6 +1620,18 @@ def create_flask_auth_app():
         
         return '', 401
 
+    @app.route('/auth/exporters/authorize')
+    def authorize_exporters():
+        """Authorize exporter account APIs before issuing their management token."""
+        _, status = current_admin_user()
+        if status != 200:
+            return '', status
+        response = app.make_response(('', 204))
+        mgmt_token = _get_exporter_mgmt_token()
+        if mgmt_token:
+            response.headers['X-Mgmt-Token'] = mgmt_token
+        return response
+
     @app.route('/auth/vast-price-manager/authorize')
     def authorize_vast_price_manager():
         """Authorize the Fleet administrator-only VPM proxy route.
@@ -1614,7 +1640,7 @@ def create_flask_auth_app():
         subrequest.  It reads the signed-in Flask session and deliberately
         ignores incoming role headers, which a client could forge.
         """
-        _, status = current_vast_price_manager_user()
+        _, status = current_admin_user()
         if status != 200:
             return '', status
         return '', 204
@@ -1726,7 +1752,7 @@ def create_flask_auth_app():
         return jsonify(get_exporter_status())
     
     @app.route('/auth/api/exporters/<name>/enable', methods=['POST'])
-    @admin_required_decorator
+    @exporter_admin_required
     def api_exporter_enable(name):
         """Enable an exporter (vastai or runpod)."""
         from cryptolabs_proxy.exporter_manager import enable_exporter
@@ -1739,7 +1765,7 @@ def create_flask_auth_app():
         return jsonify(result), status
     
     @app.route('/auth/api/exporters/<name>/disable', methods=['POST'])
-    @admin_required_decorator
+    @exporter_admin_required
     def api_exporter_disable(name):
         """Disable an exporter (vastai or runpod)."""
         from cryptolabs_proxy.exporter_manager import disable_exporter
@@ -1747,7 +1773,7 @@ def create_flask_auth_app():
         return jsonify(result)
     
     @app.route('/auth/api/exporters/<name>/restart', methods=['POST'])
-    @admin_required_decorator
+    @exporter_admin_required
     def api_exporter_restart(name):
         """Restart an exporter container."""
         from cryptolabs_proxy.exporter_manager import restart_exporter
@@ -2503,29 +2529,33 @@ def create_flask_auth_app():
 # =============================================================================
 
 def ensure_default_user():
-    """Ensure at least one user exists, and sync admin password from env if changed.
-    
-    On fresh install: creates admin user from FLEET_ADMIN_PASS env var.
-    On redeploy with persistent volume: if FLEET_ADMIN_PASS env var differs
-    from the stored hash, update the password. This handles the case where
-    fleet-auth-data volume survives cleanup and contains stale credentials.
+    """Bootstrap only an absent store; existing customer authority fails closed.
+
+    Installation environment variables can outlive password changes. Restart,
+    upgrade, adoption, and recovery must never replay them as password rotation.
+    Intentional changes use the existing authenticated user-management actions.
     """
     default_user = os.environ.get('FLEET_ADMIN_USER', 'admin')
     default_pass = os.environ.get('FLEET_ADMIN_PASS')
-    
-    if not user_exists():
+    users_file = get_users_file()
+    try:
+        users_file.lstat()
+    except FileNotFoundError:
+        existing_store = False
+    except OSError:
+        raise RuntimeError('Existing authentication identity store is inaccessible; recovery required') from None
+    else:
+        existing_store = True
+    if existing_store:
+        try:
+            users = json.loads(users_file.read_text())
+            validate_identity_users(users)
+        except (OSError, UnicodeError, ValueError):
+            raise RuntimeError('Existing authentication identity store is unreadable or invalid; recovery required') from None
+        return False
+    else:
         # Fresh install - create admin from env vars
         if default_pass:
             create_user(default_user, default_pass, 'admin')
-            return True
-    elif default_pass:
-        # Volume persisted from previous deploy - sync password if env var changed
-        users = load_users()
-        admin = users.get(default_user)
-        if admin and not check_password_hash(admin['password_hash'], default_pass):
-            # Env var password differs from stored hash - update it
-            users[default_user]['password_hash'] = generate_password_hash(default_pass)
-            users[default_user]['require_password_change'] = False
-            save_users(users)
             return True
     return False
