@@ -74,6 +74,7 @@ http {
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-XSS-Protection "1; mode=block" always;
 
+{% include 'acme-challenge.conf.j2' %}
         # =====================================================
         # ERROR HANDLERS
         # =====================================================
@@ -131,6 +132,8 @@ http {
             proxy_set_header Host $host;
         }
 
+        {% include "fleet-api-routes.conf.j2" %}
+
         # Static assets (no auth)
         location /static/ {
             root /usr/share/nginx/html;
@@ -164,14 +167,16 @@ http {
         {% include "vast-price-manager.conf.j2" %}
         {% endif %}
 
+        {% include "standard-service-routes.conf.j2" %}
+
         {% for name, service in services.items() %}
-        {% if name == 'vast-price-manager' %}
+        {% if name in ['ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'] %}
         # Vast Price Manager uses its dedicated admin-only route above.
         {% elif not service.path %}
         # {{ service.get('display_name', name) }} - external service, no local proxy route
         {% else %}
         # {{ service.get('display_name', name) }} - uses variable for runtime DNS resolution
-        location {{ service.path }} {
+        location ~ ^{{ service.path }}(?<custom_{{ name | replace('-', '_') }}>.*)$ {
             # Require authentication
             auth_request /_auth_check;
             auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
@@ -194,7 +199,7 @@ http {
             
             # Variable allows nginx to start even if service doesn't exist yet
             set $upstream_{{ name | replace('-', '_') }} http://{{ service.container_name }}:{{ service.port }};
-            proxy_pass $upstream_{{ name | replace('-', '_') }}/;
+            proxy_pass $upstream_{{ name | replace('-', '_') }}/$custom_{{ name | replace('-', '_') }}$is_args$args;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
@@ -270,35 +275,14 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
         
-        # Exporter API proxies - for management pages to call exporter JSON APIs
-        location /vastai-api/ {
-            auth_request /_auth_check;
-            error_page 401 = @login_redirect;
-            set $upstream_vastai http://vastai-exporter:8622;
-            proxy_pass $upstream_vastai/api/;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_intercept_errors on;
-            error_page 502 503 504 = @service_unavailable;
-        }
-        
-        location /runpod-api/ {
-            auth_request /_auth_check;
-            error_page 401 = @login_redirect;
-            set $upstream_runpod http://runpod-exporter:8623;
-            proxy_pass $upstream_runpod/api/;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_intercept_errors on;
-            error_page 502 503 504 = @service_unavailable;
-        }
-        
+        {% include "exporter-auth-routes.conf.j2" %}
+
         # Default: show landing page
         location / {
             root /usr/share/nginx/html;
             try_files $uri $uri/ /index.html;
         }
     }
+    {% include "host-forwarding.conf.j2" %}
+
 }

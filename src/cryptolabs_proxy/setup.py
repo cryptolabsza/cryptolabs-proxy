@@ -17,6 +17,8 @@ from datetime import datetime
 from .config import generate_nginx_config, generate_docker_compose, CONFIG_DIR
 from .ssl import generate_self_signed_cert
 from .services import ServiceRegistry
+from .release_selection import SELECTION_CONTRACT, SelectionError, load as load_selection, targets as selection_targets
+import json
 
 
 # Docker network configuration
@@ -42,6 +44,7 @@ class ProxyConfig:
     watchdog_url: str = "https://watchdog.cryptolabs.co.za"
     # Internal API token - shared secret for service-to-service config API
     internal_api_token: str = ""
+    release_selection_dir: Optional[Path] = None
     
     def __post_init__(self):
         if not self.auth_secret:
@@ -224,10 +227,13 @@ def check_existing_letsencrypt_cert(domain: str) -> Tuple[bool, Optional[Path], 
 
 
 def obtain_letsencrypt_cert(domain: str, email: str) -> bool:
-    """Obtain a new Let's Encrypt certificate.
-    
-    Stops any services on port 80 temporarily.
+    """Acquire a certificate without stopping an existing customer service.
+
+    A compatible running proxy uses its mounted ACME webroot. Otherwise
+    certbot's standalone listener must obtain port 80 itself; a busy port is
+    an acquisition failure, never permission to stop the current service.
     """
+    from .migration import MigrationError
     # Install certbot if needed
     if not shutil.which("certbot"):
         subprocess.run(["apt-get", "update", "-qq"], capture_output=True)
@@ -236,24 +242,48 @@ def obtain_letsencrypt_cert(domain: str, email: str) -> bool:
     if not shutil.which("certbot"):
         return False
     
-    # Stop services on port 80/443
-    subprocess.run(["systemctl", "stop", "nginx"], capture_output=True)
-    subprocess.run(["docker", "stop", "cryptolabs-proxy"], capture_output=True)
-    
-    # Give time for ports to be released
-    import time
-    time.sleep(2)
-    
+    challenge = ['--standalone']
+    webroot = CONFIG_DIR / 'certbot' / 'www'
+    try:
+        inspected = subprocess.run(['docker', 'inspect', 'cryptolabs-proxy'],
+            capture_output=True, text=True, timeout=10)
+        current = json.loads(inspected.stdout)[0] if inspected.returncode == 0 else {}
+        mounted = any(m.get('Destination') == '/var/www/certbot'
+                      and m.get('Source') == str(webroot)
+                      for m in current.get('Mounts', []))
+        if mounted and current.get('State', {}).get('Running'):
+            observed = subprocess.run(['docker', 'exec', 'cryptolabs-proxy', 'nginx', '-T'],
+                capture_output=True, text=True, timeout=10)
+            from .standard_adoption import parse_nginx
+            def compatible(nodes):
+                for words, children in nodes:
+                    if children is None:
+                        continue
+                    if words in (['location', '/.well-known/acme-challenge/'],
+                                 ['location', '^~', '/.well-known/acme-challenge/']):
+                        if children == [[['root', '/var/www/certbot'], None]]:
+                            return True
+                    if compatible(children):
+                        return True
+                return False
+            if observed.returncode == 0 and compatible(parse_nginx(observed.stdout.encode())):
+                webroot.mkdir(parents=True, exist_ok=True)
+                challenge = ['--webroot', '-w', str(webroot)]
+    except (OSError, ValueError, subprocess.SubprocessError, MigrationError):
+        return False
     cmd = [
-        "certbot", "certonly", "--standalone",
+        "certbot", "certonly", *challenge,
         "-d", domain,
         "--email", email,
         "--agree-tos",
         "--non-interactive",
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return result.returncode == 0
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def ensure_ssl_certs(config: ProxyConfig) -> Tuple[bool, str]:
@@ -296,6 +326,8 @@ def ensure_ssl_certs(config: ProxyConfig) -> Tuple[bool, str]:
                 return True, f"Obtained new Let's Encrypt certificate for {config.domain}"
         
         # Fall back to self-signed
+        if config.release_selection_dir is not None:
+            return False, f"Requested Let's Encrypt certificate unavailable for {config.domain}"
         generate_self_signed_cert(ssl_dir, config.domain)
         return False, f"Could not obtain Let's Encrypt cert, using self-signed for {config.domain}"
     
@@ -417,6 +449,47 @@ def setup_proxy(
     def log(msg: str):
         if callback:
             callback(msg)
+
+    target_image = 'ghcr.io/cryptolabsza/cryptolabs-proxy:latest'
+    recorded = ServiceRegistry(CONFIG_DIR).config
+    if recorded.get('standard_adoption'):
+        from .standard_adoption import StandardAdoption
+        return StandardAdoption(CONFIG_DIR).reconfigure(config)
+    recorded_directory = recorded.get('release_selection_dir')
+    if config.release_selection_dir is None and recorded_directory:
+        config.release_selection_dir = Path(recorded_directory)
+    baseline = config.release_selection_dir is not None
+    if baseline and recorded.get('custom_config'):
+        from .updates import PROXY_ADOPTION_MESSAGE
+        return False, 'Custom Nginx configuration requires host adoption. '+PROXY_ADOPTION_MESSAGE
+    # Defaults are only an installer for an absent container. Existing runtime
+    # stores, keys, ports and networks require the inspected adoption path.
+    try:
+        current = subprocess.run(['docker', 'inspect', 'cryptolabs-proxy'],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False, 'Cannot inspect existing proxy; setup not started'
+    if current.returncode == 0:
+        return False, ('Existing proxy requires host adoption; run '
+            'cryptolabs-proxy configuration plan --declaration /root/proxy-declaration.json, '
+            'then cryptolabs-proxy configuration adopt --declaration /root/proxy-declaration.json --plan-id <plan-id>')
+    absent = ('No such object: cryptolabs-proxy', 'No such container: cryptolabs-proxy')
+    if not any(message in current.stderr for message in absent):
+        return False, 'Cannot establish absent proxy; setup not started'
+    if baseline:
+        try:
+            snapshot = load_selection(config.release_selection_dir)
+            platform_result = subprocess.run(['docker', 'version', '--format', '{{.Server.Os}}/{{.Server.Arch}}'],
+                capture_output=True, text=True, timeout=10)
+            if platform_result.returncode:
+                return False, 'Docker platform unavailable; no setup started'
+            targets = selection_targets(snapshot, platform_result.stdout.strip())
+            proxy_target = targets.get('cryptolabs-proxy')
+            if not proxy_target or proxy_target['owner'] != 'proxy-updater':
+                return False, 'Proxy must be enabled in the approved selection'
+            target_image = proxy_target['reference']
+        except SelectionError as error:
+            return False, str(error)
     
     # Ensure config directory exists
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -425,6 +498,8 @@ def setup_proxy(
     log("Checking SSL certificates...")
     ssl_success, ssl_message = ensure_ssl_certs(config)
     log(ssl_message)
+    if baseline and config.use_letsencrypt and not ssl_success:
+        return False, 'Requested Let\'s Encrypt certificate unavailable; existing proxy remains running'
     
     # Step 2: Docker network
     log("Ensuring Docker network exists...")
@@ -434,6 +509,8 @@ def setup_proxy(
     
     # Step 3: Check if proxy needs update
     existing_config = get_proxy_config()
+    if not baseline and existing_config and existing_config.get('RELEASE_SELECTION_REQUIRED') == 'true':
+        return False, 'Approved release directory required; baseline policy cannot be cleared'
     needs_restart = False
     
     if existing_config:
@@ -444,20 +521,71 @@ def setup_proxy(
             log("Credentials changed, will restart proxy")
     else:
         needs_restart = True
+    if baseline:
+        try:
+            result = subprocess.run(['docker', 'inspect', 'cryptolabs-proxy'], capture_output=True, text=True, timeout=10)
+            current = json.loads(result.stdout)[0] if result.returncode == 0 else {}
+            labels = current.get('Config', {}).get('Labels') or {}
+            expected_mount = str(Path(config.release_selection_dir).resolve())
+            mounted = any(m.get('Source') == expected_mount and m.get('Destination') == '/etc/cryptolabs/releases'
+                          and m.get('RW') is False for m in current.get('Mounts', []))
+            if labels.get('com.centurylinklabs.watchtower.enable') != 'false' or not mounted or labels.get('io.cryptolabs.update.reference') != target_image:
+                needs_restart = True
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return False, 'Cannot inspect baseline proxy; no replacement started'
     
     # Step 4: Start/restart proxy
     if needs_restart:
         log("Starting proxy container...")
         
-        # Free up ports 80/443 - stops nginx, apache, existing proxy containers
-        log("Freeing ports 80/443...")
-        _free_ports_80_443()
-        
         # Pull latest image
-        subprocess.run(
-            ["docker", "pull", "ghcr.io/cryptolabsza/cryptolabs-proxy:latest"],
+        pulled = subprocess.run(
+            ["docker", "pull", target_image],
             capture_output=True, timeout=120
         )
+        if pulled.returncode:
+            return False, 'Proxy image pull failed; existing proxy unchanged'
+        if baseline:
+            try:
+                inspected = subprocess.run(['docker', 'image', 'inspect', target_image], capture_output=True, text=True, timeout=10)
+                image = json.loads(inspected.stdout)[0] if inspected.returncode == 0 else {}
+                if target_image not in image.get('RepoDigests', []) or image.get('Os', '') + '/' + image.get('Architecture', '') != proxy_target['platform']:
+                    return False, 'Proxy artifact identity mismatch; existing proxy unchanged'
+            except (OSError, ValueError, subprocess.SubprocessError):
+                return False, 'Proxy artifact unavailable; existing proxy unchanged'
+            # Regenerate standard routes before mounting them. Auth protections
+            # ship in the normal package template, not a runtime code overlay.
+            registry = ServiceRegistry(CONFIG_DIR)
+            try:
+                load_selection(config.release_selection_dir, selection_id=snapshot['selection_id'],
+                    selection_sha256=snapshot['selection_sha256'])
+            except SelectionError as error:
+                return False, str(error)
+            # Validate an unserved candidate against the same certificate
+            # namespaces used below, before removing the current proxy.
+            import tempfile
+            with tempfile.TemporaryDirectory(prefix='nginx-preflight-', dir=CONFIG_DIR) as temporary:
+                candidate_dir = Path(temporary)
+                generate_nginx_config(candidate_dir, config.domain, config.use_letsencrypt and ssl_success, registry.services,
+                    host_forward_groups=registry.config.get('host_forward_groups', []),
+                    acme_challenge=registry.config.get('acme_challenge'))
+                validation = ['docker', 'run', '--rm', '--network', DOCKER_NETWORK_NAME,
+                    '--entrypoint', '']
+                validation.extend(['-v', f'{CONFIG_DIR / "ssl"}:/etc/nginx/ssl:ro',
+                    '-v', f'{candidate_dir / "nginx.conf"}:/etc/nginx/nginx.conf:ro'])
+                if config.use_letsencrypt and ssl_success:
+                    webroot = CONFIG_DIR / 'certbot' / 'www'
+                    webroot.mkdir(parents=True, exist_ok=True)
+                    validation.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro',
+                        '-v', f'{webroot}:/var/www/certbot:ro'])
+                validation.extend([target_image, 'nginx', '-t'])
+                try:
+                    tested = subprocess.run(validation, capture_output=True, timeout=60)
+                except (OSError, subprocess.SubprocessError):
+                    return False, 'Proxy configuration validation unavailable; existing proxy unchanged'
+                if tested.returncode:
+                    return False, 'Proxy configuration validation failed; existing proxy unchanged'
+                (CONFIG_DIR / 'nginx.conf').write_bytes((candidate_dir / 'nginx.conf').read_bytes())
         
         ssl_dir = CONFIG_DIR / "ssl"
         
@@ -478,9 +606,20 @@ def setup_proxy(
             "-v", f"{ssl_dir}:/etc/nginx/ssl:ro",
             "--network", DOCKER_NETWORK_NAME,
             "--ip", PROXY_STATIC_IP,
-            "--label", "com.centurylinklabs.watchtower.enable=true",
-            "ghcr.io/cryptolabsza/cryptolabs-proxy:latest"
+            "--label", "com.centurylinklabs.watchtower.enable=" + ('false' if baseline else 'true'),
         ]
+        if baseline:
+            cmd.extend(['-v', f'{Path(config.release_selection_dir).resolve()}:/etc/cryptolabs/releases:ro',
+                '-v', f'{CONFIG_DIR / "nginx.conf"}:/etc/nginx/nginx.conf:ro',
+                '-e', 'RELEASE_SELECTION_REQUIRED=true', '--label', 'io.cryptolabs.update.reference=' + target_image,
+                '--label', 'io.cryptolabs.update.origin=' + proxy_target['origin']])
+            if config.use_letsencrypt and ssl_success:
+                cmd.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro',
+                    '-v', f'{CONFIG_DIR / "certbot" / "www"}:/var/www/certbot:ro'])
+        cmd.append(target_image)
+
+        log("Freeing ports 80/443...")
+        _free_ports_80_443()
         
         # Save internal API token to shared volume so other containers can read it
         _save_internal_token(config.internal_api_token)
@@ -514,7 +653,7 @@ def setup_proxy(
     except Exception:
         pass
     
-    if not wt_running:
+    if not wt_running and not baseline:
         # Stop and remove legacy dc-watchtower (was deployed by dc-overview/ipmi-monitor)
         subprocess.run(["docker", "stop", LEGACY_WATCHTOWER], capture_output=True)
         subprocess.run(["docker", "rm", LEGACY_WATCHTOWER], capture_output=True)
@@ -543,6 +682,8 @@ def setup_proxy(
     registry = ServiceRegistry(CONFIG_DIR)
     registry.config["domain"] = config.domain
     registry.config["letsencrypt"] = config.use_letsencrypt and ssl_success
+    if baseline:
+        registry.config['release_selection_dir'] = str(Path(config.release_selection_dir).resolve())
     registry.save()
     
     domain = config.domain or get_local_ip()
@@ -579,6 +720,18 @@ def update_proxy_credentials(
     
     # Preserve or generate internal API token
     internal_api_token = existing.get("INTERNAL_API_TOKEN", "") or secrets.token_hex(32)
+
+    registry = ServiceRegistry(CONFIG_DIR)
+    release_directory = registry.config.get('release_selection_dir')
+    if release_directory or existing.get('RELEASE_SELECTION_REQUIRED') == 'true':
+        if not release_directory:
+            return False, 'Approved release directory unavailable; baseline policy cannot be cleared'
+        return setup_proxy(ProxyConfig(
+            domain=registry.config.get('domain', ''), use_letsencrypt=registry.config.get('letsencrypt', False),
+            fleet_admin_user=fleet_admin_user, fleet_admin_pass=fleet_admin_pass, auth_secret=auth_secret,
+            watchdog_api_key=watchdog_api_key, watchdog_url=watchdog_url,
+            internal_api_token=internal_api_token, site_name=existing.get('SITE_NAME', 'DC Overview'),
+            release_selection_dir=Path(release_directory)))
     
     # Recreate with new credentials
     subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)

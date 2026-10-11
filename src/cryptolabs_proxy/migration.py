@@ -439,8 +439,14 @@ class CustomConfigMigrator:
             "--network", "none", "--entrypoint", "nginx",
             "-v", f"{candidate}:/etc/nginx/nginx.conf:ro",
             "-v", f"{ssl_mount['Source']}:/etc/nginx/ssl:ro",
-            image, "-t",
         ]
+        for mount in inspect.get("Mounts", []):
+            if mount.get("Destination") in ("/etc/letsencrypt", "/var/www/certbot"):
+                source = mount.get("Name") if mount.get("Type") == "volume" else mount.get("Source")
+                if not source:
+                    raise MigrationError("certificate store source unavailable")
+                command.extend(["-v", f"{source}:{mount['Destination']}:ro"])
+        command.extend([image, "-t"])
         try:
             result = subprocess.run(command, capture_output=True, timeout=self.timeout)
         except (OSError, subprocess.SubprocessError) as error:
