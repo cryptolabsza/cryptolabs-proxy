@@ -166,9 +166,14 @@ def test_new_updater_nonproxy_replacement_still_supported():
 
 def test_additive_capabilities_getter_matches_cli_contract(capsys):
     from cryptolabs_proxy import updates
-    assert updates.get_capabilities()=={'selection_contract':1,'proxy_replacement_policy':'host-adoption-required-v1'}
+    capabilities=updates.get_capabilities()
+    assert capabilities=={'selection_contract':1,'proxy_replacement_policy':'host-adoption-required-v1',
+        'controller_adoption_guard':{'schema_version':1,'api':'AdoptionEngine.controller_guard',
+                                     'durable_updater_exclusion':True}}
+    assert type(capabilities['controller_adoption_guard']['schema_version']) is int
+    assert capabilities['controller_adoption_guard']['durable_updater_exclusion'] is True
     assert updates.main(['capabilities'])==0
-    assert json.loads(capsys.readouterr().out)==updates.get_capabilities()
+    assert json.loads(capsys.readouterr().out)==capabilities
 
 
 @pytest.mark.parametrize('selected',[False,True])

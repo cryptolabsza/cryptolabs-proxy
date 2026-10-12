@@ -4,6 +4,7 @@ import json
 from copy import deepcopy
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from click.testing import CliRunner
 import pytest
 from cryptolabs_proxy.config import generate_nginx_config
@@ -76,7 +77,7 @@ def system(tmp_path,monkeypatch):
     config=(directory/'nginx.conf').read_bytes()
     reg=ServiceRegistry(directory); reg.config={'custom_config':{'mode':'vpm-managed','baseline_path':'private-old','baseline_sha256':'b'*64}}; reg.services={'vast-price-manager':DEFAULT_SERVICES['vast-price-manager']}; reg.save()
     engine=Engine(config); adoption=StandardAdoption(directory,engine=engine)
-    monkeypatch.setattr('cryptolabs_proxy.standard_adoption.os.geteuid',lambda:0)
+    monkeypatch.setattr('cryptolabs_proxy.standard_adoption.os', SimpleNamespace(geteuid=lambda: 0))
     return adoption,engine,settings,directory
 
 

@@ -162,6 +162,10 @@ always-running internal VPM session and reauthentication endpoints cannot fall
 through a preserved public <code>/auth/</code> route. Rollback restores the
 original stored baseline exactly.
 
+Supported DC monitoring adoption uses the private durable
+[controller adoption guard](docs/controller-adoption-guard.md), including normal
+updater and proxy-adoption exclusion during crash recovery.
+
 ### Vast Price Manager Fleet sign-in
 
 ### Vast Price Manager prerequisite

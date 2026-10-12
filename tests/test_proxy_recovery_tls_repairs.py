@@ -241,7 +241,7 @@ def fixture(tmp_path, monkeypatch):
     registry = ServiceRegistry(directory)
     registry.services = {'dc-overview': DEFAULT_SERVICES['dc-overview']}
     registry.save()
-    monkeypatch.setattr(sa.os, 'geteuid', lambda: 0)
+    monkeypatch.setattr(sa, 'os', SimpleNamespace(geteuid=lambda: 0))
     return sa.StandardAdoption(directory, engine=engine), engine, settings, data
 
 

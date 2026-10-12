@@ -357,6 +357,8 @@ def test_vpm_health_status_distinguishes_unconfigured_from_healthy(monkeypatch):
     monkeypatch.setattr(health_api, "check_container_running", lambda name: name == "vast-price-manager")
     monkeypatch.setattr(health_api, "get_vast_price_manager_readiness", lambda: "unconfigured")
     monkeypatch.setattr(health_api, "get_vast_price_manager_docker_health", lambda: "healthy")
+    prerequisite = {"configured": False, "reason": "no-connected-account", "connected_account_count": 0}
+    monkeypatch.setattr(health_api, "get_vpm_prerequisite", lambda: prerequisite)
 
     status = health_api.get_all_service_status()["vast-price-manager"]
 
@@ -365,6 +367,7 @@ def test_vpm_health_status_distinguishes_unconfigured_from_healthy(monkeypatch):
     assert status["state"] == "unconfigured"
     assert status["configured"] is False
     assert status["lifecycle_manager"] == "dc-overview"
+    assert status["prerequisite"] == prerequisite
 
 
 def test_vpm_health_does_not_treat_a_running_unhealthy_container_as_healthy(monkeypatch):
@@ -372,6 +375,8 @@ def test_vpm_health_does_not_treat_a_running_unhealthy_container_as_healthy(monk
     monkeypatch.setattr(health_api, "check_container_running", lambda name: name == "vast-price-manager")
     monkeypatch.setattr(health_api, "get_vast_price_manager_readiness", lambda: "ready")
     monkeypatch.setattr(health_api, "get_vast_price_manager_docker_health", lambda: "unhealthy")
+    prerequisite = {"configured": True, "reason": "ready", "connected_account_count": 1}
+    monkeypatch.setattr(health_api, "get_vpm_prerequisite", lambda: prerequisite)
 
     status = health_api.get_all_service_status()["vast-price-manager"]
 
@@ -379,6 +384,7 @@ def test_vpm_health_does_not_treat_a_running_unhealthy_container_as_healthy(monk
     assert status["healthy"] is False
     assert status["docker_health"] == "unhealthy"
     assert status["configured"] is True
+    assert status["prerequisite"] == prerequisite
 
 
 def test_vpm_allowed_host_reads_only_the_nonsecret_container_setting(monkeypatch):

@@ -22,6 +22,7 @@ from urllib.request import urlopen
 
 from .migration import DockerEngine, MigrationError, _mount_request, endpoint_configurations
 from . import release_selection as selection
+from . import controller_recovery
 
 
 SERVICES = {
@@ -55,7 +56,8 @@ PROXY_ADOPTION_MESSAGE = ('Proxy replacement requires the published host CLI: ru
 def get_capabilities():
     """Additive caller contract; proxy replacement requires host authority."""
     return {'selection_contract': selection.SELECTION_CONTRACT,
-            'proxy_replacement_policy': PROXY_REPLACEMENT_POLICY}
+            'proxy_replacement_policy': PROXY_REPLACEMENT_POLICY,
+            'controller_adoption_guard': dict(controller_recovery.CAPABILITY)}
 
 
 def _require_selected_updater(engine, source):
@@ -436,11 +438,11 @@ def job_status(job_id, *, directory=JOBS_DIR, engine=None):
 
 @contextmanager
 def _lock(directory, name):
-    Path(directory).mkdir(mode=0o700, parents=True, exist_ok=True)
-    descriptor = os.open(Path(directory) / name, os.O_RDWR | os.O_CREAT, 0o600)
-    with os.fdopen(descriptor, 'w') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        yield
+    try:
+        with controller_recovery.updater_lock(directory, name):
+            yield
+    except controller_recovery.RecoveryError:
+        raise UpdateError('controller_recovery_required') from None
 
 
 def helper_request(source, directory, job_id):
@@ -476,6 +478,10 @@ def submit_job(service, branch, action, *, directory=JOBS_DIR, engine=None,
     if snapshot and service != 'all' and (service not in targets or targets[service]['owner'] != 'proxy-updater'):
         raise UpdateError('service_not_selected')
     with _lock(directory, 'dispatch.lock'):
+        try:
+            controller_recovery.require_clear(directory)
+        except controller_recovery.RecoveryError:
+            raise UpdateError('controller_recovery_required') from None
         active = Path(directory) / 'active.json'
         if active.exists():
             previous = read_job(directory, json.loads(active.read_text())['id'])
@@ -614,6 +620,13 @@ def run_job(directory, job_id, *, engine=None):
         job = read_job(directory, job_id)
         if job.get('state') not in (None, 'queued'):
             return job  # A completed/interrupted operation is never replayed.
+        try:
+            controller_recovery.require_clear(directory)
+        except controller_recovery.RecoveryError:
+            job.update(state='blocked', success=False, reason='controller_recovery_required',
+                       finished_at=time.time(), results={})
+            write_job(directory, job)
+            return job
         job.update(state='running', results={})
         write_job(directory, job)
         if 'selection_snapshot' in job:
