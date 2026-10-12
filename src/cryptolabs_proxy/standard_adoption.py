@@ -228,6 +228,8 @@ try:
   fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
 except BlockingIOError:
  sys.exit(73)
+# Presence is sufficient: malformed/unknown/link markers also require recovery.
+if os.path.lexists(directory/'controller-adoption.json'): sys.exit(74)
 pathlib.Path(sys.argv[2]).write_text('held')
 while True: time.sleep(60)
 """
@@ -253,6 +255,151 @@ while True: time.sleep(60)
             yield check
         finally:
             self.remove(name,ignore_missing=True)
+
+    @contextmanager
+    def controller_guard(self, source_proxy, image_id, operation_id, *, recover=False):
+        """Exclude durable updates until verified controller completion.
+
+        Context exit always removes the helper but retains its marker. Recovery
+        reclaims the same source/mount/operation only under both real locks.
+        """
+        from . import controller_recovery as recovery
+        from .migration import _mount_request
+        import uuid
+        if type(recover) is not bool:
+            raise AdoptionError('controller_guard_identity_invalid')
+        owner = uuid.uuid4().hex + uuid.uuid4().hex
+        mounts = source_proxy.get('Mounts', [])
+        auth = [m for m in mounts if m.get('Destination') == '/data/auth']
+        if len(auth) != 1 or not auth[0].get('RW', True) or any(
+                m.get('Destination', '').startswith('/data/auth/') for m in mounts):
+            raise AdoptionError('controller_guard_auth_mount_unsupported')
+        if auth[0].get('Type') not in ('bind', 'volume') or image_id != source_proxy.get('Image'):
+            raise AdoptionError('controller_guard_source_unsupported')
+        try:
+            mount = _mount_request(auth[0])
+            record = recovery.validate_record({'schema_version': 1, 'kind': 'dc-controller-adoption',
+                'operation_id': operation_id, 'source_id': source_proxy['Id'], 'source_image': image_id,
+                'auth_mount_sha256': sha256(_canonical(mount)), 'owner': owner})
+        except (KeyError, TypeError, ValueError, MigrationError, recovery.RecoveryError):
+            raise AdoptionError('controller_guard_identity_invalid') from None
+        name = 'cryptolabs-controller-lock-' + owner[:24]
+        command = Path(recovery.__file__).read_text()
+        self.create(name, {'Config': {'Image': image_id, 'Entrypoint': ['python3'],
+            'Cmd': ['-c', command, '/data/auth/update-jobs', '/tmp/controller-guard.sock',
+                    json.dumps(record, sort_keys=True, separators=(',', ':')),
+                    'recover' if recover else 'new', str(min(self.timeout, 15))],
+            'Healthcheck': {'Test': ['NONE']}, 'Labels': {'io.cryptolabs.controller.guard': owner,
+                'com.centurylinklabs.watchtower.enable': 'false'}},
+            'HostConfig': {'NetworkMode': 'none', 'RestartPolicy': {'Name': 'no'},
+                'Mounts': [mount], 'LogConfig': {'Type': 'json-file', 'Config': {'max-size': '1m', 'max-file': '1'}}},
+            'NetworkingConfig': {'EndpointsConfig': {}}})
+        helper_id = None
+        completed = False
+
+        def invoke(action):
+            try:
+                helper = self.inspect(helper_id or name)
+                if (not helper.get('State', {}).get('Running') or helper.get('Image') != image_id
+                        or helper.get('Config', {}).get('Labels', {}).get('io.cryptolabs.controller.guard') != owner
+                        or helper_id and helper.get('Id') != helper_id):
+                    raise ValueError()
+                response = self._controller_guard_rpc(helper['Id'], owner, action)
+                if response != {'owner': owner, 'state': 'completed' if action == 'complete' else 'held'}:
+                    raise ValueError()
+                return helper['Id']
+            except Exception:
+                raise AdoptionError('controller_guard_unavailable; controller recovery required') from None
+
+        def check():
+            if completed:
+                raise AdoptionError('controller_guard_completed')
+            invoke('check')
+
+        def complete():
+            nonlocal completed
+            invoke('complete')
+            completed = True
+
+        check.complete = complete
+        try:
+            self.start(name)
+            deadline = time.monotonic() + min(self.timeout, 15) + 1
+            while True:
+                try:
+                    helper_id = invoke('check')
+                    break
+                except AdoptionError:
+                    if time.monotonic() >= deadline or not self.inspect(name).get('State', {}).get('Running'):
+                        raise AdoptionError('controller_guard_unavailable; controller recovery required') from None
+                    time.sleep(.02)
+            yield check
+        finally:
+            self.remove(helper_id or name, ignore_missing=True)
+
+    def _controller_guard_rpc(self, helper_id, owner, action):
+        """Execute the fixed client on this Engine, with bounded framed output."""
+        from .controller_recovery import CLIENT_COMMAND
+        from .migration import _UnixHTTPConnection
+        try:
+            command = ['python3', '-c', CLIENT_COMMAND, owner, action]
+            if action not in ('check', 'complete'):
+                raise ValueError()
+            created = self._request('POST', '/containers/' + quote(helper_id, safe='') + '/exec',
+                {'AttachStdin': False, 'AttachStdout': True, 'AttachStderr': True,
+                 'Tty': False, 'Cmd': command})
+            if len(created) > 4096:
+                raise ValueError()
+            exec_id = json.loads(created)['Id']
+            if not isinstance(exec_id, str) or not re.fullmatch('[0-9a-f]{64}', exec_id):
+                raise ValueError()
+            # Generic Engine requests read the complete response. Bound this
+            # attached exec stream before allocation on the very same socket.
+            connection = _UnixHTTPConnection(self.socket_path, min(self.timeout, 5))
+            try:
+                connection.request('POST', '/exec/' + exec_id + '/start',
+                    body=json.dumps({'Detach': False, 'Tty': False}).encode(),
+                    headers={'Content-Type': 'application/json'})
+                response = connection.getresponse()
+                if response.status != 200:
+                    raise ValueError()
+                output = response.read(16385)
+            finally:
+                connection.close()
+            if len(output) > 16384:
+                raise ValueError()
+            stdout = bytearray()
+            offset = 0
+            while offset < len(output):
+                header = output[offset:offset + 8]
+                if len(header) != 8 or header[0] not in (1, 2) or header[1:4] != b'\0\0\0':
+                    raise ValueError()
+                length = int.from_bytes(header[4:8], 'big')
+                offset += 8
+                if length > len(output) - offset or header[0] == 2 and length:
+                    raise ValueError()
+                if header[0] == 1:
+                    if len(stdout) + length > 4096:
+                        raise ValueError()
+                    stdout.extend(output[offset:offset + length])
+                offset += length
+            inspected = self._request('GET', '/exec/' + exec_id + '/json')
+            if len(inspected) > 4096:
+                raise ValueError()
+            execution = json.loads(inspected)
+            process = execution.get('ProcessConfig', {})
+            if (execution.get('ID') != exec_id or execution.get('ContainerID') != helper_id
+                    or execution.get('Running') is not False
+                    or type(execution.get('ExitCode')) is not int or execution['ExitCode'] != 0
+                    or process.get('entrypoint') != command[0] or process.get('arguments') != command[1:]
+                    or process.get('tty') is not False):
+                raise ValueError()
+            value = json.loads(stdout)
+            if value != {'owner': owner, 'state': 'completed' if action == 'complete' else 'held'}:
+                raise ValueError()
+            return value
+        except Exception:
+            raise AdoptionError('controller_guard_unavailable') from None
 
     def read_config(self,name):
         return CustomConfigMigrator(Path('/etc/cryptolabs-proxy'),Path('/etc/cryptolabs-proxy/migrations'),engine=self)._read_active_config(name)
