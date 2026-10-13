@@ -1,0 +1,51 @@
+{
+  "source_sha256": "d09306e3c83e203287a2237943f814e8f0748049924f50c339f71db54720628c",
+  "complete_source": false,
+  "qualification": "Independent bounded observation of two server guards; residual full tree withheld. Not a complete captured Nginx fixture.",
+  "literal_map": {
+    "ltx.cryptolabs.co.za": "fleet.example.test"
+  },
+  "servers": [
+    {
+      "listeners": [
+        [
+          "80",
+          "default_server"
+        ]
+      ],
+      "guard_index": 2,
+      "condition": [
+        "$host",
+        "!=",
+        "fleet.example.test"
+      ],
+      "branch": [
+        "return",
+        444
+      ],
+      "acme_indices": [
+        3
+      ]
+    },
+    {
+      "listeners": [
+        [
+          "443",
+          "ssl",
+          "default_server"
+        ]
+      ],
+      "guard_index": 3,
+      "condition": [
+        "$host",
+        "!=",
+        "fleet.example.test"
+      ],
+      "branch": [
+        "return",
+        444
+      ],
+      "acme_indices": []
+    }
+  ]
+}

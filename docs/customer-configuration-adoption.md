@@ -45,6 +45,54 @@ mounted read-only in the isolated `nginx -t` validator. An existing Let's
 Encrypt profile must already be represented by supported configuration;
 unknown appended virtual hosts or certificate directives block adoption.
 
+Two optional closed fields preserve declared primary-host behavior:
+
+- `"hostname_policy": "primary-only"` makes the primary listeners default
+  listeners and rejects a different Nginx `$host` with fixed status `444`.
+  The primary name comes from `domain`; a lowercase literal DNS name is
+  required. IP addresses, wildcards, variables, regexes and custom actions
+  are rejected. Named `host_forward_groups` keep their own servers and routes.
+- `"http_policy": "redirect-primary-https"` separates HTTP and HTTPS,
+  redirects ordinary HTTP requests with fixed `308` to the literal primary
+  domain, and serves `^~ /.well-known/acme-challenge/` from `/var/www/certbot`
+  as `text/plain`, with `try_files $uri =404`. It retains the four public VPM
+  session/reauth `404` routes on HTTP. This local ACME mode cannot be combined
+  with the separate upstream `acme_challenge` declaration.
+
+The fields are independent. Omitted or null fields retain the previous
+behavior. For example, a primary-only HTTPS site using an existing copied
+certificate declares both fields and `"tls": "self-signed"`: that TLS name
+selects `/etc/nginx/ssl/server.crt` and `server.key`, regardless of the issuer
+of those mounted files. It does not claim that a copied Let's Encrypt
+certificate lives in the direct `letsencrypt` namespace. Redirect mode also
+retains the observed copied-certificate cipher contract, HTTPS secure session
+cookie flags, and public authorization-header endpoint/token restrictions.
+
+Both fields persist through adoption, repeat setup, selected credential
+reconstruction and regeneration. Fresh `setup_proxy(ProxyConfig(...))` with
+these fields requires an approved release selection. It validates and mounts
+the local ACME webroot for copied-certificate mode as well as direct Let's
+Encrypt mode. Generated Compose uses the same persisted policy and domain.
+Policy health probes use HTTPS loopback with the declared HTTP Host and TLS
+SNI and retain the internal API/auth checks. New policy probes use the configured certificate as an explicit local trust
+anchor and verify the primary hostname. A recognized existing verified probe
+retains its original system-CA trust, command bytes and timing fields through
+repeat, Compose regeneration and selected updates. Forwarding certificate
+verification and browser trust remain separate existing contracts.
+The adoption plan records the policy healthcheck hash. Only the recognized
+published default or the exact generated policy command may be replaced;
+unrecognized customer health commands hold adoption before effects.
+
+The supported guarded bootstrap tree is derived from an independently
+captured complete source, including both guards, their position before ACME,
+the literal redirect, TLS, all auth directives and every route. A guard
+summary, residual hash, or a configuration containing `return 444` is
+insufficient. A missing listener guard, changed host operand/action, auth
+subrequest, route, TLS directive or ordering fails source coverage. Static
+coverage does not establish native case/trailing-dot/port, missing Host,
+HTTP/1.0 or Host/SNI behavior, positive login/session continuity, or auth-overlay
+equivalence. Those require the selected-image customer maintenance checks.
+
 Every active route and directive is structurally compared with packaged
 supported standard profiles or the read-only bootstrap profile from released
 1.2.0 source. Unknown behavior fails closed with a directive/route context.

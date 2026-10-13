@@ -40,7 +40,7 @@ class Engine:
     def artifact_file_sha256(self,*args): return hashlib.sha256((Path(__file__).parents[1]/'src/cryptolabs_proxy/auth.py').read_bytes()).hexdigest()
     def pull(self,ref): self.calls.append(('pull',ref))
     def validate(self,image,candidate,inspect,identity): self.calls.append(('validate',candidate.read_bytes()))
-    def anonymous_auth(self,name,tls): return not self.fail_health
+    def anonymous_auth(self,name,tls,domain=None): return not self.fail_health
     def archive_auth(self,name): self.calls.append(('snapshot-auth',name)); return self.auth
     @contextmanager
     def updater_guard(self,*args):

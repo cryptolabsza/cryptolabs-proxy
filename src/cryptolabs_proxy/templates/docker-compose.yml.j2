@@ -19,6 +19,8 @@ services:
       {% endif %}
       {% if use_letsencrypt %}
       - ./certbot/conf:/etc/letsencrypt:ro
+      {% endif %}
+      {% if use_letsencrypt or http_policy %}
       - ./certbot/www:/var/www/certbot:ro
       {% endif %}
     environment:
@@ -29,10 +31,20 @@ services:
     networks:
       - cryptolabs
     healthcheck:
+      {% if policy_healthcheck %}
+      test: ["CMD-SHELL", {{ policy_healthcheck | tojson }}]
+      {% else %}
       test: ["CMD", "curl", "-f", "http://localhost/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      {% endif %}
+      interval: {{ (policy_healthcheck_config.Interval | string + 'ns') if policy_healthcheck_config and 'Interval' in policy_healthcheck_config else '30s' }}
+      timeout: {{ (policy_healthcheck_config.Timeout | string + 'ns') if policy_healthcheck_config and 'Timeout' in policy_healthcheck_config else '10s' }}
+      retries: {{ policy_healthcheck_config.Retries if policy_healthcheck_config and 'Retries' in policy_healthcheck_config else 3 }}
+      {% if policy_healthcheck_config and 'StartPeriod' in policy_healthcheck_config %}
+      start_period: {{ policy_healthcheck_config.StartPeriod }}ns
+      {% endif %}
+      {% if policy_healthcheck_config and 'StartInterval' in policy_healthcheck_config %}
+      start_interval: {{ policy_healthcheck_config.StartInterval }}ns
+      {% endif %}
     labels:
       com.centurylinklabs.watchtower.enable: "{{ 'false' if release_selection_dir else 'true' }}"
       {% if release_selection_dir %}

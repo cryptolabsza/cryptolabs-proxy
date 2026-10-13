@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, List, Tuple
 from datetime import datetime
 
-from .config import generate_nginx_config, generate_docker_compose, CONFIG_DIR
+from .config import generate_nginx_config, generate_docker_compose, validate_hostname_policy, validate_http_policy, render_policy_healthcheck, CONFIG_DIR
 from .ssl import generate_self_signed_cert
 from .services import ServiceRegistry
 from .release_selection import SELECTION_CONTRACT, SelectionError, load as load_selection, targets as selection_targets
@@ -45,8 +45,12 @@ class ProxyConfig:
     # Internal API token - shared secret for service-to-service config API
     internal_api_token: str = ""
     release_selection_dir: Optional[Path] = None
+    hostname_policy: Optional[str] = None
+    http_policy: Optional[str] = None
     
     def __post_init__(self):
+        self.hostname_policy = validate_hostname_policy(self.hostname_policy, self.domain)
+        self.http_policy = validate_http_policy(self.http_policy, self.domain)
         if not self.auth_secret:
             self.auth_secret = secrets.token_hex(32)
         if not self.internal_api_token:
@@ -452,6 +456,13 @@ def setup_proxy(
 
     target_image = 'ghcr.io/cryptolabsza/cryptolabs-proxy:latest'
     recorded = ServiceRegistry(CONFIG_DIR).config
+    try:
+        policy = config.hostname_policy if config.hostname_policy is not None else recorded.get('hostname_policy')
+        config.hostname_policy = validate_hostname_policy(policy, config.domain)
+        http_policy = config.http_policy if config.http_policy is not None else recorded.get("http_policy")
+        config.http_policy = validate_http_policy(http_policy, config.domain, recorded.get("acme_challenge"))
+    except ValueError:
+        return False, 'Invalid hostname policy; setup not started'
     if recorded.get('standard_adoption'):
         from .standard_adoption import StandardAdoption
         return StandardAdoption(CONFIG_DIR).reconfigure(config)
@@ -459,6 +470,8 @@ def setup_proxy(
     if config.release_selection_dir is None and recorded_directory:
         config.release_selection_dir = Path(recorded_directory)
     baseline = config.release_selection_dir is not None
+    if (config.hostname_policy or config.http_policy) and not baseline:
+        return False, 'Hostname policy requires approved standard setup or configuration adoption'
     if baseline and recorded.get('custom_config'):
         from .updates import PROXY_ADOPTION_MESSAGE
         return False, 'Custom Nginx configuration requires host adoption. '+PROXY_ADOPTION_MESSAGE
@@ -568,16 +581,18 @@ def setup_proxy(
                 candidate_dir = Path(temporary)
                 generate_nginx_config(candidate_dir, config.domain, config.use_letsencrypt and ssl_success, registry.services,
                     host_forward_groups=registry.config.get('host_forward_groups', []),
-                    acme_challenge=registry.config.get('acme_challenge'))
+                    acme_challenge=registry.config.get('acme_challenge'),
+                    hostname_policy=config.hostname_policy, http_policy=config.http_policy)
                 validation = ['docker', 'run', '--rm', '--network', DOCKER_NETWORK_NAME,
                     '--entrypoint', '']
                 validation.extend(['-v', f'{CONFIG_DIR / "ssl"}:/etc/nginx/ssl:ro',
                     '-v', f'{candidate_dir / "nginx.conf"}:/etc/nginx/nginx.conf:ro'])
                 if config.use_letsencrypt and ssl_success:
+                    validation.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro'])
+                if config.use_letsencrypt and ssl_success or config.http_policy:
                     webroot = CONFIG_DIR / 'certbot' / 'www'
                     webroot.mkdir(parents=True, exist_ok=True)
-                    validation.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro',
-                        '-v', f'{webroot}:/var/www/certbot:ro'])
+                    validation.extend(['-v', f'{webroot}:/var/www/certbot:ro'])
                 validation.extend([target_image, 'nginx', '-t'])
                 try:
                     tested = subprocess.run(validation, capture_output=True, timeout=60)
@@ -614,8 +629,12 @@ def setup_proxy(
                 '-e', 'RELEASE_SELECTION_REQUIRED=true', '--label', 'io.cryptolabs.update.reference=' + target_image,
                 '--label', 'io.cryptolabs.update.origin=' + proxy_target['origin']])
             if config.use_letsencrypt and ssl_success:
-                cmd.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro',
-                    '-v', f'{CONFIG_DIR / "certbot" / "www"}:/var/www/certbot:ro'])
+                cmd.extend(['-v', '/etc/letsencrypt:/etc/letsencrypt:ro'])
+            if config.use_letsencrypt and ssl_success or config.http_policy:
+                cmd.extend(['-v', f'{CONFIG_DIR / "certbot" / "www"}:/var/www/certbot:ro'])
+            healthcheck = render_policy_healthcheck(config.domain, config.hostname_policy, config.http_policy, letsencrypt=config.use_letsencrypt and ssl_success)
+            if healthcheck:
+                cmd.extend(['--health-cmd', healthcheck])
         cmd.append(target_image)
 
         log("Freeing ports 80/443...")
@@ -681,6 +700,10 @@ def setup_proxy(
     # Step 6: Initialize service registry
     registry = ServiceRegistry(CONFIG_DIR)
     registry.config["domain"] = config.domain
+    if config.hostname_policy is not None:
+        registry.config["hostname_policy"] = config.hostname_policy
+    if config.http_policy is not None:
+        registry.config["http_policy"] = config.http_policy
     registry.config["letsencrypt"] = config.use_letsencrypt and ssl_success
     if baseline:
         registry.config['release_selection_dir'] = str(Path(config.release_selection_dir).resolve())
@@ -731,7 +754,7 @@ def update_proxy_credentials(
             fleet_admin_user=fleet_admin_user, fleet_admin_pass=fleet_admin_pass, auth_secret=auth_secret,
             watchdog_api_key=watchdog_api_key, watchdog_url=watchdog_url,
             internal_api_token=internal_api_token, site_name=existing.get('SITE_NAME', 'DC Overview'),
-            release_selection_dir=Path(release_directory)))
+            release_selection_dir=Path(release_directory), hostname_policy=registry.config.get('hostname_policy'), http_policy=registry.config.get('http_policy')))
     
     # Recreate with new credentials
     subprocess.run(["docker", "rm", "-f", "cryptolabs-proxy"], capture_output=True)
