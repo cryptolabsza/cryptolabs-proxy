@@ -1,0 +1,28 @@
+{
+  "source_healthcheck_sha256": "22e2ce00eceb003f10cad04ac7fc17ea09dfb7ac8eaef6d7a6ceb2e8d9427f3e",
+  "same_as_source_image": false,
+  "source_image_healthcheck_sha256": "84d2a1af82b2daf0c959cbff9364898dfadef3ff8ee0543f06d71098c16619e1",
+  "typed_probe": {
+    "mode": "CMD-SHELL",
+    "tokens": [
+      "curl",
+      "-fsS",
+      "--resolve",
+      "fleet.example.test:443:127.0.0.1",
+      "https://fleet.example.test/api/health",
+      ">/dev/null",
+      "&&",
+      "curl",
+      "-fsS",
+      "http://localhost:8080/api/health",
+      ">/dev/null",
+      "||",
+      "exit",
+      "1"
+    ]
+  },
+  "literal_map": {
+    "ltx.cryptolabs.co.za": "fleet.example.test"
+  },
+  "qualification": "Independent values-free current/source-image comparison followed by strict source-local known curl-token projection; no original command executed or arbitrary literal exported."
+}

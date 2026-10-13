@@ -16,7 +16,7 @@ import tarfile
 import time
 from urllib.parse import quote, urlsplit
 
-from .config import get_jinja_env, validate_host_forward_groups, render_host_forward_groups, validate_acme_challenge, render_acme_challenge
+from .config import get_jinja_env, validate_host_forward_groups, render_host_forward_groups, validate_acme_challenge, render_acme_challenge, validate_hostname_policy, validate_http_policy, render_policy_healthcheck, policy_healthcheck
 from .custom_config import render_managed_vpm_config
 from .migration import (DockerEngine, CustomConfigMigrator, MigrationError, SwitchController,
                         build_recreate_request, endpoint_configurations, wait_for_container_healthy,
@@ -139,7 +139,7 @@ def _safe_upstream(words):
 
 def _declaration(value):
     required={'schema_version','domain','tls','release_selection_dir','services','obsolete_overlays','obsolete_owner_labels'}
-    if not isinstance(value,dict) or set(value)-required-{'host_forward_groups','acme_challenge'} or not required<=set(value) or type(value['schema_version']) is not int or value['schema_version']!=1:
+    if not isinstance(value,dict) or set(value)-required-{'host_forward_groups','acme_challenge','hostname_policy','http_policy'} or not required<=set(value) or type(value['schema_version']) is not int or value['schema_version']!=1:
         raise AdoptionError('declaration_schema_invalid')
     domain=value['domain']
     if not isinstance(domain,str) or not DOMAIN.fullmatch(domain) or '..' in domain or domain.endswith('.') or value['tls'] not in ('self-signed','letsencrypt'):
@@ -170,12 +170,74 @@ def _declaration(value):
     try:
         groups=validate_host_forward_groups(value.get('host_forward_groups',[]),domain)
         acme=validate_acme_challenge(value.get('acme_challenge'))
+        policy=validate_hostname_policy(value.get('hostname_policy'),domain)
+        http_policy=validate_http_policy(value.get('http_policy'),domain,acme)
     except ValueError as error: raise AdoptionError(str(error)) from None
-    return {**deepcopy(value),'host_forward_groups':groups,'acme_challenge':acme,'release_selection_dir':str(Path(directory).resolve()),'services':services}
+    canonical=deepcopy(value)
+    for name,setting in [('hostname_policy',policy),('http_policy',http_policy)]:
+        if setting is None: canonical.pop(name,None)
+        else: canonical[name]=setting
+    return {**canonical,'host_forward_groups':groups,'acme_challenge':acme,'release_selection_dir':str(Path(directory).resolve()),'services':services}
 
 
 def render_standard(declaration):
-    return get_jinja_env().get_template('nginx.conf.j2').render(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge')).encode()
+    return get_jinja_env().get_template('nginx.conf.j2').render(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
+
+
+def _policy_healthcheck(source, declaration):
+    try:
+        return policy_healthcheck(source.get('Config',{}).get('Healthcheck'),declaration['domain'],declaration.get('hostname_policy'),declaration.get('http_policy'),letsencrypt=declaration['tls']=='letsencrypt')
+    except ValueError: raise AdoptionError('source_healthcheck_unmapped') from None
+
+
+def _guarded_bootstrap_profile(legacy, declaration):
+    """Exact observed legacy delta, checked against an independent full fixture.
+
+    This constructs the supported tree; it never strips unknown source nodes.
+    Only the declared primary literal is substituted, in explicit positions.
+    """
+    domain=declaration['domain']
+    tree=parse_nginx(render_managed_vpm_config(legacy,True))
+    http=next(c for w,c in tree if w==['http'])
+    server=next(c for w,c in http if w==['server'])
+    # The captured HTTPS server is the released bootstrap minus HTTP listen.
+    server.remove([['listen','80','default_server'],None])
+    name=next(n for n in server if n[0]==['server_name','_'])
+    name[0][1]=domain
+    guard=parse_nginx(('if ($host != '+domain+') { return 444; }').encode())[0]
+    server.insert(server.index(name)+1,guard)
+    auth=next(n for n in server if n[0]==['location','=','/_auth_check'])
+    protected=parse_nginx(b"""
+        location = /auth/headers { return 404; }
+        location = /auth/headers/ { return 404; }
+        location = /auth/exporters/authorize { return 404; }
+        location = /auth/exporters/authorize/ { return 404; }
+        location = /_exporter_admin {
+            internal;
+            proxy_pass http://auth_server/auth/exporters/authorize;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Cookie $http_cookie;
+            proxy_set_header X-Original-URI $request_uri;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_pass_header X-Mgmt-Token;
+        }
+    """)
+    index=server.index(auth)+1;server[index:index]=protected
+    login=next(c for w,c in server if w==['location','/auth/'])
+    upstream=next(n for n in login if n[0]==['proxy_pass','http://auth_server/auth/'])
+    index=login.index(upstream)+1
+    login[index:index]=parse_nginx(b'proxy_hide_header X-Mgmt-Token; proxy_cookie_flags fleet_session secure httponly samesite=lax;')
+    for route in ('^/vastai-api/(.*)$','^/runpod-api/(.*)$'):
+        children=next(c for w,c in server if w==['location','~',route])
+        request=next(w for w,c in children if w==['auth_request','/_auth_check'])
+        request[1]='/_exporter_admin'
+    public=parse_nginx(('server { listen 80 default_server; server_name '+domain+'; if ($host != '+domain+') { return 444; } location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; default_type text/plain; try_files $uri =404; } location / { return 308 https://'+domain+'$request_uri; } }').encode())[0]
+    public[1].extend(parse_nginx(get_jinja_env().get_template('vast-price-manager-auth-blocks.conf.j2').render().encode()))
+    index=next(i for i,n in enumerate(http) if n[0]==['server'])
+    http.insert(index,public)
+    http.extend(parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True)))
+    return tree
 
 
 class AdoptionEngine(DockerEngine):
@@ -409,10 +471,20 @@ while True: time.sleep(60)
         self._request('POST','/images/create?fromImage='+quote(reference,safe=''),allowed=(200,))
     def validate(self,image,candidate,inspect,identity):
         CustomConfigMigrator(candidate.parent,candidate.parent,engine=self)._validate_candidate(image,candidate,inspect,identity)
-    def anonymous_auth(self,name,tls):
+    def anonymous_auth(self,name,tls,domain=None):
         # Internal fixed executable probes both auth server and public Nginx.
         import subprocess
         probe="import http.client; c=http.client.HTTPConnection('127.0.0.1',8081,timeout=5); c.request('GET','/auth/exporters/authorize'); assert c.getresponse().status==401; c.close(); c=http.client.HTTPSConnection('127.0.0.1',443,context=__import__('ssl')._create_unverified_context(),timeout=5); c.request('GET','/api/versions'); assert c.getresponse().status==401; c.close(); c=http.client.HTTPSConnection('127.0.0.1',443,context=__import__('ssl')._create_unverified_context(),timeout=5); c.request('GET','/auth/vast-price-manager/session'); assert c.getresponse().status==404"
+        if domain is not None:
+            validate_hostname_policy('primary-only',domain)
+            # Connect only to loopback, while TLS SNI and HTTP Host use the
+            # same declared literal. Preserve existing local unverified probe.
+            connect="class PrimaryHTTPS(http.client.HTTPSConnection):\n def connect(self):\n  sock=__import__('socket').create_connection(('127.0.0.1',443),self.timeout); self.sock=self._context.wrap_socket(sock,server_hostname=self.host)\n"
+            probe=probe.replace("c=http.client.HTTPSConnection('127.0.0.1',443,", "c=PrimaryHTTPS("+repr(domain)+",443,")
+            certificate='/etc/letsencrypt/live/'+domain+'/fullchain.pem' if tls=='letsencrypt' else '/etc/nginx/ssl/server.crt'
+            probe=probe.replace("context=__import__('ssl')._create_unverified_context()", "context=ctx")
+            connect+="ctx=__import__('ssl').create_default_context(); ctx.load_verify_locations(cafile="+repr(certificate)+");\n"
+            probe=probe.replace("import http.client; ", "import http.client\n"+connect+"\n")
         try:
             result=subprocess.run(['docker','exec',name,'python3','-c',probe],capture_output=True,timeout=self.timeout)
             return result.returncode==0
@@ -500,7 +572,7 @@ class StandardAdoption:
             def visit(items):
                 for words,children in items:
                     if words[0]=='server_name':
-                        if words[1:] in ([declaration['domain']],['_']): words[1:]=['DECLARED_DOMAIN']
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
                         elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
                     if children is not None: visit(children)
             visit(nodes); return nodes
@@ -520,14 +592,22 @@ class StandardAdoption:
                 server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
             next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
             profile_trees.append(profile_tree)
-        if any(actual==normalize(p) for p in profile_trees):
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
             required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
             if b'location = /vast-pricing' in active: required.add('vast-price-manager')
             if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
             for name in required:
                 if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
             return 'released-bootstrap-1.2.0'
-        supported=[expected]+[normalize(p) for p in profile_trees]
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
         actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
         closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
         known={tuple(w) for w in _walk(closest)}
@@ -538,6 +618,7 @@ class StandardAdoption:
     def plan(self,settings,*,environment=None):
         declaration=_declaration(settings); source=self.engine.inspect('cryptolabs-proxy')
         if not source.get('State',{}).get('Running'): raise AdoptionError('source_not_running')
+        healthcheck=_policy_healthcheck(source,declaration)
         active=self.engine.read_config('cryptolabs-proxy')
         recorded=ServiceRegistry(self.config_dir).config.get('standard_adoption',{})
         source_declaration=recorded.get('declaration',declaration)
@@ -568,6 +649,11 @@ class StandardAdoption:
             'declaration_sha256':sha256(_canonical(declaration)),'candidate_sha256':sha256(candidate),'selection_id':snapshot['selection_id'],'selection_sha256':snapshot['selection_sha256'],
             'manifest_sha256':snapshot['manifest_sha256'],'image':artifact['reference'],'platform':platform,'origin':artifact['origin'],'source_profile':profile,
             'environment_sha256':sha256(_canonical(environment or {}))}
+        if healthcheck is not None:
+            original=source.get('Config',{}).get('Healthcheck')
+            plan['healthcheck_sha256']=sha256(_canonical(healthcheck))
+            plan['source_healthcheck_sha256']=sha256(_canonical(original))
+            plan['healthcheck_action']='preserved-verified-source' if original==healthcheck else 'generated-policy-probe'
         plan['plan_id']=sha256(_canonical(plan))[:24]
         return plan
 
@@ -612,6 +698,8 @@ class StandardAdoption:
                 auth_mount=next(m for m in source['Mounts'] if m['Destination']=='/data/auth')
                 clone['Mounts'].append({'Type':'bind','Source':declaration['release_selection_dir'],'Destination':'/etc/cryptolabs/releases','RW':False})
                 nginx=self.config_dir/'nginx.conf'; request=build_recreate_request(clone,plan['image'],str(nginx))
+                if declaration.get('hostname_policy') or declaration.get('http_policy'):
+                    request['Config']['Healthcheck']=_policy_healthcheck(source,declaration)
                 config=request['Config']; config['Labels']=deepcopy(config.get('Labels') or {})
                 config['Labels'].update({'com.centurylinklabs.watchtower.enable':'false','io.cryptolabs.update.origin':plan['origin'],'io.cryptolabs.update.reference':plan['image']})
                 for label in declaration['obsolete_owner_labels']: config['Labels'].pop(label,None)
@@ -698,7 +786,7 @@ class StandardAdoption:
                         guard()
                 def candidate_health(name):
                     guard()
-                    ready=wait_for_proxy_ready(engine,name,lambda:engine.anonymous_auth(name,declaration['tls']),PROXY_READY_TIMEOUT)
+                    ready=wait_for_proxy_ready(engine,name,lambda:engine.anonymous_auth(name,declaration['tls'],declaration['domain']) if declaration.get('hostname_policy') or declaration.get('http_policy') else engine.anonymous_auth(name,declaration['tls']),PROXY_READY_TIMEOUT)
                     if not ready: engine.stop(name,ignore_missing=True)
                     guard()
                     return ready
@@ -715,7 +803,12 @@ class StandardAdoption:
                 # proven candidate/config and private recovery record for repair.
                 registry.services=declaration['services']; registry.config.pop('custom_config',None)
                 registry.config.update(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',release_selection_dir=declaration['release_selection_dir'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'))
+                for name in ('hostname_policy','http_policy'):
+                    if name in declaration: registry.config[name]=declaration[name]
+                    else: registry.config.pop(name,None)
                 registry.config['standard_adoption']={'plan_id':identity,'serving_sha256':_runtime_identity(engine.inspect('cryptolabs-proxy')),'declaration_sha256':plan['declaration_sha256'],'selection_sha256':plan['selection_sha256'],'auth_mount':{k:auth_mount[k] for k in ('Type','Name','Source','Destination') if k in auth_mount},'declaration':declaration}
+                if declaration.get('hostname_policy') or declaration.get('http_policy'):
+                    registry.config['standard_adoption']['healthcheck']=deepcopy(request['Config']['Healthcheck'])
                 try: registry.save()
                 except OSError:
                     write(backup/'outcome.json',_canonical({'state':'candidate_retained','reason':'registry_forward_repair_required'}))
@@ -750,6 +843,8 @@ class StandardAdoption:
             declaration=deepcopy(registry.config['standard_adoption']['declaration'])
             declaration.update(domain=config.domain,tls='letsencrypt' if config.use_letsencrypt else 'self-signed',services={n:{k:v for k,v in s.items() if k in ('container_name','path','port','display_name')} for n,s in registry.services.items()},obsolete_overlays=[],obsolete_owner_labels=[])
             if config.release_selection_dir: declaration['release_selection_dir']=str(config.release_selection_dir)
+            if config.hostname_policy is not None: declaration['hostname_policy']=config.hostname_policy
+            if config.http_policy is not None: declaration['http_policy']=config.http_policy
             source=self.engine.inspect('cryptolabs-proxy'); current={e.split('=',1)[0]:e.split('=',1)[1] for e in source['Config'].get('Env',[]) if '=' in e}
             environment={}
             for name,value in [('FLEET_ADMIN_USER',config.fleet_admin_user),('FLEET_ADMIN_PASS',config.fleet_admin_pass),('SITE_NAME',config.site_name),('WATCHDOG_API_KEY',config.watchdog_api_key),('WATCHDOG_URL',config.watchdog_url)]:
@@ -758,8 +853,17 @@ class StandardAdoption:
             # default generated values in ProxyConfig are not rotation intent.
             normalized=_declaration(declaration)
             selected=targets(load(normalized['release_selection_dir']),self.engine.image(source['Image'])['Os']+'/'+self.engine.image(source['Image'])['Architecture'])['cryptolabs-proxy']
+            health_current=True
+            if normalized.get('hostname_policy') or normalized.get('http_policy'):
+                # No-op is a positive preservation result; validate both the
+                # runtime probe and its saved policy metadata before claiming it.
+                runtime_health=_policy_healthcheck(source,normalized)
+                recorded_health=registry.config['standard_adoption'].get('healthcheck')
+                if recorded_health is None: raise AdoptionError('recorded_healthcheck_unmapped')
+                saved_health=_policy_healthcheck({'Config':{'Healthcheck':recorded_health}},normalized)
+                health_current=(runtime_health==source['Config'].get('Healthcheck') and saved_health==recorded_health and runtime_health==saved_health)
             labels=source['Config'].get('Labels') or {}
-            if not environment and sha256(self.engine.read_config('cryptolabs-proxy'))==sha256(render_standard(normalized)) and labels.get('io.cryptolabs.update.reference')==selected['reference'] and labels.get('com.centurylinklabs.watchtower.enable')=='false':
+            if health_current and not environment and sha256(self.engine.read_config('cryptolabs-proxy'))==sha256(render_standard(normalized)) and labels.get('io.cryptolabs.update.reference')==selected['reference'] and labels.get('com.centurylinklabs.watchtower.enable')=='false':
                 return True,'Adopted proxy configuration already current; state preserved'
             plan=self.plan(declaration,environment=environment)
             result=self.adopt(declaration,plan['plan_id'],environment=environment)
@@ -774,5 +878,5 @@ class StandardAdoption:
         registry=ServiceRegistry(self.config_dir)
         source=self.engine.inspect('cryptolabs-proxy')
         environment={e.split('=',1)[0]:e.split('=',1)[1] for e in source['Config'].get('Env',[]) if '=' in e}
-        config=ProxyConfig(registry.config['domain'],use_letsencrypt=registry.config.get('letsencrypt',False),fleet_admin_user=environment.get('FLEET_ADMIN_USER','admin'),fleet_admin_pass=environment.get('FLEET_ADMIN_PASS',''),site_name=environment.get('SITE_NAME',''),watchdog_api_key=environment.get('WATCHDOG_API_KEY',''),watchdog_url=environment.get('WATCHDOG_URL',''),release_selection_dir=Path(registry.config['release_selection_dir']))
+        config=ProxyConfig(registry.config['domain'],use_letsencrypt=registry.config.get('letsencrypt',False),fleet_admin_user=environment.get('FLEET_ADMIN_USER','admin'),fleet_admin_pass=environment.get('FLEET_ADMIN_PASS',''),site_name=environment.get('SITE_NAME',''),watchdog_api_key=environment.get('WATCHDOG_API_KEY',''),watchdog_url=environment.get('WATCHDOG_URL',''),release_selection_dir=Path(registry.config['release_selection_dir']),hostname_policy=registry.config.get('hostname_policy'),http_policy=registry.config.get('http_policy'))
         return self.reconfigure(config)

@@ -5,6 +5,7 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 CONFIG_DIR = Path("/etc/cryptolabs-proxy")
+_UNSET = object()
 
 
 def get_jinja_env():
@@ -17,13 +18,19 @@ def get_jinja_env():
     )
 
 
-def generate_nginx_config(config_dir: Path, domain: str, letsencrypt: bool = False, services: dict = None, *, host_forward_groups=None, acme_challenge=None):
+def generate_nginx_config(config_dir: Path, domain: str, letsencrypt: bool = False, services: dict = None, *, host_forward_groups=None, acme_challenge=None, hostname_policy=_UNSET, http_policy=_UNSET):
     """Generate nginx.conf from template."""
     from .services import ServiceRegistry
     if host_forward_groups is None:
         host_forward_groups = ServiceRegistry(config_dir).config.get('host_forward_groups', [])
     if acme_challenge is None:
         acme_challenge = ServiceRegistry(config_dir).config.get('acme_challenge')
+    if hostname_policy is _UNSET:
+        hostname_policy = ServiceRegistry(config_dir).config.get("hostname_policy")
+    hostname_policy = validate_hostname_policy(hostname_policy, domain)
+    if http_policy is _UNSET:
+        http_policy = ServiceRegistry(config_dir).config.get("http_policy")
+    http_policy = validate_http_policy(http_policy, domain, acme_challenge)
     acme_challenge = validate_acme_challenge(acme_challenge)
     host_forward_groups = validate_host_forward_groups(host_forward_groups, domain)
     env = get_jinja_env()
@@ -35,6 +42,8 @@ def generate_nginx_config(config_dir: Path, domain: str, letsencrypt: bool = Fal
         services=services or {},
         host_forward_groups=host_forward_groups,
         acme_challenge=acme_challenge,
+        hostname_policy=hostname_policy,
+        http_policy=http_policy,
     )
     
     (config_dir / "nginx.conf").write_text(content)
@@ -57,7 +66,12 @@ def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencryp
     template = env.get_template("docker-compose.yml.j2")
     from .release_selection import load, targets, SelectionError
     from .services import ServiceRegistry
-    release_selection_dir = release_selection_dir or ServiceRegistry(config_dir).config.get('release_selection_dir')
+    registry = ServiceRegistry(config_dir)
+    if domain is None: domain = registry.config.get('domain')
+    release_selection_dir = release_selection_dir or registry.config.get('release_selection_dir')
+    http_policy = validate_http_policy(registry.config.get('http_policy'), domain, registry.config.get('acme_challenge'))
+    healthcheck = policy_healthcheck(registry.config.get('standard_adoption',{}).get('healthcheck'),domain,registry.config.get('hostname_policy'),http_policy,letsencrypt=use_letsencrypt)
+    health_command = healthcheck['Test'][1] if healthcheck else None
     proxy_image = 'ghcr.io/cryptolabsza/cryptolabs-proxy:latest'
     proxy_origin = None
     if release_selection_dir:
@@ -73,6 +87,9 @@ def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencryp
         release_selection_dir=str(Path(release_selection_dir).resolve()) if release_selection_dir else None,
         proxy_image=proxy_image,
         proxy_origin=proxy_origin,
+        http_policy=http_policy,
+        policy_healthcheck=health_command,
+        policy_healthcheck_config=healthcheck,
     )
     
     (config_dir / "docker-compose.yml").write_text(content)
@@ -143,3 +160,77 @@ def validate_acme_challenge(value):
 
 def render_acme_challenge(value, *, legacy_profile=False):
     return get_jinja_env().get_template('acme-challenge.conf.j2').render(acme_challenge=value,legacy_forward_profile=legacy_profile).encode()
+
+
+def validate_hostname_policy(policy, domain):
+    """Only the observed literal-primary $host guard with fixed 444 is supported."""
+    import re
+    import ipaddress
+    if policy is None:
+        return None
+    if not isinstance(policy, str) or policy != 'primary-only':
+        raise ValueError('invalid_hostname_policy')
+    literal = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
+    if not isinstance(domain, str) or not literal.fullmatch(domain):
+        raise ValueError('hostname_policy_requires_literal_domain')
+    try:
+        ipaddress.ip_address(domain)
+    except ValueError:
+        return policy
+    raise ValueError('hostname_policy_requires_literal_domain')
+
+
+def validate_http_policy(policy, domain, acme_challenge=None):
+    """Closed primary HTTPS redirect and local HTTP ACME transport."""
+    if policy is None:
+        return None
+    if not isinstance(policy, str) or policy != 'redirect-primary-https':
+        raise ValueError('invalid_http_policy')
+    validate_hostname_policy('primary-only', domain)
+    if acme_challenge is not None:
+        raise ValueError('http_policy_local_acme_conflicts_with_upstream')
+    return policy
+
+
+def render_policy_healthcheck(domain, hostname_policy=None, http_policy=None, *, letsencrypt=False):
+    """Public HTTPS loopback uses the declared Host/SNI; internal API stays checked.
+
+    The stored certificate is the explicit local trust anchor. Hostname
+    verification remains enabled; browser and forwarding trust are unchanged.
+    """
+    validate_hostname_policy(hostname_policy, domain)
+    validate_http_policy(http_policy, domain)
+    if hostname_policy is None and http_policy is None:
+        return None
+    validate_hostname_policy('primary-only', domain)
+    certificate='/etc/letsencrypt/live/'+domain+'/fullchain.pem' if letsencrypt else '/etc/nginx/ssl/server.crt'
+    return ('curl -fsS --cacert '+certificate+' --resolve '+domain+':443:127.0.0.1 https://'+domain+
+            '/api/health && curl -f http://127.0.0.1:8080/api/health || exit 1')
+
+
+def policy_healthcheck(current, domain, hostname_policy=None, http_policy=None, *, letsencrypt=False):
+    """Keep the exact independently observed verified probe; map image defaults.
+
+    Recognition compares fixed raw shell syntax, with spaces/tabs only. It
+    never accepts arbitrary operations, flags, URLs, credentials or snippets.
+    """
+    from copy import deepcopy
+    import re
+    command=render_policy_healthcheck(domain,hostname_policy,http_policy,letsencrypt=letsencrypt)
+    if command is None: return None
+    default=['CMD-SHELL','curl -f http://localhost/api/health && curl -f http://localhost:8080/api/health || exit 1']
+    if current is None: return {'Test':['CMD-SHELL',command]}
+    fields={'Test','Interval','Timeout','StartPeriod','StartInterval','Retries'}
+    if not isinstance(current,dict) or set(current)-fields or not isinstance(current.get('Test'),list): raise ValueError('source_healthcheck_unmapped')
+    if any(type(v) is not int or not 0<=v<=2**63-1 for k,v in current.items() if k!='Test'): raise ValueError('source_healthcheck_unmapped')
+    test=current['Test']
+    trusted='curl -fsS --resolve '+domain+':443:127.0.0.1 https://'+domain+'/api/health >/dev/null && curl -fsS http://localhost:8080/api/health >/dev/null || exit 1'
+    if len(test)==2 and test[0]=='CMD-SHELL' and isinstance(test[1],str) and len(test[1])<=4096:
+        # Shell operators must remain operators, not quoted/escaped curl
+        # arguments. Only spaces/tabs may vary in this closed raw skeleton.
+        # The validated domain is escaped with every other literal position.
+        skeleton=re.escape(trusted).replace(r'\ ',r'[ 	]+')
+        if re.fullmatch(skeleton,test[1]): return deepcopy(current)
+    if test not in (default,['CMD-SHELL',command]): raise ValueError('source_healthcheck_unmapped')
+    result=deepcopy(current);result['Test']=['CMD-SHELL',command]
+    return result
