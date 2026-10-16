@@ -1,0 +1,114 @@
+name: Public CPU build recipe
+'on':
+  workflow_call:
+    outputs:
+      artifact_id:
+        description: Uploaded artifact ID
+        value: ${{ jobs.build.outputs.artifact_id }}
+      artifact_digest:
+        description: GitHub upload artifact SHA256
+        value: ${{ jobs.build.outputs.artifact_digest }}
+permissions:
+  contents: read
+jobs:
+  build:
+    if: >
+      github.repository_id == '1140353276' && (((github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref_protected == true && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == 1140353276 && (github.base_ref
+      == 'dev' || github.base_ref == 'main')))
+    runs-on:
+      group: ci-build-public-ephemeral
+      labels:
+      - ci-linux-cpu-v1-r1140353276
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout exact source
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        ref: ${{ github.sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Set up managed Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      with:
+        python-version: '3.12'
+    - name: Verify public admission and source contracts
+      run: |
+        python -m pip install --quiet PyYAML==6.0.3
+        python -m unittest discover -s .github/tests -p 'test_ci_public_route.py' -v
+    - name: Allocate build artifact directory
+      run: |
+        mkdir -p ci-artifacts
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+    - name: Compute safe build tags
+      id: tags
+      env:
+        TAG_OVERRIDE: ''
+      run: python scripts/image_promotion.py tags --image ghcr.io/cryptolabsza/cryptolabs-proxy
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+      with:
+        images: ghcr.io/cryptolabsza/cryptolabs-proxy
+        flavor: latest=false
+        tags: |
+          type=raw,value=${{ steps.tags.outputs.version }}
+          type=sha,format=long
+    - name: Generate build info
+      run: |
+        cat > BUILD_INFO << EOF
+        BUILD_BRANCH=${{ github.ref_name }}
+        BUILD_COMMIT=${{ github.sha }}
+        BUILD_SHORT_COMMIT=${GITHUB_SHA::7}
+        BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+        BUILD_VERSION=${{ steps.tags.outputs.version }}
+        EOF
+        cat BUILD_INFO
+    - name: Build without publishing Docker image
+      uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
+      with:
+        context: .
+        platforms: linux/amd64
+        push: false
+        tags: ${{ steps.tags.outputs.tags }}
+        labels: |
+          ${{ steps.meta.outputs.labels }}
+          org.opencontainers.image.source=https://github.com/cryptolabsza/cryptolabs-proxy
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+        no-cache: true
+        build-args: |
+          BUILD_BRANCH=${{ github.ref_name }}
+          BUILD_COMMIT=${{ github.sha }}
+          BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.repository.pushed_at }}
+          VERSION=${{ steps.tags.outputs.version }}
+        outputs: type=oci,dest=${{ github.workspace }}/ci-artifacts/build.tar
+    - name: Record fixed image identity and artifact checksum
+      run: |
+        python - <<'PY'
+        import hashlib,json,os,pathlib
+        p=pathlib.Path('ci-artifacts/build.tar')
+        h=hashlib.sha256()
+        with p.open('rb') as stream:
+            for block in iter(lambda:stream.read(1024*1024),b''):h.update(block)
+        receipt={'artifact_kind':'oci-archive','expected_image':'ghcr.io/cryptolabsza/cryptolabs-proxy','repository':'cryptolabsza/cryptolabs-proxy','repository_id':1140353276,'source_sha':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'filename':p.name,'sha256':h.hexdigest()}
+        p.with_suffix('.json').write_text(json.dumps(receipt,sort_keys=True)+'\n')
+        print(json.dumps(receipt,sort_keys=True))
+        PY
+    - name: Upload immutable image build
+      id: upload
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: cpu-build-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ci-artifacts/build.tar
+          ci-artifacts/build.json
+        if-no-files-found: error
+        retention-days: 7
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
