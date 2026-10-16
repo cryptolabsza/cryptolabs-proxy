@@ -18,36 +18,8 @@
     }
   },
   "callers": {
-    "docker-build.yml#build": "ci-build-recipe.yml",
+    "docker-build.yml#build": "ci-image-build-recipe.yml",
     "publish.yml#cpu-build": "ci-python-build-recipe.yml"
   },
-  "held": {
-    "docker-build.yml#release-preflight": {
-      "commands": [
-        "printf 'RELEASE_RECEIPT=%s/image-release-preflight-%s-%s.json\\n' \"$RUNNER_TEMP\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" >> \"$GITHUB_ENV\"\n",
-        "python scripts/image_promotion.py guard --platform linux/amd64 --receipt \"$RELEASE_RECEIPT\""
-      ]
-    },
-    "docker-build.yml#publish-build": {
-      "commands": [
-        "printf 'DOCKER_CONFIG=%s/docker-config-proxy-%s-%s\\n' \"$RUNNER_TEMP\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" >> \"$GITHUB_ENV\"\n",
-        "python scripts/image_promotion.py tags --image ghcr.io/cryptolabsza/cryptolabs-proxy",
-        "cat > BUILD_INFO << EOF\nBUILD_BRANCH=${{ github.ref_name }}\nBUILD_COMMIT=${{ github.sha }}\nBUILD_SHORT_COMMIT=${GITHUB_SHA::7}\nBUILD_DATE=$(date -u +\"%Y-%m-%d %H:%M UTC\")\nBUILD_VERSION=${{ steps.tags.outputs.version }}\nEOF\ncat BUILD_INFO\n",
-        "docker --config \"$DOCKER_CONFIG\" logout ghcr.io 2>/dev/null || true\nrm -rf \"$DOCKER_CONFIG\"\n",
-        "echo \"## Docker image workflow result\" >> $GITHUB_STEP_SUMMARY\necho \"\" >> $GITHUB_STEP_SUMMARY\necho \"**Image:** \\`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\\`\" >> $GITHUB_STEP_SUMMARY\necho \"\" >> $GITHUB_STEP_SUMMARY\necho \"**Preflight:** ${{ needs.release-preflight.outputs.status }}\" >> $GITHUB_STEP_SUMMARY\necho \"**Requested identity tags:**\" >> $GITHUB_STEP_SUMMARY\necho \"\\`\\`\\`\" >> $GITHUB_STEP_SUMMARY\necho \"${{ steps.tags.outputs.tags }}\" >> $GITHUB_STEP_SUMMARY\necho \"\\`\\`\\`\" >> $GITHUB_STEP_SUMMARY\n"
-      ]
-    },
-    "docker-build.yml#release-readback": {
-      "commands": [
-        "printf 'RELEASE_RECEIPT=%s/image-release-readback-%s-%s.json\\n' \"$RUNNER_TEMP\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" >> \"$GITHUB_ENV\"\n",
-        "python scripts/image_promotion.py guard --platform linux/amd64 --receipt \"$RELEASE_RECEIPT\" --require-existing"
-      ]
-    },
-    "promote-images.yml#promote": {
-      "commands": [
-        "printf 'PROMOTION_DIR=%s/image-promotion-%s-%s\\n' \"$RUNNER_TEMP\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" >> \"$GITHUB_ENV\"\n",
-        "mkdir -p \"$PROMOTION_DIR\"\npython scripts/image_promotion.py promote \\\n  --release-tag \"$RELEASE_TAG\" --source-sha \"$SOURCE_SHA\" \\\n  --expected-digest \"cryptolabs-proxy=$CRYPTOLABS_PROXY_DIGEST\" \\\n  --platform linux/amd64 \\\n  --receipt \"$PROMOTION_DIR/promotion-receipt.json\"\n"
-      ]
-    }
-  }
+  "held": {}
 }

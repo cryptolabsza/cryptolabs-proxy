@@ -6,48 +6,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   promote:
-    runs-on:
-    - self-hosted
-    - ci-authority-held-r1140353276
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-promote-recipe.yml@accf406152c36d166ddab4cd7468a555cef0cadd
     permissions:
       contents: read
+      actions: read
       packages: write
-    steps:
-    - name: Initialize isolated runner path
-      run: |
-        printf 'PROMOTION_DIR=%s/image-promotion-%s-%s\n' "$RUNNER_TEMP" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
-    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      with:
-        ref: ${{ inputs.release_tag }}
-        fetch-depth: 0
-        persist-credentials: false
-    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-      with:
-        python-version: '3.12'
-    - name: Promote exact tested manifests and verify aliases
-      env:
-        RELEASE_TAG: ${{ inputs.release_tag }}
-        SOURCE_SHA: ${{ inputs.source_sha }}
-        GHCR_USER: ${{ github.actor }}
-        GHCR_TOKEN: ${{ secrets.CR_PAT || secrets.GITHUB_TOKEN }}
-        GH_TOKEN: ${{ github.token }}
-        CRYPTOLABS_PROXY_DIGEST: ${{ inputs.cryptolabs_proxy_digest }}
-      run: |
-        mkdir -p "$PROMOTION_DIR"
-        python scripts/image_promotion.py promote \
-          --release-tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" \
-          --expected-digest "cryptolabs-proxy=$CRYPTOLABS_PROXY_DIGEST" \
-          --platform linux/amd64 \
-          --receipt "$PROMOTION_DIR/promotion-receipt.json"
-    - name: Retain success or held/partial promotion receipt
-      if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-      with:
-        name: image-promotion-receipt
-        path: ${{ env.PROMOTION_DIR }}/promotion-receipt.json
-        if-no-files-found: warn
-        retention-days: 90
-    timeout-minutes: 45
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      source_sha: ${{ inputs.source_sha }}
+      cryptolabs_proxy_digest: ${{ inputs.cryptolabs_proxy_digest }}
 'on':
   workflow_dispatch:
     inputs:
