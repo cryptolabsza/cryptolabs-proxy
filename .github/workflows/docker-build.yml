@@ -9,7 +9,7 @@ env:
 jobs:
   release-preflight:
     if: github.event_name != 'pull_request'
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-preflight-recipe.yml@accf406152c36d166ddab4cd7468a555cef0cadd
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-preflight-recipe.yml@e02ebff9390d806d06261f03ec2ff519f980800f
     permissions:
       contents: read
       packages: read
@@ -22,7 +22,7 @@ jobs:
     needs:
     - build
     - release-preflight
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-publish-recipe.yml@accf406152c36d166ddab4cd7468a555cef0cadd
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-publish-recipe.yml@e02ebff9390d806d06261f03ec2ff519f980800f
     permissions:
       contents: read
       actions: read
@@ -33,7 +33,7 @@ jobs:
       artifact_id: ${{ needs.build.outputs.artifact_id }}
   release-readback:
     if: always() && needs.release-preflight.result == 'success'
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-readback-recipe.yml@accf406152c36d166ddab4cd7468a555cef0cadd
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-readback-recipe.yml@e02ebff9390d806d06261f03ec2ff519f980800f
     permissions:
       contents: read
       packages: read
