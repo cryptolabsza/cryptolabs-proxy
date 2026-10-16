@@ -26,7 +26,7 @@ jobs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       with:
         repository: cryptolabsza/cryptolabs-proxy
-        ref: '804900a83d0743e8de3290012bbdc369a2e65fc8'
+        ref: 'd57240fc4b13cb54a4998787c4b7ba783dedc6f0'
         persist-credentials: false
         fetch-depth: 1
         path: publisher

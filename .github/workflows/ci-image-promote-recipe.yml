@@ -33,7 +33,7 @@ jobs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       with:
         repository: cryptolabsza/cryptolabs-proxy
-        ref: '804900a83d0743e8de3290012bbdc369a2e65fc8'
+        ref: d57240fc4b13cb54a4998787c4b7ba783dedc6f0
         persist-credentials: false
         fetch-depth: 1
         path: publisher
@@ -72,3 +72,11 @@ jobs:
         SOURCE_SHA: ${{ inputs.source_sha }}
         CRYPTOLABS_PROXY_DIGEST: ${{ inputs.cryptolabs_proxy_digest }}
       run: python3 publisher/.github/image-publisher/policy.py promote
+    - name: Retain exact success or held/partial promotion receipt
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: image-promotion-receipt
+        path: ${{ runner.temp }}/promotion-receipt.json
+        if-no-files-found: warn
+        retention-days: 90
