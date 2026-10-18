@@ -4,7 +4,36 @@ import hashlib
 import hmac
 import json
 from datetime import timedelta
+from html.parser import HTMLParser
 import pytest
+
+
+class _FormParser(HTMLParser):
+    def __init__(self, response):
+        super().__init__()
+        self.inputs = {}
+        self.labels = set()
+        self.forms = []
+        self.feed(response.get_data(as_text=True))
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'input':
+            self.inputs[attrs.get('name')] = attrs
+        elif tag == 'label':
+            self.labels.add(attrs.get('for'))
+        elif tag == 'form':
+            self.forms.append(attrs)
+
+
+def _assert_password_manager_field(form, name, autocomplete, input_type):
+    field = form.inputs[name]
+    assert field['autocomplete'] == autocomplete
+    assert field['type'] == input_type
+    assert field['id']
+    assert field['id'] in form.labels
+    assert sum(item.get('id') == field['id'] for item in form.inputs.values()) == 1
+    return field
 
 
 # ---------------------------------------------------------------------------
@@ -12,6 +41,24 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestLoginRoute:
+    @pytest.mark.parametrize('first_run', [False, True])
+    def test_password_manager_roles(self, client, first_run):
+        if not first_run:
+            import cryptolabs_proxy.auth as auth
+            auth.create_user('admin', 'synthetic-pass', 'admin')
+
+        response = client.get('/auth/login')
+        assert response.status_code == 200
+        form = _FormParser(response)
+        assert form.forms[0]['method'].upper() == 'POST'
+        _assert_password_manager_field(form, 'username', 'username', 'text')
+        _assert_password_manager_field(
+            form, 'password', 'new-password' if first_run else 'current-password', 'password')
+        if first_run:
+            _assert_password_manager_field(form, 'confirm_password', 'new-password', 'password')
+        else:
+            assert 'confirm_password' not in form.inputs
+
     def test_get_login_page(self, client):
         resp = client.get('/auth/login')
         assert resp.status_code == 200
@@ -270,6 +317,52 @@ class TestVastPriceManagerFleetSession:
 # ---------------------------------------------------------------------------
 
 class TestChangePasswordRoute:
+    @pytest.mark.parametrize('forced_change', [False, True])
+    @pytest.mark.parametrize('invalid_post', [False, True])
+    def test_password_manager_roles_and_account(self, client, forced_change, invalid_post):
+        import cryptolabs_proxy.auth as auth
+        username = 'account<&"test'
+        auth.create_user(username, 'synthetic-pass', 'readonly',
+                         require_password_change=forced_change)
+        login = client.post('/auth/login', data={
+            'username': username, 'password': 'synthetic-pass',
+        })
+        assert login.status_code == 302
+        if forced_change:
+            assert login.headers['Location'] == '/auth/change-password'
+
+        if invalid_post:
+            response = client.post('/auth/change-password', data={
+                'username': 'different-account', 'current_password': 'wrong',
+                'new_password': 'replacement-pass', 'confirm_password': 'replacement-pass',
+            })
+            assert b'Current password is incorrect' in response.data
+        else:
+            response = client.get('/auth/change-password')
+        assert response.status_code == 200
+        form = _FormParser(response)
+        assert form.forms[0]['method'].upper() == 'POST'
+        account = _assert_password_manager_field(form, 'username', 'username', 'text')
+        assert account['value'] == username
+        assert 'readonly' in account
+        assert username not in response.get_data(as_text=True)
+        _assert_password_manager_field(form, 'current_password', 'current-password', 'password')
+        _assert_password_manager_field(form, 'new_password', 'new-password', 'password')
+        _assert_password_manager_field(form, 'confirm_password', 'new-password', 'password')
+
+    def test_posted_username_cannot_select_password_change_account(self, logged_in_admin, admin_user):
+        import cryptolabs_proxy.auth as auth
+        auth.create_user('other-account', admin_user['password'], 'readonly')
+        response = logged_in_admin.post('/auth/change-password', data={
+            'username': 'other-account', 'current_password': admin_user['password'],
+            'new_password': 'replacement-pass', 'confirm_password': 'replacement-pass',
+        }, follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/'
+        assert auth.verify_user(admin_user['username'], 'replacement-pass') is not None
+        assert auth.verify_user('other-account', admin_user['password']) is not None
+        assert auth.verify_user('other-account', 'replacement-pass') is None
+
     def test_requires_login(self, client):
         resp = client.get('/auth/change-password', follow_redirects=False)
         assert resp.status_code == 302
