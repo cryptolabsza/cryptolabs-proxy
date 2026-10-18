@@ -19,7 +19,7 @@ class PasswordFixCICallers(unittest.TestCase):
             },
             "publish.yml": {
                 "cpu-build": ("ci-python-build-recipe.yml", "cdb50910f0bb5ad59a0e4ec0143ffc924bab0567"),
-                "publish": ("ci-pypi-publish-recipe.yml", "83b0be815273cf039ea05835810c131f4d030516"),
+                "publish": ("ci-pypi-publish-recipe.yml", "e842d30b5f262b9f4d5ee73ebc7e86ee2c1eb657"),
             },
             "promote-images.yml": {
                 "promote": ("ci-image-promote-recipe.yml", "e02ebff9390d806d06261f03ec2ff519f980800f"),
