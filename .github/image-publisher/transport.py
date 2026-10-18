@@ -60,6 +60,21 @@ def prepare(policy,images,files,proof,context,api=gh_json):
     if len(images)>1:require((files/'SHA256SUMS').read_text()==''.join(sums),'image checksum list')
     return plans
 
+def publish_verified(plans,policy,proof,registry,api=gh_json,client=None):
+    """Check every immutable release identity before writing any registry tag."""
+    import image_promotion as promotion
+    require(proof['branch']=='main','release publisher main source')
+    version=source_version(policy,proof['head_sha'],api)
+    if client is None:
+        client=promotion.Client();client.read_only=True
+    for plan in plans:
+        repository=plan['destinations'][0].rsplit(':',1)[0]
+        for tag in (version,'v'+version,'sha-'+proof['head_sha'],'sha-main-'+proof['head_sha']):
+            require(repository+':'+tag in plan['destinations'],'complete immutable release destinations')
+            observed=promotion.observed(client,repository,tag)
+            require(observed is None or observed==plan['digest'],'immutable release tag collision')
+    return frozen.publish(plans,registry)
+
 def promote_verified(policy,images,release_tag,source_sha,expected,api=gh_json,receipt_path=None):
     import image_promotion as promotion
     require(re.fullmatch('[0-9a-f]{40}',source_sha) and set(expected)==set(images),'complete manual promotion identities')
@@ -114,6 +129,6 @@ def main(policy,images):
         with tempfile.TemporaryDirectory(prefix='image-transport-',dir=os.environ.get('RUNNER_TEMP','/tmp')) as td:
             root=Path(td);proof=verify(policy,args.run,args.attempt,args.artifact,output=root/'verified');context={'repository':policy.repository,'repository_id':policy.repository_id,'sha':os.environ['GITHUB_SHA'],'branch':'main','run_id':run,'run_attempt':attempt};plans=prepare(policy,images,root/'verified/files',proof,context)
             if args.mode=='verify':print('Actual artifact verification passed; no registry operation');return 0
-            before=package_gate(images);client=frozen.Registry(root);client.login(os.environ['GITHUB_ACTOR'],os.environ['GH_TOKEN']);result=frozen.publish(plans,client);after=package_gate(images,after=True,previous=before);print(json.dumps({'packages':after,'images':result}));return 0
-    except (Held,Refused,KeyError,TypeError,ValueError,OSError):
+            before=package_gate(images);client=frozen.Registry(root);client.login(os.environ['GITHUB_ACTOR'],os.environ['GH_TOKEN']);result=publish_verified(plans,policy,proof,client);after=package_gate(images,after=True,previous=before);print(json.dumps({'packages':after,'images':result}));return 0
+    except (Held,Refused,KeyError,TypeError,ValueError,OSError,RuntimeError):
         print('Image operation held: source, artifact, package or registry proof unavailable.',file=__import__('sys').stderr);return 1

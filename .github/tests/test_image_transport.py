@@ -54,4 +54,75 @@ class ImageBoundary(unittest.TestCase):
   for name,j in d['jobs'].items():
    self.assertEqual(j['runs-on']['group'],'ci-publish-ephemeral');self.assertIn("github.ref == 'refs/heads/main'",j['if']);self.assertIn('github.ref_protected == true',j['if']);checkout=j['steps'][0];self.assertRegex(checkout['with']['ref'],r'^[0-9a-f]{40}$');self.assertFalse(checkout['with']['persist-credentials']);self.assertFalse(checkout['with']['sparse-checkout-cone-mode']);self.assertTrue(all(x.startswith('/.github/image-publisher/') for x in checkout['with']['sparse-checkout'].splitlines()))
    for forbidden in ['docker build','pip install','scripts/image_promotion.py','secrets.CR_PAT','secrets: inherit']:self.assertNotIn(forbidden,str(j))
+class NumericReleaseTransport(unittest.TestCase):
+ module=ImageBoundary.module
+ def fixture(self,directory):
+  import base64,hashlib,io,tarfile
+  root=Path(directory);sha='a'*40;version='1.2.3';repository='cryptolabsza/cryptolabs-proxy'
+  encode=lambda value:json.dumps(value,separators=(',',':')).encode()
+  digest=lambda data:'sha256:'+hashlib.sha256(data).hexdigest()
+  config=encode({'os':'linux','architecture':'amd64','config':{'Labels':{'org.opencontainers.image.source':'https://github.com/'+repository,'org.opencontainers.image.revision':sha,'org.opencontainers.image.version':version}}})
+  manifest=encode({'schemaVersion':2,'mediaType':'application/vnd.oci.image.manifest.v1+json','config':{'mediaType':'application/vnd.oci.image.config.v1+json','digest':digest(config),'size':len(config)},'layers':[]})
+  descriptor={'mediaType':'application/vnd.oci.image.manifest.v1+json','digest':digest(manifest),'size':len(manifest),'annotations':{'org.opencontainers.image.ref.name':'ghcr.io/'+repository+':'+version}}
+  archive=root/'cryptolabs-proxy.tar'
+  with tarfile.open(archive,'w',format=tarfile.USTAR_FORMAT) as output:
+   for name,data in {'oci-layout':encode({'imageLayoutVersion':'1.0.0'}),'index.json':encode({'schemaVersion':2,'manifests':[descriptor]}),'blobs/sha256/'+digest(config)[7:]:config,'blobs/sha256/'+digest(manifest)[7:]:manifest}.items():
+    item=tarfile.TarInfo(name);item.size=len(data);output.addfile(item,io.BytesIO(data))
+  proof={'head_sha':sha,'branch':'main','event':'push','run_id':123,'run_attempt':1}
+  context={'repository':repository,'repository_id':1140353276,'sha':sha,'branch':'main','run_id':123,'run_attempt':1}
+  archive.with_suffix('.json').write_text(json.dumps({'artifact_kind':'oci-archive','expected_image':'ghcr.io/'+repository,'repository':repository,'repository_id':1140353276,'source_sha':sha,'run_id':'123','run_attempt':'1','filename':archive.name,'sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
+  class Policy:pass
+  policy=Policy();policy.repository=repository;policy.repository_id=1140353276
+  source=('[project]\nname="cryptolabs-proxy"\nversion="'+version+'"\n').encode()
+  def api(path):
+   self.assertEqual(path,'/repos/'+repository+'/contents/pyproject.toml?ref='+sha)
+   return {'encoding':'base64','path':'pyproject.toml','size':len(source),'content':base64.b64encode(source).decode()}
+  return policy,proof,context,api,manifest,digest(manifest)
+ def test_numeric_main_producer_receipt_and_oci_selection_match_publisher(self):
+  import tempfile
+  m=self.module()
+  with tempfile.TemporaryDirectory() as td:
+   policy,proof,context,api,manifest,digest=self.fixture(td)
+   plans=m.prepare(policy,['cryptolabs-proxy'],Path(td),proof,context,api)
+   tags=['main','sha-main-'+'a'*40,'1.2.3','v1.2.3','sha-'+'a'*40]
+   self.assertEqual(plans[0]['digest'],digest)
+   self.assertEqual(plans[0]['destinations'],['ghcr.io/'+policy.repository+':'+tag for tag in tags[::-1]])
+   self.assertEqual(plans[0]['selection'],'ghcr.io/'+policy.repository+':1.2.3')
+ def test_immutable_collisions_and_indeterminate_reads_never_write(self):
+  import tempfile
+  from unittest.mock import Mock,patch
+  m=self.module()
+  tags=['1.2.3','v1.2.3','sha-'+'a'*40,'sha-main-'+'a'*40]
+  with tempfile.TemporaryDirectory() as td:
+   policy,proof,context,api,manifest,digest=self.fixture(td)
+   plans=[{'digest':digest,'destinations':['ghcr.io/'+policy.repository+':'+tag for tag in tags]}]
+   for tag in tags:
+    for error in [False,True]:
+     with self.subTest(tag=tag,error=error):
+      client=Mock();registry=Mock()
+      def lookup(repo,ref,missing=False):
+       if ref==tag:
+        if error:raise RuntimeError('registry_request_failed')
+        return b'different manifest','application/vnd.oci.image.manifest.v1+json'
+       return None
+      client.manifest.side_effect=lookup
+      with patch.object(m.frozen,'publish') as publish:
+       with self.assertRaises((m.Held,RuntimeError)):
+        m.publish_verified(plans,policy,proof,registry,api,client)
+       publish.assert_not_called();self.assertEqual(registry.mock_calls,[])
+ def test_absent_and_identical_immutable_tags_allow_exact_artifact_retry(self):
+  import tempfile
+  from unittest.mock import Mock,patch
+  m=self.module();tags=['1.2.3','v1.2.3','sha-'+'a'*40,'sha-main-'+'a'*40]
+  with tempfile.TemporaryDirectory() as td:
+   policy,proof,context,api,manifest,digest=self.fixture(td)
+   plans=[{'digest':digest,'destinations':['ghcr.io/'+policy.repository+':'+tag for tag in tags]}]
+   for existing in [None,(manifest,'application/vnd.oci.image.manifest.v1+json')]:
+    client=Mock();client.manifest.return_value=existing;registry=Mock()
+    with patch.object(m.frozen,'publish',return_value='published') as publish:
+     self.assertEqual(m.publish_verified(plans,policy,proof,registry,api,client),'published')
+     self.assertEqual([call.args[1] for call in client.manifest.call_args_list],tags)
+     self.assertTrue(all(call.kwargs=={'missing':True} for call in client.manifest.call_args_list))
+     publish.assert_called_once_with(plans,registry)
+
 if __name__=='__main__':unittest.main()
