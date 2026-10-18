@@ -215,31 +215,62 @@ def test_transport_tamper_is_held_before_publisher_writes(mod, built, failure):
 
 
 def test_workflow_builds_once_at_tag_and_limits_write_permission():
+    import subprocess
     text = (ROOT/'.github/workflows/publish.yml').read_text()
     workflow = yaml.safe_load(text)
     jobs = workflow['jobs']
-    assert len(jobs) == 2 and jobs['build']['permissions'] == {'contents': 'read'}
-    assert jobs['publish']['permissions'] == {'contents': 'write'}
-    assert jobs['publish']['needs'] == 'build'
-    assert text.count('python -m build ') == 1
-    assert 'GIT_DIR="$GITHUB_WORKSPACE/.git"' in text
-    assert 'GITHUB_REF_NAME="$RELEASE_TAG"' in text
-    assert '--skip-existing' not in text and 'id-token' not in text
-    assert 'secrets.PYPI_API_TOKEN' in text
-    for job in jobs.values():
-        assert job['runs-on'] == ['self-hosted', 'linux']
-        for step in job['steps']:
+    assert set(jobs) == {'cpu-build', 'publish'}
+    assert jobs['cpu-build']['permissions'] == {'contents': 'read'}
+    assert 'secrets' not in jobs['cpu-build']
+    assert jobs['publish']['permissions'] == {'actions': 'read', 'contents': 'write'}
+    assert jobs['publish']['needs'] == 'cpu-build'
+    assert jobs['publish']['secrets'] == {'PYPI_API_TOKEN': '${{ secrets.PYPI_API_TOKEN }}'}
+    leaves = {}
+    for name, job in jobs.items():
+        match = re.fullmatch(r'cryptolabsza/cryptolabs-proxy/(\.github/workflows/[\w-]+\.yml)@([a-f0-9]{40})', job['uses'])
+        assert match is not None
+        raw = subprocess.check_output(['git', 'show', match[2] + ':' + match[1]], cwd=ROOT)
+        leaf = yaml.safe_load(raw)
+        assert len(leaf['jobs']) == 1
+        leaves[name] = next(iter(leaf['jobs'].values()))
+        assert '--skip-existing' not in raw.decode() and 'id-token' not in raw.decode()
+        assert leaves[name]['runs-on'] == {'group': 'ci-build-public-ephemeral' if name == 'cpu-build' else 'ci-publish-ephemeral',
+                                         'labels': ['ci-linux-' + ('cpu' if name == 'cpu-build' else 'publish') + '-v1-r1140353276']}
+        for step in leaves[name]['steps']:
             if step.get('uses', '').startswith('actions/checkout@'):
-                assert step['with']['ref'] == '${{ env.RELEASE_TAG }}'
                 assert step['with']['persist-credentials'] is False
             assert '${{ inputs.' not in step.get('run', '')
-    steps = jobs['publish']['steps']
-    tool_check = next(i for i, s in enumerate(steps) if s.get('run') == 'gh --version')
-    publication_index = next(i for i, s in enumerate(steps) if s.get('name') == 'Publish and verify exact artifacts')
+    build = leaves['cpu-build']
+    assert build['permissions'] == {'contents': 'read'} and 'secrets.' not in str(build)
+    build_text = '\n'.join(s.get('run', '') for s in build['steps'])
+    assert build_text.count('python -m build ') == 1
+    assert 'git archive HEAD' in build_text and 'GIT_DIR="$GITHUB_WORKSPACE/.git"' in build_text
+    assert 'GITHUB_REF_NAME="$RELEASE_TAG"' in build_text
+    checkout = next(s for s in build['steps'] if s.get('uses', '').startswith('actions/checkout@'))
+    assert checkout['with']['ref'] == '${{ github.sha }}'
+    publisher = leaves['publish']
+    assert publisher['permissions'] == jobs['publish']['permissions']
+    steps = publisher['steps']
+    checkout = steps[0]['with']
+    assert checkout['repository'] == 'cryptolabsza/cryptolabs-proxy'
+    assert re.fullmatch('[a-f0-9]{40}', checkout['ref'])
+    assert checkout['sparse-checkout-cone-mode'] is False
+    assert all(p.startswith('/.github/publisher/') for p in checkout['sparse-checkout'].splitlines() if p)
+    for path in checkout['sparse-checkout'].splitlines():
+        if path:
+            assert subprocess.check_output(['git', 'show', checkout['ref'] + ':' + path.lstrip('/')], cwd=ROOT)
+    tool_check = next(i for i, s in enumerate(steps) if 'bootstrap_gh.py' in s.get('run', ''))
+    verification_index = next(i for i, s in enumerate(steps) if s.get('id') == 'verify')
+    publication_index = next(i for i, s in enumerate(steps) if s.get('id') == 'upload')
+    assert tool_check < verification_index < publication_index
     assert tool_check < publication_index
     publish = steps[publication_index]
-    assert 'release_publication.py publish' in publish['run']
-    assert not any('Published' in s.get('run', '') for s in jobs['publish']['steps'])
+    assert publish['run'] == 'python publisher-code/.github/publisher/release_runtime.py upload'
+    assert publish['env'] == {'GH_TOKEN': '${{ github.token }}', 'TWINE_USERNAME': '__token__',
+                              'TWINE_PASSWORD': '${{ secrets.PYPI_API_TOKEN }}'}
+    assert steps[verification_index]['env']['GH_TOKEN'] == '${{ github.token }}'
+    assert 'TWINE_PASSWORD' not in steps[verification_index]['env']
+    assert not any('Published' in s.get('run', '') or s.get('continue-on-error') for s in steps)
 
 
 @pytest.mark.parametrize('phase', ['before', 'after'])
