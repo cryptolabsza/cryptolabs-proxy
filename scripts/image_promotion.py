@@ -48,12 +48,12 @@ def build_tags(image,ref,sha,event,*,version,override=''):
     elif ref=='refs/tags/v'+version:
         tags=[version,'v'+version];display=version;channel='release-artifact'
     elif ref in ('refs/heads/main','refs/heads/master'):
-        tags=['main'];display='main';channel='main'
+        tags=['main','sha-main-'+sha,version,'v'+version];display=version;channel='main'
     elif ref in ('refs/heads/dev','refs/heads/develop'):
         tags=['dev','develop'];display='dev';channel='development'
     else:
         raise Hold('unsupported_build_ref')
-    tags.append('sha-'+sha if channel=='release-artifact' else 'sha-'+display+'-'+sha)
+    tags.append('sha-'+sha if channel in {'release-artifact','main'} else 'sha-'+display+'-'+sha)
     return {'tags':[image+':'+tag for tag in tags],'version':display,'channel':channel}
 
 
