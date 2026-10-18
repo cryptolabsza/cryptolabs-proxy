@@ -33,7 +33,7 @@ jobs:
       uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       with:
         repository: cryptolabsza/cryptolabs-proxy
-        ref: 'd57240fc4b13cb54a4998787c4b7ba783dedc6f0'
+        ref: '22141eb5c12ee818dc0a1681b3eb0a3e4728ed54'
         persist-credentials: false
         fetch-depth: 1
         path: publisher
@@ -66,6 +66,8 @@ jobs:
     - name: Verify actual producer and publish exact artifact bytes
       env:
         GH_TOKEN: ${{ github.token }}
+        GHCR_USER: ${{ github.actor }}
+        GHCR_TOKEN: ${{ github.token }}
         PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
         PRODUCER_ATTEMPT: ${{ inputs.producer_attempt }}
         ARTIFACT_ID: ${{ inputs.artifact_id }}

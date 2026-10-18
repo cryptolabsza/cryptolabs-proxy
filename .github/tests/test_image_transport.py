@@ -54,6 +54,15 @@ class ImageBoundary(unittest.TestCase):
   for name,j in d['jobs'].items():
    self.assertEqual(j['runs-on']['group'],'ci-publish-ephemeral');self.assertIn("github.ref == 'refs/heads/main'",j['if']);self.assertIn('github.ref_protected == true',j['if']);checkout=j['steps'][0];self.assertRegex(checkout['with']['ref'],r'^[0-9a-f]{40}$');self.assertFalse(checkout['with']['persist-credentials']);self.assertFalse(checkout['with']['sparse-checkout-cone-mode']);self.assertTrue(all(x.startswith('/.github/image-publisher/') for x in checkout['with']['sparse-checkout'].splitlines()))
    for forbidden in ['docker build','pip install','scripts/image_promotion.py','secrets.CR_PAT','secrets: inherit']:self.assertNotIn(forbidden,str(j))
+ def test_numeric_publisher_pins_reviewed_helpers_and_uses_only_its_job_registry_token(self):
+  leaf=yaml.safe_load((ROOT/'.github/workflows/ci-image-publish-recipe.yml').read_text())
+  job=leaf['jobs']['publish']
+  self.assertEqual(job['steps'][0]['with']['ref'],'22141eb5c12ee818dc0a1681b3eb0a3e4728ed54')
+  publish=next(step for step in job['steps'] if step['name']=='Verify actual producer and publish exact artifact bytes')
+  self.assertEqual(publish['env'],{'GH_TOKEN':'${{ github.token }}','GHCR_USER':'${{ github.actor }}','GHCR_TOKEN':'${{ github.token }}','PRODUCER_RUN_ID':'${{ inputs.producer_run_id }}','PRODUCER_ATTEMPT':'${{ inputs.producer_attempt }}','ARTIFACT_ID':'${{ inputs.artifact_id }}'})
+  self.assertNotIn('secrets',leaf.get('on',leaf.get(True))['workflow_call'])
+  self.assertEqual(set(leaf.get('on',leaf.get(True))['workflow_call']['inputs']),{'producer_run_id','producer_attempt','artifact_id'})
+
 class NumericReleaseTransport(unittest.TestCase):
  module=ImageBoundary.module
  def fixture(self,directory):
