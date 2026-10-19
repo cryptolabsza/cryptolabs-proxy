@@ -19,7 +19,7 @@ class LocalBuildRecipeTests(unittest.TestCase):
   target=next(s for s in normal['jobs']['build']['steps'] if s.get('id')=='upload');target['with']=next(s for s in baseline['jobs']['build']['steps'] if s.get('id')=='upload')['with']
   self.assertEqual(normal,baseline)
 
-PH='a1d268c29bffd8ba527ab44d4f91c3743fd47690'
+PH='e71ede75c2c8bedb070e3b60ff84b5906517d9ba'
 PH_BASE='8d44aa3d81cd0177ae690c137cfd4f2f28299742'
 class LocalPublicationRecipeTests(unittest.TestCase):
  def test_publisher_recipe_uses_exact_real_common_snapshot_without_permission_changes(self):
@@ -36,7 +36,7 @@ class LocalPublicationRecipeTests(unittest.TestCase):
    next(s for s in normal['jobs'][name]['steps'] if s.get('name')==verify['name'])['run']=previous['run']
   self.assertEqual(normal,baseline)
 
-P='3aff7ab7ec37b670a070036a36f954eed0a44cf6'
+P='046a041bbd6adf388a626e7d89bf70db12a97c94'
 P_BASE='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
 BR_REAL='aadf8cccc44806f9007b20133c4c92736e33baa6'
 class LocalCallerTests(unittest.TestCase):
