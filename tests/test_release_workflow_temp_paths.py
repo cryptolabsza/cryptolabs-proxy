@@ -1,14 +1,17 @@
-"""Execute workflow temp/build paths with offline package/publisher boundaries."""
+"""Execute selected immutable release recipes with offline package boundaries."""
 import concurrent.futures
 import glob
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+from types import SimpleNamespace
+import zipfile
 
 import pytest
 import yaml
@@ -25,12 +28,22 @@ def workflow():
     return yaml.safe_load(WORKFLOW.read_text())
 
 
+def selected_job(name):
+    reference = workflow()['jobs'][name]['uses']
+    match = re.fullmatch(r'cryptolabsza/cryptolabs-proxy/(\.github/workflows/[\w-]+\.yml)@([a-f0-9]{40})', reference)
+    assert match is not None
+    raw = subprocess.check_output(['git', 'show', match[2] + ':' + match[1]], cwd=ROOT)
+    jobs = yaml.safe_load(raw)['jobs']
+    assert len(jobs) == 1
+    return next(iter(jobs.values()))
+
+
 def step(job, name):
-    return next(s for s in workflow()['jobs'][job]['steps'] if s.get('name') == name)
+    return next(s for s in selected_job(job)['steps'] if s.get('name') == name)
 
 
 def action(job, prefix):
-    return next(s for s in workflow()['jobs'][job]['steps'] if s.get('uses', '').startswith(prefix))
+    return next(s for s in selected_job(job)['steps'] if s.get('uses', '').startswith(prefix))
 
 
 def shell(script, env, cwd):
@@ -38,22 +51,16 @@ def shell(script, env, cwd):
                           capture_output=True, text=True, timeout=15)
 
 
-def initialize(job, env, env_file, cwd):
+def initialize(env, env_file, cwd):
     env = {**env, 'GITHUB_ENV': str(env_file)}
-    allocators = [s for s in workflow()['jobs'][job]['steps'] if 'mktemp -d' in s.get('run', '')]
-    if allocators:
-        assert len(allocators) == 1
-        result = shell(allocators[0]['run'], env, cwd)
-        assert result.returncode == 0, result.stderr
-        for line in env_file.read_text().splitlines():
-            key, value = line.split('=', 1)
-            env[key] = value
+    allocators = [s for s in selected_job('cpu-build')['steps'] if 'mktemp -d' in s.get('run', '')]
+    assert len(allocators) == 1
+    result = shell(allocators[0]['run'], env, cwd)
+    assert result.returncode == 0, result.stderr
+    for line in env_file.read_text().splitlines():
+        key, value = line.split('=', 1)
+        env[key] = value
     return env
-
-
-def expand(value, env):
-    return value.replace('${{ env.RELEASE_JOB_DIR }}', env.get('RELEASE_JOB_DIR', '')) \
-        .replace('${{ runner.temp }}', env['RUNNER_TEMP'])
 
 
 @pytest.fixture
@@ -73,66 +80,101 @@ def boundary(tmp_path):
     context_file = tmp_path / 'context.json'; context_file.write_text(json.dumps(context))
     bins = tmp_path / 'bin'; bins.mkdir()
     bridge = bins / 'python'
-    bridge.write_text('#!' + sys.executable + '\n' + '''import hashlib, importlib.util, io, json, os, pathlib, sys, tarfile, zipfile
-args=sys.argv[1:]
+    bridge.write_text('#!' + sys.executable + '\n' + '''import io,json,os,pathlib,sys,tarfile,zipfile
+args=sys.argv[1:];assert args[:2]==['-m','build']
 context=json.loads(pathlib.Path(os.environ['FIXTURE_CONTEXT']).read_text())
-def flag(name): return pathlib.Path(args[args.index(name)+1])
-spec=importlib.util.spec_from_file_location('release_helper',os.environ['FIXTURE_HELPER'])
-helper=importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
-if args[:2]==['-m','build']:
-    source=pathlib.Path(args[2]); assert (source/'pyproject.toml').is_file()
-    dist=flag('--outdir'); stem=context['project'].replace('-','_')+'-'+context['version']
-    metadata=('Metadata-Version: 2.1\\nName: '+context['project']+'\\nVersion: '+context['version']+'\\n').encode()
-    with zipfile.ZipFile(dist/(stem+'-py3-none-any.whl'),'w') as archive:
-        archive.writestr(stem+'.dist-info/METADATA',metadata)
-    with tarfile.open(dist/(stem+'.tar.gz'),'w:gz') as archive:
-        info=tarfile.TarInfo(stem+'/PKG-INFO');info.size=len(metadata);archive.addfile(info,io.BytesIO(metadata))
-elif args[1]=='prepare':
-    plan=helper.prepare(pathlib.Path(os.environ['GITHUB_WORKSPACE']),flag('--dist'),context)
-    flag('--plan').write_text(json.dumps(plan))
-elif args[1]=='publish':
-    plan=json.loads(flag('--plan').read_text());helper.verify_local(plan,flag('--dist'))
-    pathlib.Path(os.environ['FIXTURE_CALL']).write_text(json.dumps({'dist':str(flag('--dist')),'plan':str(flag('--plan')),'receipt':str(flag('--receipt'))}))
-else: raise AssertionError(args)
+source=pathlib.Path(args[2]);assert (source/'pyproject.toml').is_file()
+assert os.environ['GIT_WORK_TREE']==str(source)
+assert os.environ['GITHUB_REF_NAME']==context['tag']
+dist=pathlib.Path(args[args.index('--outdir')+1]);stem=context['project'].replace('-','_')+'-'+context['version']
+metadata=('Metadata-Version: 2.1\\nName: '+context['project']+'\\nVersion: '+context['version']+'\\n').encode()
+with zipfile.ZipFile(dist/(stem+'-py3-none-any.whl'),'w') as archive:
+    archive.writestr(stem+'.dist-info/METADATA',metadata)
+with tarfile.open(dist/(stem+'.tar.gz'),'w:gz') as archive:
+    info=tarfile.TarInfo(stem+'/PKG-INFO');info.size=len(metadata);archive.addfile(info,io.BytesIO(metadata))
 ''')
     bridge.chmod(0o755)
     temp = tmp_path / 'shared runner temp'; temp.mkdir()
-    env = {**os.environ, 'PATH': str(bins) + os.pathsep + os.environ['PATH'], 'RUNNER_TEMP': str(temp),
-           'GITHUB_WORKSPACE': str(workspace), 'RELEASE_TAG': context['tag'],
-           'FIXTURE_CONTEXT': str(context_file), 'FIXTURE_HELPER': str(ROOT / 'scripts/release_publication.py')}
+    env = {'PATH': str(bins) + os.pathsep + os.environ['PATH'], 'RUNNER_TEMP': str(temp),
+           'GITHUB_WORKSPACE': str(workspace), 'RELEASE_TAG': context['tag'], 'FIXTURE_CONTEXT': str(context_file)}
     return tmp_path, workspace, temp, env, context
 
 
 def build(boundary, number):
     base, workspace, _, env, _ = boundary
-    env = initialize('build', env, base / f'build-{number}.env', workspace)
-    for name in ['Build once from the checked-out revision', 'Validate wheel and sdist metadata and retain checksums']:
-        result = shell(step('build', name)['run'], env, workspace)
+    env = initialize(env, base / f'build-{number}.env', workspace)
+    for name in ['Build once from the checked-out revision', 'Checksum built Python distributions']:
+        command = step('cpu-build', name)['run'].replace('${{ env.RELEASE_JOB_DIR }}', env['RELEASE_JOB_DIR'])
+        result = shell(command, env, workspace)
         assert result.returncode == 0, result.stderr
-    patterns = expand(action('build', 'actions/upload-artifact')['with']['path'], env).splitlines()
-    paths = [Path(p) for pattern in patterns for p in glob.glob(pattern)]
-    common = Path(os.path.commonpath(paths))
-    bundle = {str(p.relative_to(common)): p.read_bytes() for p in paths}
-    assert set(bundle) == {'build-receipt.json', 'release-dist/SHA256SUMS'} | {
-        'release-dist/' + item['filename'] for item in json.loads(bundle['build-receipt.json'])['artifacts']}
-    return env, common, bundle
+    pattern = action('cpu-build', 'actions/upload-artifact')['with']['path'].replace('${{ env.RELEASE_JOB_DIR }}', env['RELEASE_JOB_DIR'])
+    paths = [Path(p) for p in glob.glob(pattern)]
+    dist = Path(env['RELEASE_JOB_DIR']) / 'release-dist'
+    bundle = {str(p.relative_to(dist)): p.read_bytes() for p in paths}
+    assert len(bundle) == 3 and 'SHA256SUMS' in bundle
+    sums = ''.join(hashlib.sha256(bundle[name]).hexdigest() + '  ' + name + '\n'
+                   for name in sorted(bundle) if name != 'SHA256SUMS')
+    assert bundle['SHA256SUMS'] == sums.encode()
+    assert action('cpu-build', 'actions/upload-artifact')['with']['if-no-files-found'] == 'error'
+    return env, Path(env['RELEASE_JOB_DIR']), bundle
 
 
-def publish_paths(boundary, bundle, number):
-    base, workspace, _, env, _ = boundary
-    env = initialize('publish', env, base / f'publish-{number}.env', workspace)
-    download = Path(expand(action('publish', 'actions/download-artifact')['with']['path'], env))
-    for relative, raw in bundle.items():
-        target = download / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(raw)
-    call = base / f'publish-{number}.json'; env['FIXTURE_CALL'] = str(call)
-    result = shell(step('publish', 'Publish and verify exact artifacts')['run'], env, workspace)
-    assert result.returncode == 0, result.stderr
-    paths = json.loads(call.read_text())
-    assert Path(paths['dist']) == download / 'release-dist'
-    assert Path(paths['plan']) == download / 'build-receipt.json'
-    receipt_upload = Path(expand(action('publish', 'actions/upload-artifact')['with']['path'], env))
-    assert receipt_upload == Path(paths['receipt'])
-    return download.parent, paths
+@pytest.fixture
+def selected_publisher(tmp_path, monkeypatch):
+    checkout = action('publish', 'actions/checkout')['with']
+    assert re.fullmatch('[a-f0-9]{40}', checkout['ref'])
+    assert checkout['repository'] == 'cryptolabsza/cryptolabs-proxy'
+    code = tmp_path / 'selected-publisher'; code.mkdir()
+    for path in checkout['sparse-checkout'].splitlines():
+        if not path:continue
+        assert path.startswith('/.github/publisher/')
+        raw = subprocess.check_output(['git', 'show', checkout['ref'] + ':' + path.lstrip('/')], cwd=ROOT)
+        (code / Path(path).name).write_bytes(raw)
+    for name in ['verify_artifact', 'package_publisher', 'policy', 'release_runtime']:
+        spec = importlib.util.spec_from_file_location(name, code / (name + '.py'))
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, module)
+        spec.loader.exec_module(module)
+    runtime = sys.modules['release_runtime']
+    runtime.original_verify = runtime.v.verify
+    monkeypatch.setattr(runtime.v.shutil, 'disk_usage', lambda path: SimpleNamespace(free=100*1024**3))
+    assert runtime.v.OUTPUT == Path('verified-artifact')
+    assert sys.modules['policy'].POLICY.recipe_ref == workflow()['jobs']['cpu-build']['uses']
+    return runtime
+
+
+def verify_in_fresh_publish_job(boundary, bundle, number, runtime, monkeypatch, client):
+    base, _, _, _, context = boundary
+    workspace = base / f'publisher-job-{number}'; workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    event = {'inputs': {'release_tag': context['tag'], 'version': context['version']}}
+    eventfile = workspace / 'event.json'; eventfile.write_text(json.dumps(event))
+    for key, value in {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': context['source_sha'],
+                       'GITHUB_EVENT_PATH': str(eventfile), 'GITHUB_REPOSITORY': context['repository']}.items():
+        monkeypatch.setenv(key, value)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as output:
+        for name, raw in sorted(bundle.items()):output.writestr(name, raw)
+    data = archive.getvalue()
+    proof = {'repository': context['repository'], 'head_sha': context['source_sha'], 'branch': 'main',
+             'run_id': 123, 'run_attempt': 1, 'artifact_id': 456, 'size_in_bytes': len(data),
+             'artifact_digest': 'sha256:' + hashlib.sha256(data).hexdigest()}
+    monkeypatch.setattr(runtime, 'Client', lambda *args: client)
+    monkeypatch.setattr(client, 'source_project', lambda sha: {'name': context['project'], 'version': context['version']}, raising=False)
+    monkeypatch.setattr(runtime.v, 'verify_metadata', lambda *args, **kwargs: dict(proof))
+    # Run the selected extractor and atomic output path. Only external producer
+    # metadata and ZIP download are fixtures in this path-focused test.
+    def downloaded(path, destination, maximum):
+        assert path.endswith('/actions/artifacts/456/zip') and len(data) <= maximum
+        destination.write_bytes(data)
+    monkeypatch.setattr(runtime.v, 'verify', lambda policy, *ids: runtime.original_verify(policy, *ids, download=downloaded))
+    assert runtime.main(['verify', '123', '1', '456']) == 0
+    output = workspace / runtime.v.OUTPUT
+    saved = json.loads((output / 'publication-plan.json').read_text())
+    assert saved['ids'] == [123, 1, 456]
+    assert saved['plan']['source_sha'] == context['source_sha']
+    assert {p.name: p.read_bytes() for p in (output / 'files').iterdir()} == bundle
+    return workspace, output, saved
 
 
 def test_stale_shared_build_paths_are_preserved(boundary):
@@ -143,8 +185,7 @@ def test_stale_shared_build_paths_are_preserved(boundary):
     (temp / 'verified-publication.json').write_bytes(b'stale unrelated verification')
     old = {str(p.relative_to(temp)): p.read_bytes() for p in temp.rglob('*') if p.is_file()}
     _, owned, bundle = build(boundary, 1)
-    assert owned.parent == temp and owned != temp
-    assert bundle
+    assert owned.parent == temp and owned != temp and bundle
     assert all((temp / rel).read_bytes() == raw for rel, raw in old.items())
 
 
@@ -155,62 +196,51 @@ def test_concurrent_build_jobs_use_distinct_owned_directories(boundary):
     assert all(root.parent == boundary[2] for _, root, _ in results)
 
 
-def test_retained_bundle_recovers_exact_bytes_on_new_publish_job(boundary):
+def test_retained_bundle_recovers_exact_bytes_on_new_publish_job(boundary, selected_publisher, monkeypatch):
     _, _, temp, _, context = boundary
     (temp / 'verified-publication.json').write_bytes(b'unrelated stale receipt')
     _, _, bundle = build(boundary, 1)
-    spec = importlib.util.spec_from_file_location('publication_temp', ROOT / 'scripts/release_publication.py')
-    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
-    client = Publisher(context); upload = client.upload_github
+    runtime = selected_publisher; client = Publisher(context); upload = client.upload_github
+    first_workspace, first, saved = verify_in_fresh_publish_job(boundary, bundle, 1, runtime, monkeypatch, client)
     client.upload_github = lambda *args: (_ for _ in ()).throw(RuntimeError('synthetic github upload failure'))
-    first_root, first = publish_paths(boundary, bundle, 1)
-    first_dist = Path(first['dist']); plan = json.loads(Path(first['plan']).read_text())
-    with pytest.raises(RuntimeError, match='synthetic github'):
-        helper.publish(plan, first_dist, client, attempts=1)
-    assert client.files and not Path(first['receipt']).exists()
+    assert runtime.main(['upload']) == 1
+    assert client.files and not (first / 'publication-receipt.json').exists()
     client.upload_github = upload
-    second_root, second = publish_paths(boundary, bundle, 2)
-    assert first_root != second_root and first_root.parent == second_root.parent == temp
-    assert Path(second['plan']).read_bytes() == bundle['build-receipt.json']
-    receipt = helper.publish(plan, Path(second['dist']), client, attempts=1)
-    Path(second['receipt']).write_text(json.dumps(receipt))
+    second_workspace, second, recovered = verify_in_fresh_publish_job(boundary, bundle, 2, runtime, monkeypatch, client)
+    assert first_workspace != second_workspace and first.parent != second.parent
+    assert recovered['plan'] == saved['plan']
+    assert runtime.main(['upload']) == 0
+    receipt = json.loads((second / 'publication-receipt.json').read_text())
     assert receipt['status'] == 'verified' and receipt['source_sha'] == context['source_sha']
     assert [name for name, _ in client.writes].count('pypi') == 1
-    for relative, raw in bundle.items():
-        assert (Path(second['plan']).parent / relative).read_bytes() == raw
+    assert {p.name: p.read_bytes() for p in (second / 'files').iterdir()} == bundle
+    for item in receipt['artifacts']:
+        assert item['sha256'] == hashlib.sha256(bundle[item['filename']]).hexdigest()
     assert (temp / 'verified-publication.json').read_bytes() == b'unrelated stale receipt'
 
 
-def test_unique_verified_receipt_is_retained_after_post_verification_failure(boundary, monkeypatch):
-    base, workspace, _, _, context = boundary
+def test_unique_verified_receipt_is_retained_after_post_verification_failure(boundary, selected_publisher, monkeypatch):
     _, _, bundle = build(boundary, 1)
-    _, paths = publish_paths(boundary, bundle, 1)
-    spec = importlib.util.spec_from_file_location('publication_summary', ROOT / 'scripts/release_publication.py')
-    helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
-    client = Publisher(context)
-    summary = base / 'summary-is-directory'; summary.mkdir()
-    for key, value in {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': context['repository'],
-                       'RELEASE_TAG': context['tag'], 'RELEASE_VERSION': context['version'],
-                       'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_SHA': context['source_sha'],
-                       'GITHUB_STEP_SUMMARY': str(summary)}.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setattr(helper, 'Client', lambda repository: client)
-    monkeypatch.setattr(helper, 'git', lambda root, *args: context['source_sha'] if args[0] == 'rev-parse' else '')
-    monkeypatch.setattr(helper.sys, 'argv', ['release_publication.py', 'publish', '--root', str(workspace),
-                        '--dist', paths['dist'], '--plan', paths['plan'], '--receipt', paths['receipt']])
-    assert helper.main() == 1  # The verified publication does not mask a failed step.
-    assert json.loads(Path(paths['receipt']).read_text())['status'] == 'verified'
+    runtime = selected_publisher; client = Publisher(boundary[4])
+    _, output, _ = verify_in_fresh_publish_job(boundary, bundle, 1, runtime, monkeypatch, client)
+    def failed_stdout(*args, **kwargs):
+        if kwargs.get('file') is None:raise OSError('synthetic stdout failure after receipt write')
+    monkeypatch.setattr(runtime, 'print', failed_stdout, raising=False)
+    assert runtime.main(['upload']) == 1
+    receipt = json.loads((output / 'publication-receipt.json').read_text())
+    assert receipt['status'] == 'verified'
+    for item in receipt['artifacts']:
+        assert item['sha256'] == hashlib.sha256(bundle[item['filename']]).hexdigest()
     retain = action('publish', 'actions/upload-artifact')
-    assert 'always()' in retain.get('if', '')
+    assert retain.get('if') == 'always()'
     assert retain['with']['if-no-files-found'] == 'error'
-    assert '${{ env.RELEASE_JOB_DIR }}' in retain['with']['path']
-    assert not any(s.get('continue-on-error') for s in workflow()['jobs']['publish']['steps'])
+    assert Path(retain['with']['path']) == runtime.v.OUTPUT / 'publication-receipt.json'
+    assert not any(s.get('continue-on-error') for s in selected_job('publish')['steps'])
 
 
 def test_allocator_failure_does_not_write_a_false_job_path(boundary):
     base, workspace, _, env, _ = boundary
-    allocator = next((s for s in workflow()['jobs']['build']['steps'] if 'mktemp -d' in s.get('run', '')), None)
-    assert allocator is not None
+    allocator = next(s for s in selected_job('cpu-build')['steps'] if 'mktemp -d' in s.get('run', ''))
     bad = base / 'bad'; bad.mkdir(); executable = bad / 'mktemp'; executable.write_text('#!/bin/sh\nexit 1\n'); executable.chmod(0o755)
     env_file = base / 'bad.env'; env = {**env, 'PATH': str(bad) + os.pathsep + env['PATH'], 'GITHUB_ENV': str(env_file)}
     result = shell(allocator['run'], env, workspace)
@@ -218,10 +248,16 @@ def test_allocator_failure_does_not_write_a_false_job_path(boundary):
     assert not env_file.exists() or not env_file.read_bytes()
 
 
-def test_receipt_retention_does_not_read_an_unallocated_root_path():
-    allocator = next(s for s in workflow()['jobs']['publish']['steps'] if 'mktemp -d' in s.get('run', ''))
+def test_receipt_retention_does_not_read_an_unallocated_root_path(boundary, selected_publisher, monkeypatch):
+    runtime = selected_publisher
     retain = action('publish', 'actions/upload-artifact')
-    # An unset base expands to /verified-publication.json; never retain it.
-    assert allocator.get('id')
-    assert f"steps.{allocator['id']}.outcome == 'success'" in retain.get('if', '')
-    assert 'always()' in retain['if']
+    path = Path(retain['with']['path'])
+    assert path == Path('verified-artifact/publication-receipt.json')
+    assert not path.is_absolute() and '${{' not in str(path) and '..' not in path.parts
+    assert retain.get('if') == 'always()'
+    workspace = boundary[0] / 'refused-publisher-job'; workspace.mkdir(); monkeypatch.chdir(workspace)
+    runtime.v.OUTPUT.mkdir(); stale = runtime.v.OUTPUT / 'publication-receipt.json'; stale.write_bytes(b'unrelated')
+    def unexpected(*args, **kwargs):raise AssertionError('existing output must refuse before remote reads')
+    with pytest.raises(runtime.v.Refused, match='verified output already exists'):
+        runtime.original_verify(sys.modules['policy'].POLICY, 123, 1, 456, api=unexpected, download=unexpected)
+    assert stale.read_bytes() == b'unrelated'

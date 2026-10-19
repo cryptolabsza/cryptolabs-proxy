@@ -14,7 +14,7 @@ jobs:
       contents: read
       packages: read
   build:
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-build-recipe.yml@7eb7e476b362c3f5eaeee73b05d9bf95fe508764
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-build-recipe.yml@ec3878ba156d8b461f90f3b0a93e65224b6214fa
     permissions:
       contents: read
   publish-build:
@@ -22,7 +22,7 @@ jobs:
     needs:
     - build
     - release-preflight
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-publish-recipe.yml@af9d050a7ba96ab4523b5acd4bf9990c7b2c04b6
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-image-publish-recipe.yml@c9cca957a75f6c95732fd96fbfc2a7d4e6094c87
     permissions:
       contents: read
       actions: read

@@ -57,7 +57,7 @@ class ImageBoundary(unittest.TestCase):
  def test_numeric_publisher_pins_reviewed_helpers_and_uses_only_its_job_registry_token(self):
   leaf=yaml.safe_load((ROOT/'.github/workflows/ci-image-publish-recipe.yml').read_text())
   job=leaf['jobs']['publish']
-  self.assertEqual(job['steps'][0]['with']['ref'],'22141eb5c12ee818dc0a1681b3eb0a3e4728ed54')
+  self.assertEqual(job['steps'][0]['with']['ref'],'8d44aa3d81cd0177ae690c137cfd4f2f28299742')
   publish=next(step for step in job['steps'] if step['name']=='Verify actual producer and publish exact artifact bytes')
   self.assertEqual(publish['env'],{'GH_TOKEN':'${{ github.token }}','GHCR_USER':'${{ github.actor }}','GHCR_TOKEN':'${{ github.token }}','PRODUCER_RUN_ID':'${{ inputs.producer_run_id }}','PRODUCER_ATTEMPT':'${{ inputs.producer_attempt }}','ARTIFACT_ID':'${{ inputs.artifact_id }}'})
   self.assertNotIn('secrets',leaf.get('on',leaf.get(True))['workflow_call'])
