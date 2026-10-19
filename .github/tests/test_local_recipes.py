@@ -2,7 +2,8 @@
 import copy,hashlib,json,subprocess,unittest,yaml
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-BH='df630185be901f29e4dcfc2bf1464475050e9db6'
+BH='fb8f7a1386204489ba70f2cfeedb6e184ab5de75'
+BH_BASE='df630185be901f29e4dcfc2bf1464475050e9db6'
 class LocalBuildRecipeTests(unittest.TestCase):
  def test_build_recipe_pins_actual_producer_and_only_uploads_tiny_manifest(self):
   path='.github/workflows/ci-image-build-recipe.yml';recipe=yaml.safe_load((ROOT/path).read_text());job=recipe['jobs']['build'];steps=job['steps']
@@ -14,14 +15,15 @@ class LocalBuildRecipeTests(unittest.TestCase):
    raw=subprocess.check_output(['git','show',BH+':.github/image-publisher/'+name],cwd=ROOT);self.assertIn(hashlib.sha256(raw).hexdigest()+'  .local-image-producer/.github/image-publisher/'+name,verify['run'])
   handoff=next(s for s in steps if s['name']=='Upload fixed image bundle to local store');self.assertEqual(handoff['run'],'python3 .local-image-producer/.github/image-publisher/local_handoff.py');self.assertNotIn('env',handoff)
   upload=next(s for s in steps if s.get('id')=='upload');self.assertEqual(upload['with']['path'],'${{ runner.temp }}/image-local-manifest/manifest.json');self.assertEqual(upload['with']['compression-level'],0);self.assertEqual(upload['with']['retention-days'],7)
-  baseline=yaml.safe_load(subprocess.check_output(['git','show',BH+':'+path],cwd=ROOT));normal=copy.deepcopy(recipe);normal['jobs']['build']['steps']=[s for s in normal['jobs']['build']['steps'] if s['name'] not in {checkout['name'],verify['name'],handoff['name']}]
+  baseline=yaml.safe_load(subprocess.check_output(['git','show',BH_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(recipe);normal['jobs']['build']['steps']=[s for s in normal['jobs']['build']['steps'] if s['name'] not in {checkout['name'],verify['name'],handoff['name']}]
   target=next(s for s in normal['jobs']['build']['steps'] if s.get('id')=='upload');target['with']=next(s for s in baseline['jobs']['build']['steps'] if s.get('id')=='upload')['with']
   self.assertEqual(normal,baseline)
 
-PH='8d44aa3d81cd0177ae690c137cfd4f2f28299742'
+PH='a1d268c29bffd8ba527ab44d4f91c3743fd47690'
+PH_BASE='8d44aa3d81cd0177ae690c137cfd4f2f28299742'
 class LocalPublicationRecipeTests(unittest.TestCase):
  def test_publisher_recipe_uses_exact_real_common_snapshot_without_permission_changes(self):
-  path='.github/workflows/ci-image-publish-recipe.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',PH+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
+  path='.github/workflows/ci-image-publish-recipe.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',PH_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
   for name,job in actual['jobs'].items():
    old=baseline['jobs'][name];checkout=job['steps'][0];self.assertEqual(checkout['with']['ref'],PH)
    sparse=checkout['with']['sparse-checkout'].splitlines();self.assertIn('/.github/image-publisher/local_artifact.py',sparse);self.assertIn('/.github/image-publisher/local_artifact_routes.py',sparse)
@@ -34,11 +36,12 @@ class LocalPublicationRecipeTests(unittest.TestCase):
    next(s for s in normal['jobs'][name]['steps'] if s.get('name')==verify['name'])['run']=previous['run']
   self.assertEqual(normal,baseline)
 
-P='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
-BR_REAL='ec3878ba156d8b461f90f3b0a93e65224b6214fa'
+P='3aff7ab7ec37b670a070036a36f954eed0a44cf6'
+P_BASE='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
+BR_REAL='aadf8cccc44806f9007b20133c4c92736e33baa6'
 class LocalCallerTests(unittest.TestCase):
  def test_only_image_handoff_caller_pins_change_and_real_git_objects_resolve(self):
-  path='.github/workflows/docker-build.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',P+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
+  path='.github/workflows/docker-build.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',P_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
   expected={'build':('ci-image-build-recipe.yml',BR_REAL),'publish-build':('ci-image-publish-recipe.yml',P)}
   for job,(filename,sha) in expected.items():
    self.assertEqual(actual['jobs'][job]['uses'],'cryptolabsza/cryptolabs-proxy'+'/.github/workflows/'+filename+'@'+sha)
