@@ -36,7 +36,7 @@ class LocalPublicationRecipeTests(unittest.TestCase):
    next(s for s in normal['jobs'][name]['steps'] if s.get('name')==verify['name'])['run']=previous['run']
   self.assertEqual(normal,baseline)
 
-P='3aff7ab7ec37b670a070036a36f954eed0a44cf6'
+P='046a041bbd6adf388a626e7d89bf70db12a97c94'
 P_BASE='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
 BR_REAL='aadf8cccc44806f9007b20133c4c92736e33baa6'
 class LocalCallerTests(unittest.TestCase):

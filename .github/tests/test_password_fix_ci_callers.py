@@ -14,7 +14,7 @@ class PasswordFixCICallers(unittest.TestCase):
             "docker-build.yml": {
                 "release-preflight": ("ci-image-preflight-recipe.yml", "e02ebff9390d806d06261f03ec2ff519f980800f"),
                 "build": ("ci-image-build-recipe.yml", "aadf8cccc44806f9007b20133c4c92736e33baa6"),
-                "publish-build": ("ci-image-publish-recipe.yml", "3aff7ab7ec37b670a070036a36f954eed0a44cf6"),
+                "publish-build": ("ci-image-publish-recipe.yml", "046a041bbd6adf388a626e7d89bf70db12a97c94"),
                 "release-readback": ("ci-image-readback-recipe.yml", "e02ebff9390d806d06261f03ec2ff519f980800f"),
             },
             "publish.yml": {
