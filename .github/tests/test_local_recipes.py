@@ -19,7 +19,7 @@ class LocalBuildRecipeTests(unittest.TestCase):
   target=next(s for s in normal['jobs']['build']['steps'] if s.get('id')=='upload');target['with']=next(s for s in baseline['jobs']['build']['steps'] if s.get('id')=='upload')['with']
   self.assertEqual(normal,baseline)
 
-PH='a1d268c29bffd8ba527ab44d4f91c3743fd47690'
+PH='e71ede75c2c8bedb070e3b60ff84b5906517d9ba'
 PH_BASE='8d44aa3d81cd0177ae690c137cfd4f2f28299742'
 class LocalPublicationRecipeTests(unittest.TestCase):
  def test_publisher_recipe_uses_exact_real_common_snapshot_without_permission_changes(self):
