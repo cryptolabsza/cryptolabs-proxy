@@ -36,11 +36,12 @@ class LocalPublicationRecipeTests(unittest.TestCase):
    next(s for s in normal['jobs'][name]['steps'] if s.get('name')==verify['name'])['run']=previous['run']
   self.assertEqual(normal,baseline)
 
-P='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
-BR_REAL='ec3878ba156d8b461f90f3b0a93e65224b6214fa'
+P='3aff7ab7ec37b670a070036a36f954eed0a44cf6'
+P_BASE='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
+BR_REAL='aadf8cccc44806f9007b20133c4c92736e33baa6'
 class LocalCallerTests(unittest.TestCase):
  def test_only_image_handoff_caller_pins_change_and_real_git_objects_resolve(self):
-  path='.github/workflows/docker-build.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',P+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
+  path='.github/workflows/docker-build.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',P_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
   expected={'build':('ci-image-build-recipe.yml',BR_REAL),'publish-build':('ci-image-publish-recipe.yml',P)}
   for job,(filename,sha) in expected.items():
    self.assertEqual(actual['jobs'][job]['uses'],'cryptolabsza/cryptolabs-proxy'+'/.github/workflows/'+filename+'@'+sha)
