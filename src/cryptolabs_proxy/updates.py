@@ -33,6 +33,7 @@ SERVICES = {
     'prometheus': {'container': 'prometheus', 'port': 9090, 'image': 'prom/prometheus'},
     'vastai-exporter': {'container': 'vastai-exporter', 'port': 8622, 'image': 'ghcr.io/cryptolabsza/vastai-exporter'},
     'vast-price-manager': {'container': 'vast-price-manager', 'port': 8088, 'image': '',
+                           'check_image': 'ghcr.io/cryptolabsza/vast-price-manager',
                            'lifecycle_manager': 'dc-overview', 'update_supported': False},
     'runpod-exporter': {'container': 'runpod-exporter', 'port': 8623, 'image': 'ghcr.io/cryptolabsza/runpod-exporter'},
 }
@@ -42,6 +43,7 @@ IMAGE_LABEL = 'io.cryptolabs.update.image-id'
 WATCHTOWER_LABEL = 'com.centurylinklabs.watchtower.enable'
 SELECTION_DIR = selection.SELECTION_DIR
 ACTIVE_STATES = {'queued', 'running'}
+CHECK_TTL = 900
 BUILD_ENV = {'GIT_COMMIT', 'GIT_BRANCH', 'BUILD_TIME', 'APP_VERSION', 'HOSTNAME'}
 # Docker 29 no longer accepts old Engine API clients.  1.45 is supported by
 # Docker 29 (minimum 1.44) and retains the endpoint fields used below.
@@ -202,11 +204,56 @@ def target_for(name, source, branch):
     return f'{base}:{tag}'
 
 
-def update_status(name, branch, *, engine=None, selection_directory=None):
+def check_target(name, source, branch, engine):
+    """Compare official images to a channel without granting update permission."""
+    if branch not in ('main', 'dev'):
+        return None
+    service = SERVICES[name]
+    base = service.get('check_image') or service['image']
+    reference = source.get('Config', {}).get('Image', '')
+    references = [reference]
+    if reference.startswith('sha256:'):
+        image = engine.image(source['Image'])
+        references = (image.get('RepoDigests') or []) + (image.get('RepoTags') or [])
+    for reference in references:
+        repository = reference.split('@', 1)[0]
+        if ':' in repository.rsplit('/', 1)[-1]:
+            repository = repository.rsplit(':', 1)[0]
+        if repository == base:
+            channel = 'dev' if branch == 'dev' and base.startswith('ghcr.io/cryptolabsza/') else 'latest'
+            return f'{base}:{channel}'
+    return None
+
+
+def _check_path(directory, name, branch):
+    if name not in SERVICES or branch not in ('main', 'dev'):
+        raise UpdateError('Invalid image check.')
+    return Path(directory) / 'checks' / f'{name}-{branch}.json'
+
+
+def _invalidate_checks(directory, names, branch):
+    for name in names:
+        _write_json(_check_path(directory, name, branch), {})
+
+
+def _latest_status(name, branch, source, engine, directory):
+    try:
+        comparison = check_target(name, source, branch, engine)
+        check = json.loads(_check_path(directory, name, branch).read_text())
+        age = time.time() - check['checked_at']
+        if comparison and check.get('target') == comparison and check.get('image_id') and 0 <= age < CHECK_TTL:
+            return {'latest_status': 'latest' if check['image_id'] == source['Image'] else 'update_available',
+                    'checked_at': check['checked_at']}
+    except Exception:
+        pass
+    return {'latest_status': 'unknown'}
+
+
+def update_status(name, branch, *, engine=None, selection_directory=None, directory=JOBS_DIR):
     engine = engine or UpdateEngine()
     result = {'update_available': None, 'pinned': False, 'desired': None, 'observed': None,
               'origin': None, 'reason': None, 'owner': 'proxy-updater', 'scope': 'proxy-updater',
-              'suite_complete': False, 'external_owners': []}
+              'suite_complete': False, 'external_owners': [], 'latest_status': 'unknown'}
     try:
         snapshot = installed_selection(selection_directory)
         source = engine.inspect(SERVICES[name]['container'])
@@ -229,6 +276,7 @@ def update_status(name, branch, *, engine=None, selection_directory=None):
             if snapshot and (target not in candidate.get('RepoDigests', []) or _platform(candidate) != policy['platform']):
                 raise UpdateError('artifact_identity_mismatch')
             result.update({'target_image_id': candidate['Id'], 'update_available': candidate['Id'] != source['Image']})
+        result.update(_latest_status(name, branch, source, engine, directory))
     except (UpdateError, selection.SelectionError) as error:
         result.update(state='blocked', reason=str(error))
     except Exception:
@@ -468,7 +516,7 @@ def submit_job(service, branch, action, *, directory=JOBS_DIR, engine=None,
                selection_id=None, selection_sha256=None, selection_directory=None):
     if branch not in ('main', 'dev') or action not in ('pull', 'update'):
         raise UpdateError('Invalid update channel or action.')
-    if service != 'all' and (service not in SERVICES or SERVICES[service].get('update_supported') is False):
+    if service != 'all' and (service not in SERVICES or (action == 'update' and SERVICES[service].get('update_supported') is False)):
         raise UpdateError('Service is not managed by this updater.')
     engine = engine or UpdateEngine()
     snapshot = installed_selection(selection_directory, selection_id=selection_id, selection_sha256=selection_sha256)
@@ -517,6 +565,8 @@ def submit_job(service, branch, action, *, directory=JOBS_DIR, engine=None,
         job_id = uuid.uuid4().hex
         helper = 'cryptolabs-update-' + job_id
         request = helper_request(source, Path(directory), job_id)
+        if action == 'pull':
+            _invalidate_checks(directory, SERVICES if service == 'all' else [service], branch)
         job = {'id': job_id, 'helper': helper, 'service': service, 'branch': branch,
                'action': action, 'state': 'queued', 'results': {}, 'created_at': time.time(),
                'scope': 'proxy-updater', 'suite_complete': False, 'external_owners': []}
@@ -574,10 +624,25 @@ def _run_selected_job(directory, job, engine):
             if job['action'] != 'pull' and name == 'cryptolabs-proxy' and _proxy_replacement_required(source,image,target):
                 raise UpdateError('proxy_host_adoption_required')
             staged[name] = image['Id']
+        checked = {}
+        if job['action'] == 'pull':
+            for name in targets:
+                if name not in SERVICES or job['service'] not in ('all', name):
+                    continue
+                try:
+                    source = engine.inspect(SERVICES[name]['container'])
+                    comparison = check_target(name, source, job['branch'], engine)
+                    if comparison and source.get('State', {}).get('Running') and pull_target(comparison):
+                        checked[name] = {'target': comparison, 'image_id': engine.image(comparison)['Id'],
+                                         'checked_at': time.time()}
+                except Exception:
+                    pass  # Optional channel discovery cannot block a verified selected artifact.
         # A policy edit or container replacement during pulls invalidates the
         # complete plan before the first stop, rather than allowing partial work.
         if selection.sha256(engine.selection_bytes()) != job['selection_sha256'] or selection.sha256(engine.manifest_bytes(job['manifest_sha256'])) != job['manifest_sha256'] or _selection_plan(snapshot, engine)[1] != sources:
             raise UpdateError('selection_or_runtime_changed')
+        for name, check in checked.items():
+            _write_json(_check_path(directory, name, job['branch']), check)
     except Exception as error:
         reason = str(error) if isinstance(error, (UpdateError, selection.SelectionError)) else 'preflight_unavailable'
         job.update(state='blocked', success=False, reason=reason, finished_at=time.time(),
@@ -629,6 +694,8 @@ def run_job(directory, job_id, *, engine=None):
             return job
         job.update(state='running', results={})
         write_job(directory, job)
+        if job['action'] == 'pull':
+            _invalidate_checks(directory, SERVICES if job['service'] == 'all' else [job['service']], job['branch'])
         if 'selection_snapshot' in job:
             return _run_selected_job(directory, job, engine)
         if hasattr(engine, 'selection_bytes'):
@@ -670,22 +737,29 @@ def run_job(directory, job_id, *, engine=None):
                     finished_at=time.time())
                 write_job(directory,job); return job
         for name in names:
-            if SERVICES[name].get('update_supported') is False:
+            if job['action'] == 'update' and SERVICES[name].get('update_supported') is False:
                 continue
             try:
                 source = engine.inspect(name)
-                target = target_for(name, source, job['branch'])
+                target = (check_target(name, source, job['branch'], engine) if job['action'] == 'pull'
+                          else target_for(name, source, job['branch']))
+                if target and source.get('State', {}).get('Running') and job['action'] == 'update':
+                    _invalidate_checks(directory, [name], job['branch'])
                 if not source.get('State', {}).get('Running') or not target:
                     result = {'success': job['service'] == 'all', 'state': 'skipped',
                               'message': 'Stopped or pinned service; configuration preserved.'}
                 elif not pull_target(target):
                     result = {'success': False, 'state': 'failed', 'message': 'Image pull failed; service unchanged.'}
-                elif job['action'] == 'pull':
-                    image = engine.image(target)
-                    result = {'success': True, 'state': 'checked', 'image_id': image['Id'],
-                              'update_available': image['Id'] != source['Image'], 'message': 'Image checked; running service unchanged.'}
                 else:
-                    result = replace_container(engine, name, target, job_id, expected_id=source['Id'])
+                    image = engine.image(target)
+                    _write_json(_check_path(directory, name, job['branch']), {
+                        'target': target, 'image_id': image['Id'], 'checked_at': time.time(),
+                    })
+                    if job['action'] == 'pull':
+                        result = {'success': True, 'state': 'checked', 'image_id': image['Id'],
+                                  'update_available': image['Id'] != source['Image'], 'message': 'Image checked; running service unchanged.'}
+                    else:
+                        result = replace_container(engine, name, target, job_id, expected_id=source['Id'])
             except Exception as error:
                 missing = isinstance(error, MigrationError) and str(error).endswith('HTTP 404')
                 if missing and job['service'] == 'all':
