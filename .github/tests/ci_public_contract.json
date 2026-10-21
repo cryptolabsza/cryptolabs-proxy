@@ -1,0 +1,25 @@
+{
+  "repository_id": 1140353276,
+  "recipes": {
+    "ci-build-recipe.yml": {
+      "job": "build",
+      "commands": [
+        "python scripts/image_promotion.py tags --image ghcr.io/cryptolabsza/cryptolabs-proxy",
+        "cat > BUILD_INFO << EOF\nBUILD_BRANCH=${{ github.ref_name }}\nBUILD_COMMIT=${{ github.sha }}\nBUILD_SHORT_COMMIT=${GITHUB_SHA::7}\nBUILD_DATE=$(date -u +\"%Y-%m-%d %H:%M UTC\")\nBUILD_VERSION=${{ steps.tags.outputs.version }}\nEOF\ncat BUILD_INFO\n"
+      ]
+    },
+    "ci-python-build-recipe.yml": {
+      "job": "build",
+      "commands": [
+        "release_job_dir=$(mktemp -d \"$RUNNER_TEMP/python-release-build.XXXXXX\")\nprintf 'RELEASE_JOB_DIR=%s\\n' \"$release_job_dir\" >> \"$GITHUB_ENV\"\n",
+        "python -m pip install build",
+        "mkdir \"$RELEASE_JOB_DIR/release-source\" \"$RELEASE_JOB_DIR/release-dist\"\ngit archive HEAD | tar -x -C \"$RELEASE_JOB_DIR/release-source\"\nGIT_DIR=\"$GITHUB_WORKSPACE/.git\" GIT_WORK_TREE=\"$RELEASE_JOB_DIR/release-source\" GITHUB_REF_NAME=\"$RELEASE_TAG\" \\\n  python -m build \"$RELEASE_JOB_DIR/release-source\" --outdir \"$RELEASE_JOB_DIR/release-dist\"\n"
+      ]
+    }
+  },
+  "callers": {
+    "docker-build.yml#build": "ci-image-build-recipe.yml",
+    "publish.yml#cpu-build": "ci-python-build-recipe.yml"
+  },
+  "held": {}
+}

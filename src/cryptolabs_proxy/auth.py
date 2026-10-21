@@ -829,17 +829,17 @@ def create_flask_auth_app():
             
             <form method="POST">
                 <div class="form-group">
-                    <label>Username</label>
-                    <input type="text" name="username" value="{{ username or 'admin' }}" required autofocus>
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" autocomplete="username" value="{{ username or 'admin' }}" required autofocus>
                 </div>
                 <div class="form-group">
-                    <label>{% if first_run %}Create Password{% else %}Password{% endif %}</label>
-                    <input type="password" name="password" required>
+                    <label for="password">{% if first_run %}Create Password{% else %}Password{% endif %}</label>
+                    <input type="password" id="password" name="password" autocomplete="{% if first_run %}new-password{% else %}current-password{% endif %}" required>
                 </div>
                 {% if first_run %}
                 <div class="form-group">
-                    <label>Confirm Password</label>
-                    <input type="password" name="confirm_password" required>
+                    <label for="confirm_password">Confirm Password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" required>
                 </div>
                 {% endif %}
                 <button type="submit" class="btn" style="width: 100%;">
@@ -1157,16 +1157,20 @@ def create_flask_auth_app():
         
         <form method="POST">
             <div class="form-group">
-                <label>Current Password</label>
-                <input type="password" name="current_password" required autofocus>
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" autocomplete="username" value="{{ username }}" readonly>
             </div>
             <div class="form-group">
-                <label>New Password</label>
-                <input type="password" name="new_password" required>
+                <label for="current_password">Current Password</label>
+                <input type="password" id="current_password" name="current_password" autocomplete="current-password" required autofocus>
             </div>
             <div class="form-group">
-                <label>Confirm New Password</label>
-                <input type="password" name="confirm_password" required>
+                <label for="new_password">New Password</label>
+                <input type="password" id="new_password" name="new_password" autocomplete="new-password" required>
+            </div>
+            <div class="form-group">
+                <label for="confirm_password">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" autocomplete="new-password" required>
             </div>
             <button type="submit" class="btn" style="width: 100%;">Change Password</button>
         </form>
@@ -1338,7 +1342,8 @@ def create_flask_auth_app():
             else:
                 error = 'Current password is incorrect'
         
-        return render_template_string(CHANGE_PASSWORD_TEMPLATE, error=error)
+        return render_template_string(CHANGE_PASSWORD_TEMPLATE, error=error,
+                                      username=session['username'])
     
     @app.route('/auth/users')
     @admin_required_decorator

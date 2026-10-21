@@ -311,13 +311,15 @@ def get_container_version(container_name):
         
         # Extract tag from image name
         tag = 'latest'
-        if ':' in image:
-            tag = image.split(':')[-1]
+        if '@' in image or image.startswith('sha256:'):
+            tag = 'Pinned'
+        elif ':' in image.rsplit('/', 1)[-1]:
+            tag = image.rsplit(':', 1)[-1]
         
         # Get labels
         label_result = subprocess.run(
             ['docker', 'inspect', '--format', 
-             '{{index .Config.Labels "org.opencontainers.image.version"}}||{{index .Config.Labels "org.opencontainers.image.revision"}}||{{index .Config.Labels "build.time"}}'],
+             '{{index .Config.Labels "org.opencontainers.image.version"}}||{{index .Config.Labels "org.opencontainers.image.revision"}}||{{index .Config.Labels "build.time"}}', container_name],
             capture_output=True, text=True, timeout=5
         )
         version = ''
@@ -325,9 +327,10 @@ def get_container_version(container_name):
         label_build_time = ''
         if label_result.returncode == 0:
             parts = label_result.stdout.strip().split('||')
-            version = parts[0] if len(parts) > 0 and parts[0] else ''
-            revision = parts[1] if len(parts) > 1 and parts[1] else ''
-            label_build_time = parts[2] if len(parts) > 2 and parts[2] else ''
+            parts = [part if part not in ('<no value>', '<nil>') else '' for part in parts]
+            version = parts[0] if len(parts) > 0 else ''
+            revision = parts[1] if len(parts) > 1 else ''
+            label_build_time = parts[2] if len(parts) > 2 else ''
         
         # Get environment variables individually for better parsing
         git_commit = ''
@@ -480,7 +483,7 @@ def get_all_versions():
             })
         
         versions[name] = version_info
-        if config.get('update_supported') is not False:
+        if running:
             version_info.update(update_status(name, settings.get('branch', 'main')))
     
     # Add configured branch

@@ -532,7 +532,7 @@
 
         .versions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
             gap: 15px;
         }
 
@@ -544,6 +544,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            min-width: 0;
         }
 
         .version-card.running {
@@ -569,7 +572,8 @@
         }
 
         .version-info {
-            flex: 1;
+            flex: 1 1 160px;
+            min-width: 0;
         }
 
         .version-info .service-name {
@@ -589,11 +593,18 @@
             flex-wrap: wrap;
             gap: 12px;
             align-items: center;
+            overflow-wrap: anywhere;
+        }
+
+        .version-info .version-details > span {
+            min-width: 0;
+            max-width: 100%;
         }
 
         .version-info .version-tag {
             font-weight: 600;
             color: var(--accent-cyan);
+            overflow-wrap: anywhere;
         }
 
         .version-info .version-commit {
@@ -629,6 +640,13 @@
         .version-actions {
             display: flex;
             gap: 8px;
+        }
+
+        .system-updates .version-actions {
+            flex-direction: column;
+            align-items: flex-start;
+            max-width: 100%;
+            overflow-wrap: anywhere;
         }
 
         .version-actions .btn-small {
@@ -1298,6 +1316,12 @@
             }
         }
 
+        function escapeVersionText(value) {
+            return String(value).replace(/[&<>"']/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[char]));
+        }
+
         // Load versions
         async function loadVersions() {
             const grid = document.getElementById('versionsGrid');
@@ -1322,39 +1346,43 @@
                     const statusClass = info.running ? 'running' : 'stopped';
                     const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
-                    // --- Version display ---
-                    // Show OCI version label (e.g. "v1.1.7") if available, else just the tag
                     let versionText = '';
                     let detailsText = '';
                     if (info.running) {
-                        // Prefer OCI version label, fallback to tag
-                        const ver = info.version && info.version !== 'unknown' && info.version !== info.tag ? info.version : '';
-                        versionText = info.tag || 'latest';
-                        if (ver) {
-                            versionText = `<span class="branch-tag" style="background: rgba(0,212,255,0.2); color: var(--accent-cyan);">${ver}</span> ${info.tag || 'latest'}`;
+                        const installed = info.version && info.version !== 'unknown' ? info.version : info.tag;
+                        const buildHash = installed && installed.match(/^(?:.*@)?(?:sha256:)?([a-f0-9]{40}|[a-f0-9]{64})$/i);
+                        const displayVersion = buildHash ? `Build ${buildHash[1].slice(0, 8)}` : installed;
+                        const readable = installed && !['latest', 'main', 'dev', 'Pinned'].includes(installed)
+                            ? escapeVersionText(displayVersion) : '';
+                        if (info.latest_status === 'latest') {
+                            versionText = '<span style="color: var(--accent-green);">✓ Latest</span>';
+                            if (readable) detailsText = `<span>${readable}</span>`;
+                        } else {
+                            versionText = readable || (info.pinned ? 'Pinned image' : 'Installed');
                         }
-                        // Build time only (skip commit hash - not useful for users)
                         if (info.build_time && info.build_time !== 'unknown' && info.build_time !== '') {
-                            detailsText = `<span class="version-build" title="Build date">🕐 ${info.build_time}</span>`;
+                            detailsText += `<span class="version-build" title="Build date">🕐 ${escapeVersionText(info.build_time)}</span>`;
+                        }
+                        if (info.checked_at) {
+                            detailsText += `<span class="version-build">Checked ${escapeVersionText(new Date(info.checked_at * 1000).toLocaleString())}</span>`;
                         }
                     } else {
                         versionText = 'Not running';
                     }
                     
                     let updateBtn = '';
+                    if (info.running && info.latest_status !== 'latest') {
+                        updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;">${info.latest_status === 'update_available' ? 'Update available' : 'Unable to verify · Check Updates'}</span>`;
+                    }
                     if (info.lifecycle_manager) {
-                        updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;" title="Managed by ${info.lifecycle_manager}">Managed by Server Manager</span>`;
+                        updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Managed by Server Manager</span>';
                     } else if (info.pinned) {
-                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
+                        updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
                     } else if (!info.running) {
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Use service setup to start</span>';
                     } else if (info.update_available === true) {
-                        updateBtn = `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
+                        updateBtn += `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
                         updatableCount++;
-                    } else if (info.update_available === false) {
-                        updateBtn = '<span style="color: var(--accent-green); font-size: 0.8em;">✓ Downloaded image running</span>';
-                    } else {
-                        updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Check for updates first</span>';
                     }
                     
                     // Self badge for proxy
