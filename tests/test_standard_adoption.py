@@ -96,6 +96,12 @@ def test_inspect_sanitized_and_plan_deterministic_readonly(tmp_path,monkeypatch)
     before={p.name:p.read_bytes() for p in directory.iterdir()}
     info=adoption.inspect(); plan=adoption.plan(settings)
     assert plan==adoption.plan(settings)
+    for _ in engine.current['Mounts']:
+        mounts=engine.current['Mounts']
+        engine.current['Mounts']=mounts[1:]+mounts[:1]
+        expected=deepcopy(engine.current)
+        assert plan==adoption.plan(settings)
+        assert engine.current==expected
     assert 'synthetic-password' not in json.dumps([info,plan]) and 'synthetic-key' not in json.dumps([info,plan])
     assert info['routes'] and info['tls']['certificates']==['/etc/nginx/ssl/server.crt']
     assert plan['image']==REF and plan['selection_id']=='synthetic-selection'
@@ -118,7 +124,7 @@ def test_plan_rejects_unsupported_without_mutation(tmp_path,monkeypatch,change):
     assert engine.calls==[] and ServiceRegistry(directory).config['custom_config']
 
 
-@pytest.mark.parametrize('change',['source','config','selection','digest','validation'])
+@pytest.mark.parametrize('change',['source','config','selection','digest','validation','mount-source','mount-rw','mount-option','mount-add','mount-remove','env-order'])
 def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change):
     from cryptolabs_proxy.standard_adoption import AdoptionError
     adoption,engine,settings,directory=system(tmp_path,monkeypatch); plan=adoption.plan(settings)
@@ -127,13 +133,30 @@ def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change):
     if change=='selection': (Path(settings['release_selection_dir'])/'selection.json').write_text('{}')
     if change=='digest': monkeypatch.setattr(engine,'image',lambda ref:{'Id':'sha256:new','Os':'linux','Architecture':'amd64','RepoDigests':[],'Config':{}})
     if change=='validation': monkeypatch.setattr(engine,'validate',lambda *a:(_ for _ in ()).throw(AdoptionError('candidate validation denied')))
+    if change=='mount-source': engine.current['Mounts'][1]['Source']='/different/ssl'
+    if change=='mount-rw': engine.current['Mounts'][1]['RW']=True
+    if change=='mount-option': engine.current['Mounts'][1]['Propagation']='rshared'
+    if change=='mount-add': engine.current['Mounts'].append({'Type':'bind','Source':'/extra','Destination':'/extra','RW':False})
+    if change=='mount-remove': engine.current['Mounts'].pop()
+    if change=='env-order': engine.current['Config']['Env'].reverse()
     with pytest.raises(AdoptionError): adoption.adopt(settings,plan['plan_id'])
     assert not [c for c in engine.calls if c[0]=='stop']
     assert ServiceRegistry(directory).config['custom_config']
 
 
 def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monkeypatch):
-    adoption,engine,settings,directory=system(tmp_path,monkeypatch); plan=adoption.plan(settings)
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    inspect=engine.inspect
+    from itertools import count
+    inspections=count()
+    def rotating_mounts(name):
+        observed=inspect(name)
+        if observed and observed.get('Mounts'):
+            mounts=observed['Mounts']; offset=next(inspections)%len(mounts)
+            observed['Mounts']=mounts[offset:]+mounts[:offset]
+        return observed
+    monkeypatch.setattr(engine,'inspect',rotating_mounts)
+    plan=adoption.plan(settings)
     outcome=adoption.adopt(settings,plan['plan_id']); assert outcome['state']=='adopted'
     request=engine.request
     assert request['Config']['Env'][:3]==engine.current['Config']['Env']

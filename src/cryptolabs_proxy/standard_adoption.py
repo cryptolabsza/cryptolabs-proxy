@@ -115,6 +115,9 @@ def _walk(nodes):
 def _runtime_identity(inspect):
     # Exclude volatile health timestamps, assigned endpoint IDs and runtime IPs.
     material={k:inspect.get(k) for k in ('Id','Image','Config','HostConfig','Mounts')}
+    # Docker may enumerate the same bindings in a different order on each read.
+    if isinstance(material['Mounts'],list):
+        material['Mounts']=sorted(material['Mounts'],key=_canonical)
     material['endpoints']=endpoint_configurations(inspect)
     return sha256(_canonical(material))
 
