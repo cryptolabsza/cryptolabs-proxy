@@ -299,7 +299,34 @@ def test_live_capability_docker_boundary_uses_pinned_source_id(monkeypatch):
         return SimpleNamespace(returncode=0,stdout=json.dumps(updates.get_capabilities()).encode(),stderr=b'')
     monkeypatch.setattr(updates.subprocess,'run',run)
     assert updates.UpdateEngine().updater_capabilities('source-id')==updates.get_capabilities()
-    assert calls==[(['docker','exec','source-id','python3','-m','cryptolabs_proxy.updates','capabilities'],{'capture_output':True,'timeout':15})]
+    assert calls==[(['docker','exec','source-id','env','PYTHONPATH=/app/src','python3','-m','cryptolabs_proxy.updates','capabilities'],{'capture_output':True,'timeout':15})]
+
+
+def test_live_capability_probe_imports_shipped_source_in_clean_child(tmp_path,monkeypatch):
+    import os,subprocess,sys
+    from cryptolabs_proxy import updates
+    runtime_source=Path(__file__).parents[1]/'src'
+    source_id='a'*64
+    # Model Docker's fresh exec environment and the image's /app/src mapping.
+    # Execute the real module in a child; do not inherit pytest's sys.path.
+    docker=tmp_path/'docker'
+    docker.write_text(f'''#!{sys.executable}
+import os,sys
+assert sys.argv[1:3]==['exec',{source_id!r}]
+command=[item.replace('PYTHONPATH=/app/src','PYTHONPATH='+{str(runtime_source)!r}) for item in sys.argv[3:]]
+os.execvpe(command[0],command,{{'PATH':{str(Path(sys.executable).parent)+os.pathsep+os.defpath!r}}})
+''')
+    docker.chmod(0o755)
+    monkeypatch.setenv('PATH',str(tmp_path)+os.pathsep+os.environ['PATH'])
+    monkeypatch.chdir(tmp_path)
+    without_path=subprocess.run(['docker','exec',source_id,'python3','-m',
+        'cryptolabs_proxy.updates','capabilities'],capture_output=True,timeout=10)
+    assert without_path.returncode!=0
+    assert b"No module named 'cryptolabs_proxy'" in without_path.stderr
+    print('WITHOUT_MODULE_PATH',without_path.returncode,without_path.stderr.decode().strip())
+    actual=updates.UpdateEngine().updater_capabilities(source_id)
+    assert actual==updates.get_capabilities()
+    print('SHIPPED_CHILD_CAPABILITIES',json.dumps(actual,sort_keys=True))
 
 
 def test_actual_old_worker_ignores_selected_noop_but_new_dispatch_refuses_it(tmp_path,monkeypatch):
