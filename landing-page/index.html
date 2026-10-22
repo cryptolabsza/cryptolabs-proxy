@@ -358,6 +358,29 @@
             margin-top: 5px;
         }
 
+        .managed-support {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 24px;
+            margin-bottom: 30px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 16px;
+        }
+        .managed-support h2 { font-size: 1.15rem; margin-bottom: 8px; }
+        .managed-support p { color: var(--text-secondary); line-height: 1.5; }
+        .managed-support a {
+            display: inline-block;
+            padding: 12px 0;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            text-underline-offset: 4px;
+        }
+        .managed-support a:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 4px; }
+
         footer {
             text-align: center;
             padding: 40px 20px;
@@ -718,6 +741,14 @@
                 <!-- Populated by JS -->
             </div>
         </header>
+
+        <section class="managed-support" aria-label="Managed support">
+            <div>
+                <h2>Managed support by CryptoLabs</h2>
+                <p>Need help managing your server fleet?</p>
+            </div>
+            <a href="https://cryptolabs.co.za" target="_blank" rel="noopener noreferrer">Explore managed support <span aria-hidden="true">&rarr;</span></a>
+        </section>
 
         <div class="quick-stats" id="quickStats">
             <div class="stat-card">
