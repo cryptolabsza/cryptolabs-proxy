@@ -808,6 +808,22 @@ def create_flask_auth_app():
             margin-bottom: 10px;
         }
         .subtitle { text-align: center; color: var(--text-secondary); margin-bottom: 30px; }
+        .managed-support {
+            padding: 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 16px;
+        }
+        .managed-support h2 { font-size: 1.15rem; margin-bottom: 8px; }
+        .managed-support p { color: var(--text-secondary); line-height: 1.5; }
+        .managed-support a {
+            display: inline-block;
+            padding: 12px 0;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            text-underline-offset: 4px;
+        }
+        .managed-support a:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 4px; }
     </style>
 </head>
 <body>
@@ -847,6 +863,11 @@ def create_flask_auth_app():
                 </button>
             </form>
         </div>
+        <section class="managed-support" aria-label="Managed support">
+            <h2>Managed support by CryptoLabs</h2>
+            <p>Need help managing your server fleet?</p>
+            <a href="https://cryptolabs.co.za" target="_blank" rel="noopener noreferrer">Explore managed support <span aria-hidden="true">&rarr;</span></a>
+        </section>
     </div>
 </body>
 </html>
