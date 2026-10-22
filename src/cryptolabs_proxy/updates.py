@@ -112,7 +112,7 @@ class UpdateEngine(DockerEngine):
     def updater_capabilities(self, source_id):
         """Read the shipped updater CLI in the inspected source container."""
         try:
-            result = subprocess.run(['docker', 'exec', source_id, 'python3', '-m',
+            result = subprocess.run(['docker', 'exec', source_id, 'env', 'PYTHONPATH=/app/src', 'python3', '-m',
                 'cryptolabs_proxy.updates', 'capabilities'], capture_output=True, timeout=self.timeout)
             if result.returncode or len(result.stdout) > 4096:
                 raise ValueError()
