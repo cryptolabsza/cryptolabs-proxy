@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "authority": "Direct owner instruction, 2026-10-25: all build CI should have 120 minute cap",
+  "supersedes": "Earlier build/test/scan job timeout limits only; historical migration and review receipts remain unchanged",
+  "timeout_minutes": 120,
+  "repository": "cryptolabsza/cryptolabs-proxy",
+  "repository_id": 1140353276,
+  "source_head": "61565a7228539a0b8b0bfb602e06ea3efcc6b94a",
+  "recipe_commit": "6a6a846245461b9a7ae593bbf1720b8753bfb957",
+  "recipe_sha256": {
+    ".github/workflows/ci-build-recipe.yml": "15ebffb9d3b2570dfea1d3504525f3c18a05c344773f8df9d16eec828ae4bc75",
+    ".github/workflows/ci-image-build-recipe.yml": "2dfc463a016d57e54ebcfdb3497d5cd1ec04ca5a8d624fe87d0546e3bab93711",
+    ".github/workflows/ci-python-build-recipe.yml": "ad669addb9b2a87e0d56ad50a0481242e6862b1530ce4829438087c03978933f"
+  },
+  "publication_status": "Local proposal only; protected main route requires owner policy exception",
+  "publisher_recipe_commit": "28d6f00b5162f86cf5f90c98bcb7d5e64226fbbf",
+  "publisher_helpers": [
+    {
+      "old": "e71ede75c2c8bedb070e3b60ff84b5906517d9ba",
+      "new": "25112fdfc1d3e1209f2cdad9710858dde6814505"
+    },
+    {
+      "old": "30aeafda52571822a50e0016917f9cc8a88566f1",
+      "new": "47f1b740245c31e0ee3fd14df77b79074b9f71ba"
+    }
+  ],
+  "branch_role": "CI-only main feature proposal; no application release or version bump"
+}
