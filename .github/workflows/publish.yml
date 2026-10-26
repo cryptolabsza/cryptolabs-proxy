@@ -6,13 +6,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   cpu-build:
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-python-build-recipe.yml@cdb50910f0bb5ad59a0e4ec0143ffc924bab0567
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-python-build-recipe.yml@6a6a846245461b9a7ae593bbf1720b8753bfb957
     permissions:
       contents: read
   publish:
     needs: cpu-build
     if: always() && (github.event_name == 'release' || github.event_name == 'workflow_dispatch')
-    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-pypi-publish-recipe.yml@e842d30b5f262b9f4d5ee73ebc7e86ee2c1eb657
+    uses: cryptolabsza/cryptolabs-proxy/.github/workflows/ci-pypi-publish-recipe.yml@28d6f00b5162f86cf5f90c98bcb7d5e64226fbbf
     permissions:
       actions: read
       contents: write
