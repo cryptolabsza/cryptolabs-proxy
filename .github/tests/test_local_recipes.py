@@ -17,9 +17,10 @@ class LocalBuildRecipeTests(unittest.TestCase):
   upload=next(s for s in steps if s.get('id')=='upload');self.assertEqual(upload['with']['path'],'${{ runner.temp }}/image-local-manifest/manifest.json');self.assertEqual(upload['with']['compression-level'],0);self.assertEqual(upload['with']['retention-days'],7)
   baseline=yaml.safe_load(subprocess.check_output(['git','show',BH_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(recipe);normal['jobs']['build']['steps']=[s for s in normal['jobs']['build']['steps'] if s['name'] not in {checkout['name'],verify['name'],handoff['name']}]
   target=next(s for s in normal['jobs']['build']['steps'] if s.get('id')=='upload');target['with']=next(s for s in baseline['jobs']['build']['steps'] if s.get('id')=='upload')['with']
+  self.assertEqual(normal['jobs']['build']['timeout-minutes'],120);normal['jobs']['build']['timeout-minutes']=45
   self.assertEqual(normal,baseline)
 
-PH='e71ede75c2c8bedb070e3b60ff84b5906517d9ba'
+PH='25112fdfc1d3e1209f2cdad9710858dde6814505'
 PH_BASE='8d44aa3d81cd0177ae690c137cfd4f2f28299742'
 class LocalPublicationRecipeTests(unittest.TestCase):
  def test_publisher_recipe_uses_exact_real_common_snapshot_without_permission_changes(self):
@@ -36,9 +37,9 @@ class LocalPublicationRecipeTests(unittest.TestCase):
    next(s for s in normal['jobs'][name]['steps'] if s.get('name')==verify['name'])['run']=previous['run']
   self.assertEqual(normal,baseline)
 
-P='046a041bbd6adf388a626e7d89bf70db12a97c94'
+P='28d6f00b5162f86cf5f90c98bcb7d5e64226fbbf'
 P_BASE='c9cca957a75f6c95732fd96fbfc2a7d4e6094c87'
-BR_REAL='aadf8cccc44806f9007b20133c4c92736e33baa6'
+BR_REAL='6a6a846245461b9a7ae593bbf1720b8753bfb957'
 class LocalCallerTests(unittest.TestCase):
  def test_only_image_handoff_caller_pins_change_and_real_git_objects_resolve(self):
   path='.github/workflows/docker-build.yml';actual=yaml.safe_load((ROOT/path).read_text());baseline=yaml.safe_load(subprocess.check_output(['git','show',P_BASE+':'+path],cwd=ROOT));normal=copy.deepcopy(actual)
