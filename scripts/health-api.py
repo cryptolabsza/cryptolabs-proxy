@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """
 Health API server for CryptoLabs Proxy.
 Detects running Docker containers, reports their status, and manages updates.
@@ -444,6 +445,7 @@ def get_vpm_prerequisite_for_display():
     return value
 
 
+# TRACEWEAVER: entrypoint=get_all_versions; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 def get_all_versions():
     """Get version info for all services."""
     versions = {}
@@ -486,6 +488,18 @@ def get_all_versions():
         if running:
             version_info.update(update_status(name, settings.get('branch', 'main')))
     
+    from cryptolabs_proxy.updates import installed_selection
+    try:
+        snapshot=installed_selection()
+    except UpdateError:
+        snapshot=None
+    for name,info in versions.items():
+        info['component']=name
+        info['observed_source']='running-image-metadata'
+        selected=snapshot['manifest']['components'].get(name) if snapshot else None
+        info['selected_release']=selected['release'] if selected else None
+        info['selected_channel']=snapshot['manifest'].get('component_channels',{}).get(name,'main') if selected else None
+        info['admitted_available_release']=None
     # Add configured branch
     versions['_settings'] = {
         'target_branch': settings.get('branch', 'main'),
@@ -506,10 +520,13 @@ def get_build_info():
                 if '=' in line:
                     key, value = line.split('=', 1)
                     info[key.lower()] = value
+            info.update(component='cryptolabs-proxy',metadata_source='image-build-info')
             return info
     except FileNotFoundError:
         return {
-            'version': 'dev',
+            'component': 'cryptolabs-proxy',
+            'metadata_source': 'unavailable',
+            'version': 'unknown',
             'branch': 'unknown',
             'commit': 'unknown',
             'build_date': 'unknown',
@@ -613,6 +630,10 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
     
     def do_POST(self):
+        # Browser writes belong exclusively to live-admin Flask authority.
+        if urlparse(self.path).path in ('/api/update','/api/pull','/api/update-settings'):
+            self.send_json({'error':'Use the authenticated release API.'},403)
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         

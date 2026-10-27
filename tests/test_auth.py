@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
 """Tests for token management, user CRUD, permissions, and account lockout."""
 
 import time
@@ -529,3 +531,162 @@ class TestVerifyProxyAuth:
         headers = auth.generate_proxy_headers('alice', 'admin')
         headers[auth.AUTH_HEADER_USER] = 'eve'
         assert auth.verify_proxy_auth(headers) is None
+
+
+@pytest.mark.parametrize('change', ['demote','disable','delete','password-change'])
+def test_release_live_authority_and_purpose_csrf(app, logged_in_admin, admin_user, monkeypatch, change):
+    import cryptolabs_proxy.auth as auth
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+    calls = []
+    monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda self, action, params, actor: calls.append((action,params,actor)) or {'candidates':[]})
+    response = logged_in_admin.get('/api/releases/session')
+    assert response.status_code == 200
+    token = response.json['csrf_token']
+    body = {'operation_id':'12345678-1234-4234-8234-123456789abc','preview_id':'fixture','preview_sha256':'a'*64,'expected_selection_id':'fixture','expected_selection_sha256':'b'*64}
+    assert logged_in_admin.post('/api/releases/apply',json=body,headers={'Origin':'http://evil.test','X-CSRF-Token':token}).status_code == 403
+    assert logged_in_admin.post('/api/releases/apply',json=body,headers={'Origin':'http://localhost','X-CSRF-Token':'bad'}).status_code == 403
+    assert calls == []
+    assert logged_in_admin.post('/api/releases/apply',json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token}).status_code == 200
+    assert calls[-1][2]['username'] == admin_user['username']
+    if change == 'demote': auth.update_user(admin_user['username'], role='readonly')
+    elif change == 'disable': auth.update_user(admin_user['username'], enabled=False)
+    elif change == 'delete':
+        users=auth.load_users(); users.pop(admin_user['username']); auth.save_users(users)
+    else:
+        users=auth.load_users(); users[admin_user['username']]['require_password_change']=True; auth.save_users(users)
+    before=len(calls)
+    assert logged_in_admin.get('/api/releases/candidates?channel=main').status_code in (401,403)
+    assert logged_in_admin.post('/api/update',json={'service':'prometheus'},headers={'Origin':'http://localhost','X-CSRF-Token':token}).status_code in (401,403)
+    assert len(calls) == before
+
+
+@pytest.mark.parametrize('reply,expected', [
+    (b'{"schema_version":1,"ok":true,"result":{"candidates":[]}}\n', True),
+    (b'{"schema_version":1,"ok":true,"ok":false,"result":{}}\n', False),
+])
+def test_release_client_real_unix_stream_framing(tmp_path,monkeypatch,reply,expected):
+    import socket
+    import threading
+    from types import SimpleNamespace
+    from cryptolabs_proxy import release_client
+    import tempfile
+    directory=tempfile.TemporaryDirectory(prefix='frc-',dir='/private/tmp')
+    path=directory.name+'/owner.sock'
+    server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    server.bind(path);server.listen(1)
+    received=[]
+    def serve():
+        with server:
+            connection,_=server.accept()
+            with connection:
+                raw=b''
+                while True:
+                    chunk=connection.recv(65536)
+                    if not chunk:break
+                    raw+=chunk
+                received.append(raw)
+                connection.sendall(reply)
+    thread=threading.Thread(target=serve,daemon=True);thread.start()
+    metadata=__import__('pathlib').Path(path).lstat()
+    # Only root ownership is represented here; real socket I/O remains native.
+    monkeypatch.setattr(release_client,'SOCKET_PATH',path)
+    monkeypatch.setattr(release_client,'Path',lambda _:SimpleNamespace(lstat=lambda:SimpleNamespace(st_mode=(metadata.st_mode&~0o777)|0o600,st_uid=0)))
+    actor={'kind':'fleet-admin','username':'fixture','subject':'a'*64}
+    if expected:
+        assert release_client.ReleaseBrokerClient().request('list',{'channel':'main'},actor=actor)=={'candidates':[]}
+    else:
+        with pytest.raises(release_client.ReleaseBrokerError,match='Release owner unavailable'):
+            release_client.ReleaseBrokerClient().request('list',{'channel':'main'},actor=actor)
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert received and received[0].endswith(b'\n')
+    assert json.loads(received[0])=={'schema_version':1,'action':'list','params':{'channel':'main'},'actor':actor}
+    directory.cleanup()
+
+
+def test_release_stream_json_requires_utf8():
+    from cryptolabs_proxy.release_client import strict_json
+    with pytest.raises(ValueError):
+        strict_json('{"schema_version":1}'.encode('utf-16'))
+
+
+@pytest.mark.parametrize('path,body',[('/api/update',{'service':'prometheus'}),('/api/pull',{'service':'prometheus'}),('/api/update-settings',{'branch':'main'})])
+def test_selected_legacy_mutations_require_admission_owner(app,logged_in_admin,monkeypatch,path,body):
+    from cryptolabs_proxy import updates
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost'
+    token=logged_in_admin.get('/api/releases/session').json['csrf_token']
+    monkeypatch.setattr(updates,'installed_selection',lambda:{'selection_id':'fixture','selection_sha256':'a'*64})
+    calls=[]
+    monkeypatch.setattr(updates,'submit_job',lambda *args,**kwargs:calls.append(args) or {'id':'job'})
+    response=logged_in_admin.post(path,json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token})
+    assert response.status_code==409
+    assert response.json['code']=='release_owner_required'
+    assert calls==[]
+
+
+def test_release_authority_survives_real_permanent_cookie_refresh_and_replacement(app,admin_user,monkeypatch):
+    from itsdangerous import TimestampSigner
+    from cryptolabs_proxy import auth
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    timestamp=[int(time.time())]
+    monkeypatch.setattr(TimestampSigner,'get_timestamp',lambda self:timestamp[0])
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost'
+    actors=[]
+    monkeypatch.setattr(ReleaseBrokerClient,'request',lambda self,action,params,actor:actors.append(actor) or {})
+    client=app.test_client();client.post('/auth/login',data=admin_user)
+    token=client.get('/api/releases/session').json['csrf_token']
+    assert client.get('/api/releases/candidates?channel=main').status_code==200
+    actor=actors[-1]
+    assert token!=actor['subject']
+    cookie_name=app.config['SESSION_COOKIE_NAME'];before=client.get_cookie(cookie_name).value
+    timestamp[0]+=2
+    response=client.get('/api/releases/session')
+    refreshed=client.get_cookie(cookie_name).value
+    assert refreshed!=before and response.status_code==200
+    body={'operation_id':'12345678-1234-4234-8234-123456789abc','preview_id':'fixture','preview_sha256':'a'*64,'expected_selection_id':'fixture','expected_selection_sha256':'b'*64}
+    assert client.post('/api/releases/apply',json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token}).status_code==200
+    assert response.json['csrf_token']==token and actors[-1]==actor
+    timestamp[0]+=2
+    assert client.get('/api/releases/candidates?channel=main').status_code==200
+    assert actors[-1]==actor and client.get_cookie(cookie_name).value!=refreshed
+    replacement=auth.create_flask_auth_app();replacement.config.update(TESTING=True,SESSION_COOKIE_SECURE=False,RELEASE_PUBLIC_ORIGIN='http://localhost')
+    other= replacement.test_client();other.set_cookie(cookie_name,client.get_cookie(cookie_name).value)
+    assert other.post('/api/releases/apply',json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token}).status_code==200
+    assert actors[-1]==actor
+
+
+def test_release_authority_isolates_logins_and_rebinds_logout_and_principal(app,admin_user,monkeypatch):
+    from cryptolabs_proxy import auth
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    fixed=time.time();monkeypatch.setattr(time,'time',lambda:fixed)
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost'
+    actors=[]
+    monkeypatch.setattr(ReleaseBrokerClient,'request',lambda self,action,params,actor:actors.append(actor) or {})
+    first=app.test_client();second=app.test_client()
+    for client in (first,second):client.post('/auth/login',data=admin_user)
+    body={'operation_id':'12345678-1234-4234-8234-123456789abc','preview_id':'fixture','preview_sha256':'a'*64,'expected_selection_id':'fixture','expected_selection_sha256':'b'*64}
+    def apply(client,token):return client.post('/api/releases/apply',json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token})
+    assert apply(first,'unissued').status_code==403 and actors==[]
+    one=first.get('/api/releases/session').json['csrf_token'];two=second.get('/api/releases/session').json['csrf_token']
+    assert one!=two
+    assert apply(first,two).status_code==403 and actors==[]
+    assert apply(first,one).status_code==200;actor_one=actors[-1]
+    assert apply(second,two).status_code==200 and actors[-1]['subject']!=actor_one['subject']
+    first.post('/auth/login',data=admin_user)
+    assert apply(first,one).status_code==403
+    relogin=first.get('/api/releases/session').json['csrf_token'];assert relogin!=one
+    assert apply(first,one).status_code==403 and apply(first,relogin).status_code==200
+    assert actors[-1]['subject']!=actor_one['subject']
+    one=relogin
+    first.get('/auth/logout');assert apply(first,one).status_code==401
+    first.post('/auth/login',data=admin_user)
+    assert apply(first,one).status_code==403
+    again=first.get('/api/releases/session').json['csrf_token'];assert again!=one
+    assert apply(first,one).status_code==403 and apply(first,again).status_code==200
+    auth.create_user('second-admin','different-pass',role='admin')
+    first.post('/auth/login',data={'username':'second-admin','password':'different-pass'})
+    assert apply(first,again).status_code==403
+    rebound=first.get('/api/releases/session').json['csrf_token']
+    assert apply(first,rebound).status_code==200 and actors[-1]['username']=='second-admin'
+    assert actors[-1]['subject']!=actor_one['subject']

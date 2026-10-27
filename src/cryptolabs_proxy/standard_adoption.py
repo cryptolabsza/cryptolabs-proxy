@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """Explicit standard configuration adoption, without Nginx passthrough.
 
 Public manifests contain identities and declarative fields only. Inspected
@@ -22,7 +23,7 @@ from .migration import (DockerEngine, CustomConfigMigrator, MigrationError, Swit
                         build_recreate_request, endpoint_configurations, wait_for_container_healthy,
                         wait_for_proxy_ready, PROXY_READY_TIMEOUT, _snapshot_registry_files,
                         _write_registry_backup, _restore_registry_files)
-from .release_selection import load, targets, sha256, SelectionError
+from .release_selection import load, targets, sha256, SelectionError, validate as validate_selection
 from .services import ServiceRegistry, DEFAULT_SERVICES
 
 
@@ -76,6 +77,42 @@ def owned_auth_archive(data):
 
 def _canonical(value):
     return json.dumps(value,sort_keys=True,separators=(',',':')).encode()
+
+
+def _durable_private(path, content):
+    """Atomic, fsynced owner journal writes; never expose inspected values."""
+    import os as filesystem
+    import uuid
+    path=Path(path)
+    temporary=path.with_name('.'+path.name+'-'+uuid.uuid4().hex)
+    descriptor=filesystem.open(temporary,filesystem.O_WRONLY|filesystem.O_CREAT|filesystem.O_EXCL|filesystem.O_NOFOLLOW,0o600)
+    try:
+        with filesystem.fdopen(descriptor,'wb') as stream:
+            stream.write(content); stream.flush(); filesystem.fsync(stream.fileno())
+        filesystem.replace(temporary,path)
+        descriptor=filesystem.open(path.parent,filesystem.O_RDONLY|filesystem.O_DIRECTORY)
+        try: filesystem.fsync(descriptor)
+        finally: filesystem.close(descriptor)
+    finally:
+        try: temporary.unlink()
+        except FileNotFoundError: pass
+
+
+def _restoration_evidence(engine, source, plan, expected, config_dir):
+    serving=engine.inspect('cryptolabs-proxy')
+    sanitized=[e for e in source['Config'].get('Env',[]) if not e.startswith('FLEET_ADMIN_PASS=')]+['FLEET_ADMIN_PASS=']
+    if (not serving.get('State',{}).get('Running') or serving['Image']!=source['Image']
+            or serving['Config'].get('Env',[])!=sanitized
+            or sha256(engine.read_config('cryptolabs-proxy'))!=plan['config_sha256']
+            or auth_state(engine.archive_auth('cryptolabs-proxy'),allow_active_jobs=True)!=expected):
+        raise AdoptionError('source_recovery_unverified')
+    registry=_snapshot_registry_files(ServiceRegistry(config_dir))
+    registry_sha=sha256(_canonical({p.name:sha256(data) if data is not None else None for p,data in registry.items()}))
+    if registry_sha!=plan['registry_sha256']: raise AdoptionError('source_registry_recovery_unverified')
+    return {'schema_version':1,'plan_id':plan['plan_id'],'runtime_sha256':_runtime_identity(serving),
+        'container_id':serving['Id'],'image_id':serving['Image'],'config_sha256':plan['config_sha256'],
+        'selection_sha256':plan['selection_sha256'],'registry_sha256':registry_sha,
+        'auth_state_sha256':sha256(_canonical(expected)),'startup_verified':True,'health_verified':True}
 
 
 def parse_nginx(data):
@@ -142,8 +179,10 @@ def _safe_upstream(words):
 
 def _declaration(value):
     required={'schema_version','domain','tls','release_selection_dir','services','obsolete_overlays','obsolete_owner_labels'}
-    if not isinstance(value,dict) or set(value)-required-{'host_forward_groups','acme_challenge','hostname_policy','http_policy'} or not required<=set(value) or type(value['schema_version']) is not int or value['schema_version']!=1:
+    if not isinstance(value,dict) or set(value)-required-{'host_forward_groups','acme_challenge','hostname_policy','http_policy','release_broker_enabled'} or not required<=set(value) or type(value['schema_version']) is not int or value['schema_version']!=1:
         raise AdoptionError('declaration_schema_invalid')
+    if 'release_broker_enabled' in value and type(value['release_broker_enabled']) is not bool:
+        raise AdoptionError('release_broker_policy_invalid')
     domain=value['domain']
     if not isinstance(domain,str) or not DOMAIN.fullmatch(domain) or '..' in domain or domain.endswith('.') or value['tls'] not in ('self-signed','letsencrypt'):
         raise AdoptionError('domain_or_tls_invalid')
@@ -185,6 +224,22 @@ def _declaration(value):
 
 def render_standard(declaration):
     return get_jinja_env().get_template('nginx.conf.j2').render(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
+
+
+PREVIOUS_STANDARD_SOURCE = '444d7c0e06e0f9935971c51872e9f37bd8869282'
+PREVIOUS_STANDARD_TEMPLATES = {'previous-standard-nginx-444d7c0.conf.j2': 'f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de', 'vast-price-manager-auth-blocks.conf.j2': 'b9d7013434557492887b0600bc2afc92227ee17f9efebe55b0cccc4b16bd3f81', 'acme-challenge.conf.j2': '7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a', 'fleet-api-routes.conf.j2': '6991ca6bf1dd4b258e8ee7851fc69ef50b19dfe2353570e4911a0ebadc68ed1b', 'vast-price-manager.conf.j2': '32483d169a09c42653396e66c5c7efe1995bd599f44f11ee64fa2f0731a0a2f8', 'standard-service-routes.conf.j2': 'ef0f55aae48e35127d288781e68281a371505ba27384c8fd04dff9200dce3963', 'exporter-auth-routes.conf.j2': '450f4c418c09474ac45b6dd314c47cc090fe7d230a0206b30e48c7975023133b', 'host-forwarding.conf.j2': '35c4a1fe1d3001865a77d7653350b7a61968953b94172dc7063bc31a42c0f9f7'}
+
+
+def render_previous_standard(declaration):
+    env=get_jinja_env()
+    for name,expected in PREVIOUS_STANDARD_TEMPLATES.items():
+        raw=env.loader.get_source(env,name)[0].encode()
+        if sha256(raw)!=expected: raise AdoptionError('previous_standard_profile_unavailable')
+    return env.get_template('previous-standard-nginx-444d7c0.conf.j2').render(
+        domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],
+        host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),
+        hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),
+        http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
 
 
 def _policy_healthcheck(source, declaration):
@@ -248,7 +303,7 @@ class AdoptionEngine(DockerEngine):
     def prove_recovery_auth(self,source,expected,identity):
         """Execute the source image's auth startup with no network or ports.
 
-        The restored store remains private until this actual old initializer
+        The stopped source store stays quiescent while this actual old initializer
         proves it preserves every file with the obsolete bootstrap disabled.
         """
         from .migration import _mount_request
@@ -581,6 +636,7 @@ class StandardAdoption:
             visit(nodes); return nodes
         actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
         if actual==expected: return 'standard'
+        if actual==normalize(parse_nginx(render_previous_standard(declaration))): return 'standard-444d7c0'
         legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
         profiles=[legacy]
         for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
@@ -618,7 +674,8 @@ class StandardAdoption:
         context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
         raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
 
-    def plan(self,settings,*,environment=None):
+# TRACEWEAVER: entrypoint=plan; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+    def plan(self,settings,*,environment=None,proposed_selection=None):
         declaration=_declaration(settings); source=self.engine.inspect('cryptolabs-proxy')
         if not source.get('State',{}).get('Running'): raise AdoptionError('source_not_running')
         healthcheck=_policy_healthcheck(source,declaration)
@@ -642,7 +699,13 @@ class StandardAdoption:
             if len(matching)!=1 or matching[0].get('Type')!='bind' or matching[0].get('RW') is not False: raise AdoptionError('overlay_mount_unproven')
             if sha256(self.engine.overlay_bytes(destination))!=overlay['sha256']: raise AdoptionError('overlay_source_changed')
             if overlay['replacement_sha256']!=sha256(Path(__file__).with_name('auth.py').read_bytes()): raise AdoptionError('overlay_replacement_module_unproven')
-        snapshot=load(declaration['release_selection_dir']); image=self.engine.image(source['Image']); platform=image.get('Os','')+'/'+image.get('Architecture','')
+        if proposed_selection is None:
+            snapshot=load(declaration['release_selection_dir'])
+        else:
+            if not isinstance(proposed_selection,dict): raise SelectionError('invalid_snapshot')
+            snapshot=validate_selection(proposed_selection['selection_bytes'].encode(), proposed_selection['manifest_bytes'].encode(),
+                selection_id=proposed_selection['selection_id'],selection_sha256=proposed_selection['selection_sha256'])
+        image=self.engine.image(source['Image']); platform=image.get('Os','')+'/'+image.get('Architecture','')
         selected=targets(snapshot,platform); artifact=selected.get('cryptolabs-proxy')
         if not artifact or artifact['owner']!='proxy-updater': raise AdoptionError('approved_proxy_required')
         candidate=render_standard(declaration)
@@ -680,26 +743,68 @@ class StandardAdoption:
                 backup=self.backup_root/identity
                 if backup.exists(): raise AdoptionError('private_recovery_snapshot_exists; inspect prior outcome before retry')
                 backup.mkdir(parents=True,mode=0o700); self.backup_root.chmod(0o700); backup.chmod(0o700)
-                write=CustomConfigMigrator._write_private
-                write(backup/'inspect.json',_canonical(source)); write(backup/'source.nginx.conf',self.engine.read_config('cryptolabs-proxy')); _write_registry_backup(backup,previous)
+                import os as filesystem
+                for parent in (self.backup_root,self.config_dir):
+                    descriptor=filesystem.open(parent,filesystem.O_RDONLY|filesystem.O_DIRECTORY)
+                    try: filesystem.fsync(descriptor)
+                    finally: filesystem.close(descriptor)
+                write=_durable_private
+                write(backup/'declaration.json',_canonical(declaration)); write(backup/'inspect.json',_canonical(source)); write(backup/'source.nginx.conf',self.engine.read_config('cryptolabs-proxy')); _write_registry_backup(backup,previous)
                 candidate=backup/'candidate.nginx.conf'; write(candidate,render_standard(declaration)); write(backup/'plan.json',_canonical(plan))
+                write(backup/'registry-snapshot.json',(backup/'registry-snapshot.json').read_bytes())
+                journal={'schema_version':1,'plan_id':identity,'source_id':source['Id'],
+                    'source_image_id':source['Image'],'candidate_may_have_started':False}
+                def phase(value,**details):
+                    journal.update(details); journal['phase']=value
+                    write(backup/'phase.json',_canonical(journal))
+                def mutation(action,name,invoke,**details):
+                    try: before=engine.inspect(name)
+                    except Exception: before=None
+                    phase(action+'-requested',target=name,prior_id=before.get('Id') if before else None,**details)
+                    result=invoke()
+                    try: after=engine.inspect(name)
+                    except Exception: after=None
+                    if action=='create' and after and after.get('Image')==journal.get('candidate_image_id'):
+                        journal['candidate_container_id']=after['Id']
+                    phase(action+'-done',target=name,observed_id=after.get('Id') if after else None,**details)
+                    return result
+                engine=self.engine
+                phase('candidate-pull-requested')
                 self.engine.pull(plan['image']); artifact=self.engine.image(plan['image'])
+                phase('candidate-pulled',candidate_image_id=artifact['Id'])
                 if plan['image'] not in artifact.get('RepoDigests',[]) or artifact.get('Os','')+'/'+artifact.get('Architecture','')!=plan['platform']: raise AdoptionError('candidate_artifact_mismatch')
                 if self.engine.artifact_file_sha256(plan['image'],AUTH_OVERLAY,identity)!=sha256(Path(__file__).with_name('auth.py').read_bytes()): raise AdoptionError('candidate_auth_module_mismatch')
                 for overlay in declaration['obsolete_overlays']:
                     if self.engine.artifact_file_sha256(plan['image'],overlay['destination'],identity)!=overlay['replacement_sha256']: raise AdoptionError('overlay_artifact_module_mismatch')
                     write(backup/'retired-auth.py',self.engine.overlay_bytes(overlay['destination']))
+                phase('candidate-validate-requested')
                 self.engine.validate(plan['image'],candidate,source,identity)
+                phase('candidate-validated')
                 # Recheck source and all policy/file identities after pull/test.
                 if self.plan(settings,environment=environment)!=plan: raise AdoptionError('preflight_changed')
+                phase('updater-guard-requested')
                 guard=exclusion.enter_context(self.engine.updater_guard(source,plan['image'],identity))
+                try: held=self.engine.inspect('cryptolabs-adoption-lock-'+identity)
+                except Exception: held=None
+                phase('updater-held',guard_id=held.get('Id') if held else None)
                 # Reject queued/running jobs and take an identity while the
                 # dispatch and operation authorities are both excluded.
-                prestop_auth=auth_state(self.engine.archive_auth(plan['container_id']))
+                prestop_archive=self.engine.archive_auth(plan['container_id'])
+                prestop_auth=auth_state(prestop_archive)
+                write(backup/'prestop-auth.tar',prestop_archive)
+                phase('source-ready-to-stop',prestop_auth=prestop_auth)
                 if self.plan(settings,environment=environment)!=plan: raise AdoptionError('preflight_changed')
                 clone=deepcopy(source); clone['Mounts']=[m for m in source['Mounts'] if m.get('Destination') not in ('/etc/nginx/nginx.conf','/etc/cryptolabs/releases') and m.get('Destination') not in {o['destination'] for o in declaration['obsolete_overlays']}]
                 auth_mount=next(m for m in source['Mounts'] if m['Destination']=='/data/auth')
                 clone['Mounts'].append({'Type':'bind','Source':declaration['release_selection_dir'],'Destination':'/etc/cryptolabs/releases','RW':False})
+                if declaration.get('release_broker_enabled'):
+                    socket_path='/run/dc-overview-release-broker.sock'
+                    metadata=Path(socket_path).lstat()
+                    import stat
+                    if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid!=0 or metadata.st_mode & 0o077:
+                        raise AdoptionError('release_broker_owner_unavailable')
+                    clone['Mounts']=[m for m in clone['Mounts'] if m.get('Destination')!=socket_path]
+                    clone['Mounts'].append({'Type':'bind','Source':socket_path,'Destination':socket_path,'RW':False})
                 nginx=self.config_dir/'nginx.conf'; request=build_recreate_request(clone,plan['image'],str(nginx))
                 if declaration.get('hostname_policy') or declaration.get('http_policy'):
                     request['Config']['Healthcheck']=_policy_healthcheck(source,declaration)
@@ -707,6 +812,8 @@ class StandardAdoption:
                 config['Labels'].update({'com.centurylinklabs.watchtower.enable':'false','io.cryptolabs.update.origin':plan['origin'],'io.cryptolabs.update.reference':plan['image']})
                 for label in declaration['obsolete_owner_labels']: config['Labels'].pop(label,None)
                 config['Env']=[e for e in config.get('Env',[]) if not e.startswith('RELEASE_SELECTION_REQUIRED=') and e.split('=',1)[0] not in (environment or {})]+['RELEASE_SELECTION_REQUIRED=true']+[k+'='+v for k,v in (environment or {}).items()]
+                if not any(e.startswith('FLEET_PUBLIC_ORIGIN=') for e in config['Env']):
+                    config['Env'].append('FLEET_PUBLIC_ORIGIN=https://'+declaration['domain'])
                 engine=self.engine; auth_copy=None; candidate_copy=None; candidate_started=False; recovered_id=None; recovery_expected=None; recovery_verified=False
                 def restart_source(name):
                     nonlocal recovered_id,recovery_expected,recovery_verified
@@ -716,7 +823,9 @@ class StandardAdoption:
                     # Immutable source environment cannot be edited by Docker.
                     # Prove its real startup, then recreate the original image
                     # with only obsolete installation authority disabled.
+                    phase('source-startup-proof-requested')
                     engine.prove_recovery_auth(source,expected,identity)
+                    phase('source-startup-proven')
                     guard()
                     clone=deepcopy(source)
                     nginx_mount=next((m for m in clone['Mounts'] if m['Destination']=='/etc/nginx/nginx.conf'),None)
@@ -727,17 +836,21 @@ class StandardAdoption:
                         from .migration import _mount_request
                         payload['HostConfig']['Mounts'][-1]=_mount_request(nginx_mount)
                     payload['Config']['Env']=[e for e in source['Config'].get('Env',[]) if not e.startswith('FLEET_ADMIN_PASS=')]+['FLEET_ADMIN_PASS=']
-                    for network in engine.inspect(name).get('NetworkSettings',{}).get('Networks',{}): engine.disconnect(name,network)
-                    engine.rename(name,'cryptolabs-proxy.original-'+identity)
-                    engine.create(name,payload)
+                    for network in engine.inspect(name).get('NetworkSettings',{}).get('Networks',{}): mutation('disconnect',name,lambda network=network:engine.disconnect(name,network))
+                    mutation('rename',name,lambda:engine.rename(name,'cryptolabs-proxy.original-'+identity))
+                    mutation('source-create',name,lambda:engine.create(name,payload))
                     recovered_id=engine.inspect(name)['Id']
-                    engine.start(name)
+                    mutation('source-start',name,lambda:engine.start(name))
                     healthy=wait_for_container_healthy(engine,name,PROXY_READY_TIMEOUT)
                     if auth_state(engine.archive_auth(name),allow_active_jobs=True)!=expected:
-                        engine.stop(name)
+                        mutation('stop',name,lambda:engine.stop(name))
                         raise AdoptionError('source_recovery_unverified; forward_repair_required')
                     recovery_verified=healthy
-                    if not healthy: engine.stop(name,ignore_missing=True)
+                    if not healthy: mutation('stop',name,lambda:engine.stop(name,ignore_missing=True))
+                    if healthy:
+                        evidence=_restoration_evidence(engine,source,plan,expected,self.config_dir)
+                        write(backup/'restoration.json',_canonical(evidence))
+                        phase('source-restored',restoration_auth=expected,restoration_sha256=sha256(_canonical(evidence)))
                     guard()
                 class StateSafeEngine:
                     def __getattr__(self,name): return getattr(engine,name)
@@ -745,7 +858,7 @@ class StandardAdoption:
                         nonlocal auth_copy,candidate_copy
                         guard()
                         stopping=engine.inspect(name)
-                        engine.stop(name,ignore_missing=ignore_missing)
+                        mutation('stop',name,lambda:engine.stop(name,ignore_missing=ignore_missing))
                         if stopping and stopping['Id'] not in (source['Id'],recovered_id) and candidate_started:
                             candidate_copy=engine.archive_auth(name); write(backup/'candidate-auth.tar',candidate_copy)
                         if name==plan['container_id'] and auth_copy is None:
@@ -753,14 +866,22 @@ class StandardAdoption:
                                 auth_copy=engine.archive_auth(name)
                                 if auth_state(auth_copy)!=prestop_auth: raise AdoptionError('auth_store_changed_requires_quiescence')
                                 write(backup/'auth.tar',auth_copy)
+                                phase('source-quiescent')
                                 write(nginx,candidate.read_bytes())
+                                phase('source-config-ready')
                             except Exception:
                                 _restore_registry_files(previous)
                                 restart_source('cryptolabs-proxy')
                                 raise AdoptionError('auth_snapshot_failed; '+('sanitized_source_recovered' if recovery_verified else 'forward_repair_required')) from None
                     def create(self,name,payload):
                         guard()
-                        engine.create(name,payload)
+                        mutation('create',name,lambda:engine.create(name,payload))
+                    def rename(self,name,target):
+                        guard(); mutation('rename',name,lambda:engine.rename(name,target),rename_to=target)
+                    def disconnect(self,name,network):
+                        guard(); mutation('disconnect',name,lambda:engine.disconnect(name,network))
+                    def remove(self,name,ignore_missing=False):
+                        guard(); mutation('remove',name,lambda:engine.remove(name,ignore_missing=ignore_missing))
                     def connect(self,name,network,endpoint):
                         guard()
                         # The generic switch requests source reconnect before
@@ -768,7 +889,7 @@ class StandardAdoption:
                         # the sanitized source is recreated with its original
                         # endpoints only after owned restore and startup proof.
                         if engine.inspect(name)['Id'] in (source['Id'],recovered_id): return
-                        engine.connect(name,network,endpoint)
+                        mutation('connect',name,lambda:engine.connect(name,network,endpoint))
                     def start(self,name):
                         nonlocal candidate_started
                         guard()
@@ -785,12 +906,14 @@ class StandardAdoption:
                         else:
                             if candidate_copy is not None: engine.restore_auth(name,candidate_copy,plan['image'],identity)
                             write(nginx,candidate.read_bytes()); candidate_started=True
-                        engine.start(name)
+                            phase('candidate-start-requested',candidate_may_have_started=True)
+                        mutation('start',name,lambda:engine.start(name))
                         guard()
                 def candidate_health(name):
                     guard()
                     ready=wait_for_proxy_ready(engine,name,lambda:engine.anonymous_auth(name,declaration['tls'],declaration['domain']) if declaration.get('hostname_policy') or declaration.get('http_policy') else engine.anonymous_auth(name,declaration['tls']),PROXY_READY_TIMEOUT)
-                    if not ready: engine.stop(name,ignore_missing=True)
+                    if not ready: mutation('stop',name,lambda:engine.stop(name,ignore_missing=True))
+                    if ready: phase('candidate-verified',candidate_verified=True,serving_runtime_sha256=_runtime_identity(engine.inspect(name)))
                     guard()
                     return ready
                 def rollback_health(name):
@@ -809,6 +932,7 @@ class StandardAdoption:
                 for name in ('hostname_policy','http_policy'):
                     if name in declaration: registry.config[name]=declaration[name]
                     else: registry.config.pop(name,None)
+                registry.config['release_broker_enabled']=declaration.get('release_broker_enabled',False)
                 registry.config['standard_adoption']={'plan_id':identity,'serving_sha256':_runtime_identity(engine.inspect('cryptolabs-proxy')),'declaration_sha256':plan['declaration_sha256'],'selection_sha256':plan['selection_sha256'],'auth_mount':{k:auth_mount[k] for k in ('Type','Name','Source','Destination') if k in auth_mount},'declaration':declaration}
                 if declaration.get('hostname_policy') or declaration.get('http_policy'):
                     registry.config['standard_adoption']['healthcheck']=deepcopy(request['Config']['Healthcheck'])
@@ -817,7 +941,9 @@ class StandardAdoption:
                     write(backup/'outcome.json',_canonical({'state':'candidate_retained','reason':'registry_forward_repair_required'}))
                     return {'state':'candidate_retained','reason':'registry_forward_repair_required','plan_id':identity}
                 result={'state':'adopted' if outcome.state=='applied' else 'candidate_retained','plan_id':identity,'positive_login_verified':False}
-                try: write(backup/'outcome.json',_canonical(result))
+                try:
+                    write(backup/'outcome.json',_canonical(result))
+                    phase('completed')
                 except OSError: return {'state':'candidate_retained','reason':'outcome_record_unavailable','plan_id':identity}
                 return result
         except (SelectionError,MigrationError,OSError,ValueError,KeyError) as error:
@@ -833,11 +959,173 @@ class StandardAdoption:
                     except Exception: states[name]={'unknown':True}
                 serving=states.get('cryptolabs-proxy',{})
                 restored=(serving.get('id')==locals().get('source',{}).get('Id') or serving.get('id')==locals().get('recovered_id') and locals().get('recovery_verified',False)) and serving.get('running')
-                try: CustomConfigMigrator._write_private(backup/'outcome.json',_canonical({'state':'rolled_back' if restored else 'forward_repair_required','runtime':states,'candidate_auth_snapshot_retained':(backup/'candidate-auth.tar').exists()}))
+                try: _durable_private(backup/'outcome.json',_canonical({'state':'rolled_back' if restored else 'forward_repair_required','runtime':states,'candidate_auth_snapshot_retained':(backup/'candidate-auth.tar').exists()}))
                 except OSError: pass
             reason=str(error) if isinstance(error,AdoptionError) else 'adoption_failed; inspect private recovery outcome for actual state'
             raise AdoptionError(reason) from None
 
+
+# TRACEWEAVER: entrypoint=recover_adoption; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+    def recover_adoption(self, plan_id):
+        """Reconcile a fixed journal and restore only proven pre-candidate phases."""
+        if not isinstance(plan_id,str) or not re.fullmatch('[0-9a-f]{24}',plan_id):
+            raise AdoptionError('invalid_plan_id')
+        result={'state':'recovery-required','plan_id':plan_id}
+        if os.geteuid()!=0: raise AdoptionError('standard_adoption_requires_root')
+        from .cli import registry_lock
+        try:
+            with registry_lock(self.config_dir):
+                backup=self.backup_root/plan_id
+                def read(name):
+                    path=backup/name
+                    for parent in (self.backup_root,backup,path):
+                        stat=parent.lstat()
+                        if parent.is_symlink() or stat.st_uid!=os.getuid() or stat.st_mode & 0o077:
+                            raise AdoptionError('unsafe_recovery_journal')
+                    raw=path.read_bytes()
+                    if len(raw)>MAX_CONFIG: raise AdoptionError('invalid_recovery_journal')
+                    return json.loads(raw)
+                plan=read('plan.json'); declaration=read('declaration.json')
+                if plan.get('plan_id')!=plan_id or sha256(_canonical({k:v for k,v in plan.items() if k!='plan_id'}))[:24]!=plan_id:
+                    return result
+                if sha256(_canonical(declaration))!=plan['declaration_sha256']: return result
+                try: outcome=read('outcome.json')
+                except FileNotFoundError: outcome={}
+                try: journal=read('phase.json')
+                except FileNotFoundError: journal={}
+                completed=outcome.get('state') in ('adopted','already_adopted') and self._already(declaration,plan_id)
+                source=read('inspect.json')
+                if _runtime_identity(source)!=plan['runtime_sha256']: return result
+                expected=journal.get('restoration_auth',journal.get('prestop_auth'))
+                if not isinstance(expected,dict): return result
+                serving=self.engine.inspect('cryptolabs-proxy')
+                restored=False
+                evidence=None
+                if journal.get('restoration_sha256'):
+                    evidence=read('restoration.json')
+                    observed=_restoration_evidence(self.engine,source,plan,expected,self.config_dir)
+                    restored=(evidence==observed and journal['restoration_sha256']==sha256(_canonical(evidence)))
+                # Preserve exclusions on uncertain candidate/recovery phases.
+                restore_allowed=(journal.get('plan_id')==plan_id and journal.get('candidate_may_have_started') is False
+                    and not journal.get('phase','').startswith('recovery-')
+                    and serving and not serving.get('State',{}).get('Running')
+                    and _runtime_identity(serving)==plan['runtime_sha256'])
+                if not completed and not restored and not restore_allowed: return result
+                # A killed owner can leave its fixed exclusion helper. The registry
+                # lock proves that owner is no longer executing this adoption.
+                helper_name='cryptolabs-adoption-lock-'+plan_id
+                try: helper=self.engine.inspect(helper_name)
+                except MigrationError as error:
+                    if not str(error).endswith('HTTP 404'): return result
+                    helper=None
+                if helper:
+                    auth=next(m for m in source['Mounts'] if m['Destination']=='/data/auth')
+                    mounts=[m for m in helper.get('Mounts',[]) if m.get('Destination')=='/data/auth']
+                    def mount_identity(m):
+                        return (m.get('Type'),m.get('Name') if m.get('Type')=='volume' else m.get('Source'),m.get('Destination'),m.get('RW'))
+                    command=helper.get('Config',{}).get('Cmd',[])
+                    if (not journal.get('guard_id') or helper.get('Id')!=journal['guard_id']
+                            or helper.get('Image')!=journal.get('candidate_image_id')
+                            or helper.get('Config',{}).get('Labels',{}).get('io.cryptolabs.adoption.guard')!=plan_id
+                            or helper.get('Config',{}).get('Entrypoint')!=['python3']
+                            or len(command)!=4 or command[0]!='-c' or command[-2:]!=['/data/auth/update-jobs','/tmp/updater-held']
+                            or len(mounts)!=1 or mount_identity(mounts[0])!=mount_identity(auth)):
+                        return result
+                    journal['phase']='recovery-guard-remove-requested'
+                    _durable_private(backup/'phase.json',_canonical(journal))
+                    self.engine.remove(helper['Id'])
+                if completed: return {'state':'completed','plan_id':plan_id}
+                if restored:
+                    with self.engine.updater_guard(source,plan['image'],plan_id) as guard:
+                        guard()
+                        if load(declaration['release_selection_dir'])['selection_sha256']!=plan['selection_sha256']: return result
+                        observed=_restoration_evidence(self.engine,source,plan,expected,self.config_dir)
+                        if evidence!=observed or journal.get('restoration_sha256')!=sha256(_canonical(evidence)): return result
+                        guard()
+                    return {'state':'failed-restored','plan_id':plan_id}
+                with self.engine.updater_guard(source,plan['image'],plan_id) as guard:
+                    guard()
+                    if load(declaration['release_selection_dir'])['selection_sha256']!=plan['selection_sha256']: return result
+                    serving=self.engine.inspect('cryptolabs-proxy')
+                    if serving.get('State',{}).get('Running') or _runtime_identity(serving)!=plan['runtime_sha256']: return result
+                    archive=self.engine.archive_auth(source['Id'])
+                    quiescent_auth=auth_state(archive)
+                    prestop_auth_match=quiescent_auth==journal['prestop_auth']
+                    expected=quiescent_auth
+                    # This is the missing quiescent post-stop capture. It is kept
+                    # for evidence, never restored over the current shared store.
+                    _durable_private(backup/'auth.tar',archive)
+                    previous=read('registry-snapshot.json')
+                    allowed={str(self.config_dir/name) for name in ('services.yaml','config.yaml','nginx.conf')}
+                    if set(previous)!=allowed: return result
+                    old={Path(path):value.encode('latin1') if value is not None else None for path,value in previous.items()}
+                    saved_sha=sha256(_canonical({p.name:sha256(data) if data is not None else None for p,data in old.items()}))
+                    if saved_sha!=plan['registry_sha256']: return result
+                    current=_snapshot_registry_files(ServiceRegistry(self.config_dir))
+                    for path,data in current.items():
+                        if path.name=='nginx.conf':
+                            if sha256(data or b'') not in (sha256(old[path] or b''),plan['candidate_sha256']): return result
+                        elif data!=old[path]: return result
+                    if sha256(self.engine.read_config('cryptolabs-proxy')) not in (plan['config_sha256'],plan['candidate_sha256']): return result
+                    def phase(name,**details):
+                        journal.update(details); journal['phase']=name
+                        _durable_private(backup/'phase.json',_canonical(journal))
+                    def inspect_optional(name):
+                        try: return self.engine.inspect(name)
+                        except MigrationError as error:
+                            if not str(error).endswith('HTTP 404'): raise
+                            return None
+                    def mutate(action,name,invoke,**details):
+                        before=inspect_optional(name)
+                        phase('recovery-'+action+'-requested',target=name,prior_id=before.get('Id') if before else None,**details)
+                        invoke()
+                        after=inspect_optional(name)
+                        phase('recovery-'+action+'-done',target=name,observed_id=after.get('Id') if after else None,**details)
+                        guard()
+                    phase('recovery-startup-proof-requested',restoration_auth=expected,prestop_auth_match=prestop_auth_match)
+                    self.engine.prove_recovery_auth(source,expected,plan_id)
+                    phase('recovery-startup-proven',recovery_startup_proven=True)
+                    if auth_state(self.engine.archive_auth(source['Id']))!=expected: return result
+                    _restore_registry_files(old)
+                    for path,data in old.items():
+                        if data is not None: _durable_private(path,data)
+                    clone=deepcopy(source)
+                    nginx_mount=next((m for m in clone['Mounts'] if m['Destination']=='/etc/nginx/nginx.conf'),None)
+                    nginx_path=nginx_mount['Source'] if nginx_mount and nginx_mount.get('Type')=='bind' else str(backup/'source.nginx.conf')
+                    clone['Mounts']=[m for m in clone['Mounts'] if m['Destination'] not in ('/etc/nginx/nginx.conf',AUTH_OVERLAY)]
+                    payload=build_recreate_request(clone,source['Image'],nginx_path)
+                    if nginx_mount:
+                        from .migration import _mount_request
+                        payload['HostConfig']['Mounts'][-1]=_mount_request(nginx_mount)
+                    payload['Config']['Env']=[e for e in source['Config'].get('Env',[]) if not e.startswith('FLEET_ADMIN_PASS=')]+['FLEET_ADMIN_PASS=']
+                    # Preserve the exact original name/image, with installation
+                    # authority disabled and its real initializer already proven.
+                    retained='cryptolabs-proxy.original-'+plan_id
+                    try: prior=self.engine.inspect(retained)
+                    except MigrationError as error:
+                        if not str(error).endswith('HTTP 404'): return result
+                        prior=None
+                    if prior: return result
+                    for network in serving.get('NetworkSettings',{}).get('Networks',{}):
+                        mutate('disconnect',source['Id'],lambda network=network:self.engine.disconnect(source['Id'],network))
+                    mutate('rename',source['Id'],lambda:self.engine.rename(source['Id'],retained),rename_to=retained)
+                    mutate('create','cryptolabs-proxy',lambda:self.engine.create('cryptolabs-proxy',payload))
+                    recovered=self.engine.inspect('cryptolabs-proxy')
+                    phase('recovery-source-created',recovery_container_id=recovered['Id'])
+                    mutate('start',recovered['Id'],lambda:self.engine.start('cryptolabs-proxy'))
+                    healthy=wait_for_container_healthy(self.engine,'cryptolabs-proxy',PROXY_READY_TIMEOUT)
+                    if not healthy or auth_state(self.engine.archive_auth('cryptolabs-proxy'),allow_active_jobs=True)!=expected:
+                        mutate('stop',recovered['Id'],lambda:self.engine.stop('cryptolabs-proxy'))
+                        return result
+                    evidence=_restoration_evidence(self.engine,source,plan,expected,self.config_dir)
+                    _durable_private(backup/'restoration.json',_canonical(evidence))
+                    phase('failed-restored',restoration_sha256=sha256(_canonical(evidence)))
+                    _durable_private(backup/'outcome.json',_canonical({'state':'rolled_back','restoration_sha256':sha256(_canonical(evidence))}))
+                    guard()
+                return {'state':'failed-restored','plan_id':plan_id}
+        except (OSError,ValueError,KeyError,MigrationError,TypeError,StopIteration):
+            pass
+        return result
 
     def reconfigure(self,config):
         """Ordinary setup after adoption keeps inspected state and session key."""

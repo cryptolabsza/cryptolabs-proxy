@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
 """Existing-customer setup/adoption route regressions; Docker is a boundary."""
 import json
 from pathlib import Path
@@ -167,7 +169,9 @@ def test_new_updater_nonproxy_replacement_still_supported():
 def test_additive_capabilities_getter_matches_cli_contract(capsys):
     from cryptolabs_proxy import updates
     capabilities=updates.get_capabilities()
-    assert capabilities=={'selection_contract':1,'proxy_replacement_policy':'host-adoption-required-v1',
+    assert capabilities=={'selection_contract':1,'supported_selection_contracts':[1,2],
+        'release_components':1,'release_idempotency':1,'proxy_selection_preview':1,'proxy_adoption_recovery':1,
+        'proxy_replacement_policy':'host-adoption-required-v1',
         'controller_adoption_guard':{'schema_version':1,'api':'AdoptionEngine.controller_guard',
                                      'durable_updater_exclusion':True}}
     assert type(capabilities['controller_adoption_guard']['schema_version']) is int

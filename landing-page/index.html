@@ -782,17 +782,25 @@
         <div class="system-updates" id="systemUpdates">
             <div class="update-controls">
                 <div class="branch-selector">
-                    <label for="targetBranch">Target Branch:</label>
+                    <label for="targetBranch">Available release channel:</label>
                     <select id="targetBranch" onchange="saveBranchSetting()">
                         <option value="main">main (stable)</option>
-                        <option value="dev">dev (development)</option>
+                        <option value="dev" disabled>dev (unavailable until admitted)</option>
                     </select>
                 </div>
                 <div class="update-buttons">
-                    <button class="btn btn-secondary" onclick="checkForUpdates()">🔍 Check Updates</button>
-                    <button class="btn btn-primary" onclick="updateAll()" title="Updates running services to target branch">⬆️ Update Running</button>
+                    <button class="btn btn-secondary" onclick="loadReleaseCandidates()">Check admitted releases</button>
+                    <button class="btn btn-primary" id="releasePreviewButton" onclick="previewRelease()" disabled>Preview selected updates</button>
                 </div>
             </div>
+            <section aria-label="Admitted component releases" style="padding:1rem">
+                <p id="releaseAvailability" role="status" aria-live="polite">Checking installed release owner…</p>
+                <div id="releaseCandidates"></div>
+                <pre id="releasePreview" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+                <button class="btn btn-primary" id="releaseApplyButton" onclick="applyRelease()" disabled>Apply reviewed updates</button>
+                <button class="btn btn-secondary" id="releaseRecoverButton" onclick="recoverRelease()" hidden>Reconcile operation</button>
+                <p id="releaseOperation" role="status" aria-live="polite"></p>
+            </section>
             <div class="versions-grid" id="versionsGrid">
                 <div class="loading">
                     <div class="spinner"></div>
@@ -1336,15 +1344,15 @@
                 const response = await fetch('/api/build-info');
                 if (response.ok) {
                     const data = await response.json();
-                    const version = data.version || 'dev';
+                    const version = data.version || 'unknown';
                     const buildDate = data.build_date || '';
                     const dateStr = buildDate ? `, ${buildDate}` : '';
                     const vPrefix = version.startsWith('v') ? '' : 'v';
                     document.getElementById('buildInfo').textContent = 
-                        `Fleet Management ${vPrefix}${version}${dateStr}`;
+                        `Fleet Manager image build: ${version === 'unknown' ? 'unavailable' : vPrefix + version}${dateStr}`;
                 }
             } catch (e) {
-                document.getElementById('buildInfo').textContent = 'Fleet Management (dev build)';
+                document.getElementById('buildInfo').textContent = 'Fleet Manager image build: unavailable';
             }
         }
 
@@ -1354,19 +1362,25 @@
             }[char]));
         }
 
+        let versionsEpoch = 0;
+        let legacyUpdateBranch = 'main';
+        let legacyServiceChannels = {};
         // Load versions
         async function loadVersions() {
             const grid = document.getElementById('versionsGrid');
+            const epoch = ++versionsEpoch;
             try {
                 const response = await fetch('/api/versions');
                 if (!response.ok) throw new Error('Failed to fetch versions');
                 
                 const data = await response.json();
+                if (epoch !== versionsEpoch) return;
                 const settings = data._settings || {};
+                legacyUpdateBranch = settings.target_branch || 'main';
                 
                 // Update branch selector
                 const branchSelect = document.getElementById('targetBranch');
-                branchSelect.value = settings.target_branch || 'main';
+                // Candidate discovery filter never mutates installed component channels.
                 
                 // Render version cards
                 let html = '';
@@ -1375,8 +1389,9 @@
                 for (const [name, info] of Object.entries(data)) {
                     if (name === '_settings') continue;
                     
+                    legacyServiceChannels[name] = info.selected_channel || legacyUpdateBranch;
                     const statusClass = info.running ? 'running' : 'stopped';
-                    const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const displayName = name === 'cryptolabs-proxy' ? 'Fleet Manager (proxy)' : name.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                     
                     let versionText = '';
                     let detailsText = '';
@@ -1387,8 +1402,8 @@
                         const readable = installed && !['latest', 'main', 'dev', 'Pinned'].includes(installed)
                             ? escapeVersionText(displayVersion) : '';
                         if (info.latest_status === 'latest') {
-                            versionText = '<span style="color: var(--accent-green);">✓ Latest</span>';
-                            if (readable) detailsText = `<span>${readable}</span>`;
+                            versionText = readable || (info.pinned ? 'Pinned image' : 'Installed image');
+                            detailsText = `<span style="color: var(--accent-green);">✓ Latest verified image comparison (${escapeVersionText(legacyUpdateBranch)})</span>`;
                         } else {
                             versionText = readable || (info.pinned ? 'Pinned image' : 'Installed');
                         }
@@ -1402,6 +1417,8 @@
                         versionText = 'Not running';
                     }
                     
+                    detailsText = `<span>Observed image: ${versionText}</span>` + detailsText;
+                    versionText = info.selected_release ? `Selected: ${escapeVersionText(info.selected_release)} (${escapeVersionText(info.selected_channel || 'main')})` : 'No selected release';
                     let updateBtn = '';
                     if (info.running && info.latest_status !== 'latest') {
                         updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;">${info.latest_status === 'update_available' ? 'Update available' : 'Unable to verify · Check Updates'}</span>`;
@@ -1412,6 +1429,8 @@
                         updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
                     } else if (!info.running) {
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Use service setup to start</span>';
+                    } else if (info.selected_release) {
+                        updateBtn += '<span>Use admitted releases above</span>';
                     } else if (info.update_available === true) {
                         updateBtn += `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
                         updatableCount++;
@@ -1451,7 +1470,7 @@
                 }
                 
                 // Enable/disable Update Running button based on whether any services need updating
-                const updateAllBtn = document.querySelector('.update-buttons .btn-primary');
+                const updateAllBtn = document.querySelector('.legacy-update-all');
                 if (updateAllBtn) {
                     if (updatableCount > 0) {
                         updateAllBtn.disabled = false;
@@ -1470,25 +1489,14 @@
                 loadWatchdogStatus();
                 
             } catch (e) {
+                if (epoch !== versionsEpoch) return;
                 console.error('Failed to load versions:', e);
                 grid.innerHTML = `<p style="color: var(--accent-red);">Failed to load versions: ${e.message}</p>`;
             }
         }
 
         async function saveBranchSetting() {
-            const branch = document.getElementById('targetBranch').value;
-            try {
-                const response = await fetch('/api/update-settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ branch })
-                });
-                if (!response.ok) throw new Error('Failed to save');
-                showUpdateStatus('info', `Target branch set to: ${branch}`);
-                loadVersions();
-            } catch (e) {
-                showUpdateStatus('error', `Failed to save branch setting: ${e.message}`);
-            }
+            return loadReleaseCandidates();
         }
 
         let activeUpdateJob = null;
@@ -1502,13 +1510,16 @@
             } catch (e) { /* Storage may be disabled; this page can still poll. */ }
         }
 
-        async function pollUpdateJob(id, failures = 0) {
+        async function pollUpdateJob(id, failures = 0, expected = id) {
+            if (activeUpdateJob && activeUpdateJob !== expected) return;
             activeUpdateJob = id;
             clearTimeout(updatePollTimer);
             try {
                 const response = await fetch(`/api/update-status?id=${encodeURIComponent(id)}`);
                 if (!response.ok) throw new Error('Update status unavailable');
                 const job = await response.json();
+                if (activeUpdateJob !== expected) return;
+                if (!id && job.id) { id = job.id; expected = job.id; activeUpdateJob = id; rememberUpdateJob(id); }
                 if (job.state === 'queued' || job.state === 'running') {
                     showUpdateStatus('info', 'Update operation in progress. Services restart only after their images are ready.');
                     updatePollTimer = setTimeout(() => pollUpdateJob(id), 2000);
@@ -1523,6 +1534,7 @@
                 loadVersions();
                 loadServices();
             } catch (e) {
+                if (activeUpdateJob !== expected) return;
                 if (failures >= 60) {
                     showUpdateStatus('error', 'Update status is unavailable. Reload to reconnect before starting another update.');
                     return;
@@ -1537,12 +1549,12 @@
                 showUpdateStatus('info', 'An update operation is already in progress.');
                 return;
             }
-            const branch = document.getElementById('targetBranch').value;
+            const branch = legacyServiceChannels[service] || legacyUpdateBranch;
             showUpdateStatus('info', action === 'pull' ? 'Checking images…' : 'Preparing update…');
             try {
                 const response = await fetch(action === 'pull' ? '/api/pull' : '/api/update', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': await releaseToken() },
                     body: JSON.stringify({ service, branch })
                 });
                 const data = await response.json();
@@ -1588,6 +1600,206 @@
             if (type !== 'info') {
                 setTimeout(() => status.remove(), 10000);
             }
+        }
+
+        const RELEASE_OPERATION_KEY = 'fleet-release-operation';
+        const RELEASE_APPLY_KEY = 'fleet-release-apply';
+        let releaseSession = null;
+        let releaseListing = null;
+        let releasePreview = null;
+        let releaseExpected = null;
+        let releaseEpoch = 0;
+        let releaseOperationId = null;
+        let releasePollTimer = null;
+        let releaseBusy = false;
+
+        async function releaseToken() {
+            const response = await fetch('/api/releases/session', {cache:'no-store'});
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Current administrator access required.');
+            releaseSession = data;
+            return data.csrf_token;
+        }
+
+        async function releaseRequest(path, body) {
+            const options = {cache:'no-store'};
+            if (body !== undefined) {
+                options.method = 'POST';
+                options.headers = {'Content-Type':'application/json', 'X-CSRF-Token':await releaseToken()};
+                options.body = JSON.stringify(body);
+            }
+            const response = await fetch(path, options);
+            const data = await response.json();
+            if (!response.ok) {
+                const error = new Error(data.error || 'Release owner unavailable.');
+                error.status = response.status;
+                throw error;
+            }
+            return data;
+        }
+
+        async function loadReleaseCandidates() {
+            const epoch = ++releaseEpoch;
+            releasePreview = null;
+            document.getElementById('releaseApplyButton').disabled = true;
+            document.getElementById('releasePreviewButton').disabled = true;
+            const message = document.getElementById('releaseAvailability');
+            const container = document.getElementById('releaseCandidates');
+            container.replaceChildren();
+            document.getElementById('releasePreview').textContent = '';
+            try {
+                await releaseToken();
+                const channel = document.getElementById('targetBranch').value;
+                const listing = await releaseRequest('/api/releases/candidates?channel=' + encodeURIComponent(channel));
+                if (epoch !== releaseEpoch) return;
+                releaseListing = listing;
+                releaseExpected = listing.selected;
+                const choices = new Map();
+                for (const candidate of listing.candidates || []) {
+                    for (const component of candidate.components || []) {
+                        if (component.channel !== channel) continue;
+                        if (!choices.has(component.component)) choices.set(component.component, []);
+                        choices.get(component.component).push({candidate, component});
+                    }
+                }
+                for (const [name, available] of choices) {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;margin:.75rem 0';
+                    const label = document.createElement('label');
+                    const check = document.createElement('input');
+                    check.type = 'checkbox'; check.dataset.component = name;
+                    check.disabled = releaseBusy;
+                    label.append(check, document.createTextNode(' ' + (name === 'cryptolabs-proxy' ? 'Fleet Manager (proxy)' : name)));
+                    const select = document.createElement('select');
+                    select.dataset.releaseComponent = name;
+                    select.setAttribute('aria-label', name + ' admitted available release');
+                    for (const {candidate, component} of available) {
+                        const option = document.createElement('option');
+                        option.value = candidate.candidate_id;
+                        option.textContent = `${component.release || component.identity} (${component.channel})`;
+                        select.append(option);
+                    }
+                    select.disabled = check.disabled;
+                    const current = document.createElement('span');
+                    const selected = listing.selected && listing.selected.components && listing.selected.components[name];
+                    current.textContent = selected ? `Selected: ${selected.release || selected.identity} (${selected.channel})` : 'Selected release unavailable';
+                    row.append(label, current, select);
+                    container.append(row);
+                }
+                const admitted = choices.size > 0;
+                message.textContent = !admitted ? `No admitted ${channel === 'main' ? 'stable' : 'dev'} releases are available.`
+                    : listing.writes_enabled ? 'Choose components, then review the exact update scope.'
+                    : 'Admitted releases found. Updates remain disabled until the installed owner and trust checks pass.';
+                document.getElementById('releasePreviewButton').disabled = !admitted || releaseBusy;
+                // Dev is available only when the installed owner actually discovers an admitted dev release.
+                const dev = await releaseRequest('/api/releases/candidates?channel=dev').catch(() => ({candidates:[]}));
+                if (epoch !== releaseEpoch) return;
+                const option = document.querySelector('#targetBranch option[value="dev"]');
+                const hasDev = (dev.candidates || []).some(c => (c.components || []).some(p => p.channel === 'dev'));
+                option.disabled = !hasDev;
+                option.textContent = hasDev ? 'dev (admitted development)' : 'dev (unavailable until admitted)';
+            } catch (error) {
+                if (epoch !== releaseEpoch) return;
+                message.textContent = error.message + ' No update started.';
+            }
+        }
+
+        async function previewRelease() {
+            if (releaseBusy || !releaseListing || !releaseExpected) return;
+            const components = [], candidates = new Set();
+            for (const check of document.querySelectorAll('#releaseCandidates input:checked')) {
+                const name = check.dataset.component;
+                components.push(name);
+                const select = Array.from(document.querySelectorAll('#releaseCandidates select')).find(s => s.dataset.releaseComponent === name);
+                candidates.add(select.value);
+            }
+            const previewText = document.getElementById('releasePreview');
+            if (!components.length) { previewText.textContent = 'Choose at least one component.'; return; }
+            if (components.includes('cryptolabs-proxy') && components.length !== 1) {
+                previewText.textContent = 'Review Fleet Manager separately; mixed replacement groups require an admitted owner sequence.'; return;
+            }
+            const epoch = releaseEpoch;
+            try {
+                const result = await releaseRequest('/api/releases/preview', {
+                    candidate_ids:Array.from(candidates), components,
+                    expected_selection_id:releaseExpected.selection_id,
+                    expected_selection_sha256:releaseExpected.selection_sha256,
+                    operation_kind:components[0] === 'cryptolabs-proxy' ? 'proxy-adopt' : 'services-update'
+                });
+                if (epoch !== releaseEpoch || releaseBusy) return;
+                releasePreview = result;
+                previewText.textContent = `Update scope: ${result.components.join(', ')}\nTarget manifest: ${result.manifest_sha256}\n`
+                    + (result.owner_plan ? `Fleet Manager target: ${result.owner_plan.image}\n` : '')
+                    + (result.disconnect_expected ? 'Fleet Manager will briefly disconnect. Reconnect to this same operation. Retained rollback is owned by the host.\n' : '')
+                    + `Preview: ${result.preview_id}`;
+                document.getElementById('releaseApplyButton').disabled = !releaseListing.writes_enabled;
+            } catch (error) { if (epoch === releaseEpoch) previewText.textContent = error.message; }
+        }
+
+        async function applyRelease() {
+            if (releaseBusy) return;
+            let body = null;
+            try { body = JSON.parse(localStorage.getItem(RELEASE_APPLY_KEY)); } catch (e) {}
+            if (!body) {
+                if (!releasePreview || !releaseExpected || !releaseListing.writes_enabled) return;
+                body = {operation_id:crypto.randomUUID(),preview_id:releasePreview.preview_id,preview_sha256:releasePreview.preview_sha256,
+                    expected_selection_id:releaseExpected.selection_id,expected_selection_sha256:releaseExpected.selection_sha256};
+            }
+            releaseOperationId = body.operation_id;
+            try {
+                localStorage.setItem(RELEASE_OPERATION_KEY,releaseOperationId);
+                localStorage.setItem(RELEASE_APPLY_KEY,JSON.stringify(body));
+            } catch (e) {
+                document.getElementById('releaseOperation').textContent = 'Browser storage is required to retain this operation through a disconnect.'; return;
+            }
+            releaseBusy = true;
+            document.getElementById('releaseApplyButton').disabled = true;
+            document.getElementById('releasePreviewButton').disabled = true;
+            document.getElementById('releaseOperation').textContent = 'Submitting operation ' + releaseOperationId;
+            try { await releaseRequest('/api/releases/apply',body); }
+            catch (error) { document.getElementById('releaseOperation').textContent = 'Reply unavailable. Reconnecting to the retained operation; retry uses the same identity.'; }
+            return pollReleaseOperation(releaseOperationId);
+        }
+
+        async function pollReleaseOperation(id, failures = 0) {
+            if (releaseOperationId !== id) return;
+            clearTimeout(releasePollTimer);
+            try {
+                const operation = await releaseRequest('/api/releases/operations/' + encodeURIComponent(id));
+                if (releaseOperationId !== id) return;
+                const terminal = ['completed','failed-restored','failed','selection-conflict','recovery-required'].includes(operation.state);
+                document.getElementById('releaseOperation').textContent = `Operation ${id}: ${operation.state}` + (operation.reason ? ` · ${operation.reason}` : '');
+                document.getElementById('releaseRecoverButton').hidden = operation.state !== 'recovery-required';
+                if (!terminal) {
+                    releaseBusy = true;
+                    releasePollTimer = setTimeout(() => pollReleaseOperation(id),2000);
+                    return;
+                }
+                releaseBusy = operation.state === 'recovery-required';
+                if (!releaseBusy) {
+                    localStorage.removeItem(RELEASE_APPLY_KEY);
+                    loadVersions(); loadServices(); loadReleaseCandidates();
+                }
+            } catch (error) {
+                if (releaseOperationId !== id) return;
+                document.getElementById('releaseOperation').textContent = error.status === 404
+                    ? `Operation ${id} has no confirmed receipt. Retry Apply uses the same request.`
+                    : `Reconnecting to operation ${id}. The installed owner retains progress through a disconnect.`;
+                if (error.status === 404) {
+                    releaseBusy = false;
+                    document.getElementById('releaseApplyButton').disabled = false;
+                    return;
+                }
+                if (failures < 60) releasePollTimer = setTimeout(() => pollReleaseOperation(id,failures+1),3000);
+            }
+        }
+
+        async function recoverRelease() {
+            if (!releaseOperationId) return;
+            try {
+                await releaseRequest('/api/releases/operations/' + encodeURIComponent(releaseOperationId) + '/recover', {operation_id:releaseOperationId});
+                await pollReleaseOperation(releaseOperationId);
+            } catch (error) { document.getElementById('releaseOperation').textContent = error.message; }
         }
 
         // DC Watchdog agent status - integrated into versions grid (single card only)
@@ -1843,9 +2055,13 @@
         loadServices();
         loadBuildInfo();
         loadVersions();  // This calls loadWatchdogStatus() at the end
+        loadReleaseCandidates();
         try {
             const pendingUpdate = localStorage.getItem(UPDATE_JOB_KEY);
             if (pendingUpdate) pollUpdateJob(pendingUpdate);
+            else pollUpdateJob('').catch(() => {});
+            const operation = localStorage.getItem(RELEASE_OPERATION_KEY);
+            if (operation) { releaseOperationId = operation; releaseBusy = true; pollReleaseOperation(operation); }
         } catch (e) { /* Browser storage is optional. */ }
 
         // Auto-refresh every 30 seconds

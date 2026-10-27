@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=fleet-release-compose-consumer; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """Configuration management for CryptoLabs Proxy."""
 
 import os
@@ -59,6 +60,7 @@ def render_vpm_internal_auth_blocks() -> str:
     return get_jinja_env().get_template("vast-price-manager-auth-blocks.conf.j2").render()
 
 
+# TRACEWEAVER: entrypoint=generate_docker_compose; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencrypt: bool = False,
                             *, release_selection_dir=None, platform=None):
     """Generate docker-compose.yml from template."""
@@ -81,7 +83,10 @@ def generate_docker_compose(config_dir: Path, domain: str = None, use_letsencryp
         proxy_image = selected['cryptolabs-proxy']['reference']
         proxy_origin = selected['cryptolabs-proxy']['origin']
     
+    broker_enabled=registry.config.get('release_broker_enabled',False)
+    if type(broker_enabled) is not bool: raise ValueError('release_broker_enabled must be boolean')
     content = template.render(
+        release_broker_enabled=broker_enabled,
         domain=domain,
         use_letsencrypt=use_letsencrypt,
         release_selection_dir=str(Path(release_selection_dir).resolve()) if release_selection_dir else None,

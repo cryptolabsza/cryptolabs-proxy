@@ -14,6 +14,9 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
       - ./services.yaml:/app/services.yaml:ro
       - fleet-auth-data:/data/auth
+      {% if release_broker_enabled | default(false) %}
+      - /run/dc-overview-release-broker.sock:/run/dc-overview-release-broker.sock:ro
+      {% endif %}
       {% if release_selection_dir %}
       - {{ (release_selection_dir + ':/etc/cryptolabs/releases:ro') | tojson }}
       {% endif %}
@@ -25,6 +28,9 @@ services:
       {% endif %}
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
+      {% if domain %}
+      - {{ ('FLEET_PUBLIC_ORIGIN=https://' + domain) | tojson }}
+      {% endif %}
       {% if release_selection_dir %}
       - RELEASE_SELECTION_REQUIRED=true
       {% endif %}

@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """Serialized fleet image updates executed outside the serving proxy container.
 
 Job files contain only operation state, never container environments or Docker
@@ -58,17 +59,25 @@ PROXY_ADOPTION_MESSAGE = ('Proxy replacement requires the published host CLI: ru
 def get_capabilities():
     """Additive caller contract; proxy replacement requires host authority."""
     return {'selection_contract': selection.SELECTION_CONTRACT,
+            'supported_selection_contracts': [1, 2],
+            'release_components': 1, 'release_idempotency': 1,
+            'proxy_selection_preview': 1, 'proxy_adoption_recovery': 1,
             'proxy_replacement_policy': PROXY_REPLACEMENT_POLICY,
             'controller_adoption_guard': dict(controller_recovery.CAPABILITY)}
 
 
-def _require_selected_updater(engine, source):
+def _require_selected_updater(engine, source, contract=1, *, scoped=False):
     """The selected helper executes source-image code, not the host package."""
     try:
         capabilities = engine.updater_capabilities(source['Id'])
         if not source.get('State', {}).get('Running') or not isinstance(capabilities, dict):
             raise ValueError()
-        if type(capabilities.get('selection_contract')) is not int or capabilities['selection_contract'] != 1:
+        if type(capabilities.get('selection_contract')) is not int or capabilities['selection_contract'] != 1: raise ValueError()
+        supported = capabilities.get('supported_selection_contracts', [capabilities.get('selection_contract')])
+        if (not isinstance(supported, list) or any(type(v) is not int for v in supported)
+                or contract not in supported):
+            raise ValueError()
+        if scoped and any(type(capabilities.get(k)) is not int or capabilities.get(k) != 1 for k in ('release_components','release_idempotency')):
             raise ValueError()
         if type(capabilities.get('proxy_replacement_policy')) is not str or capabilities['proxy_replacement_policy'] != PROXY_REPLACEMENT_POLICY:
             raise ValueError()
@@ -156,13 +165,13 @@ def _platform(image):
     return image.get('Os', '') + '/' + image.get('Architecture', '')
 
 
-def _selection_plan(snapshot, engine):
+def _selection_plan(snapshot, engine, components=None):
     """Every enabled proxy role must exist and be running before queuing work."""
     enabled = snapshot['selection']['components']
     sources = {}
     platform = None
     for name, entry in enabled.items():
-        if entry['enabled'] and snapshot['manifest']['components'][name]['owner'] == 'proxy-updater':
+        if entry['enabled'] and (components is None or name in components) and snapshot['manifest']['components'][name]['owner'] == 'proxy-updater':
             if name not in SERVICES or SERVICES[name].get('update_supported') is False:
                 raise UpdateError('unsupported_proxy_role')
             try:
@@ -180,6 +189,11 @@ def _selection_plan(snapshot, engine):
         platform = _platform(engine.image(engine.inspect('cryptolabs-proxy')['Image']))
     try:
         targets = selection.targets(snapshot, platform)
+        if components is not None:
+            if set(components) - set(targets): raise UpdateError('service_not_selected')
+            targets = {name: targets[name] for name in components}
+            if any(target['owner'] != 'proxy-updater' for target in targets.values()):
+                raise UpdateError('external_owner_required')
     except selection.SelectionError as error:
         raise UpdateError(str(error)) from None
     return targets, sources
@@ -450,6 +464,9 @@ def _write_json(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, path)
+    descriptor = os.open(path.parent, os.O_RDONLY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
 
 
 def write_job(directory, job):
@@ -464,24 +481,47 @@ def read_job(directory, job_id):
 
 
 def job_status(job_id, *, directory=JOBS_DIR, engine=None):
-    job = read_job(directory, job_id)
-    if job.get('state') in ACTIVE_STATES:
-        engine = engine or UpdateEngine()
+    try: return _status_snapshot(job_id,directory=directory,engine=engine)
+    except controller_recovery.RecoveryError:
+        raise UpdateError('controller_recovery_required') from None
+
+
+def _status_snapshot(job_id, *, directory, engine):
+    # Dispatch owns queued -> created -> started. A concurrent reader cannot
+    # interpret that launch window as an exited worker, including nested replay.
+    with controller_recovery.open_directory(directory) as directory_fd:
+        descriptor = controller_recovery.open_lock(directory_fd, 'dispatch.lock')
+        acquired = False
         try:
-            running = engine.inspect(job['helper'])['State']['Running']
-        except MigrationError as error:
-            if not str(error).endswith('HTTP 404'):
-                return job
-            running = False
-        except Exception:
-            return job
-        if not running:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except BlockingIOError:
+                pass
+            if not job_id:
+                try: job_id = json.loads((Path(directory) / 'active.json').read_text())['id']
+                except (OSError, ValueError, KeyError, TypeError): raise UpdateError('Update job not found.') from None
             job = read_job(directory, job_id)
-            if job.get('state') in ACTIVE_STATES:
-                job.update(state='interrupted', success=False,
-                           message='Update helper stopped before completion. Inspect services before retrying.')
-                write_job(directory, job)
-    return job
+            if not acquired or job.get('state') not in ACTIVE_STATES:
+                return job
+            engine = engine or UpdateEngine()
+            try:
+                running = engine.inspect(job['helper'])['State']['Running']
+            except MigrationError as error:
+                if not str(error).endswith('HTTP 404'): return job
+                running = False
+            except Exception:
+                return job
+            if not running:
+                job = read_job(directory, job_id)
+                if job.get('state') in ACTIVE_STATES:
+                    job.update(state='interrupted', success=False,
+                        message='Update helper stopped before completion. Inspect services before retrying.')
+                    write_job(directory, job)
+            return job
+        finally:
+            if acquired: fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
 
 @contextmanager
@@ -494,15 +534,55 @@ def _lock(directory, name):
 
 
 def helper_request(source, directory, job_id):
-    """The helper uses the current immutable proxy image, outside its PID space."""
-    parent = next((mount for mount in sorted(source.get('Mounts', []), key=lambda item: len(item['Destination']), reverse=True)
-                   if str(directory).startswith(mount['Destination'].rstrip('/') + '/')), None)
-    if not parent or not parent.get('RW', True):
-        raise UpdateError('Updater needs a writable persistent /data/auth mount.')
+    """Map trusted host/container journal paths onto one inspected backing mount."""
+    directory = Path(directory)
+    if not directory.is_absolute() or '..' in directory.parts:
+        raise UpdateError('invalid_worker_store')
+    matches = []
+    for parent in source.get('Mounts', []):
+        if parent.get('Type') not in ('bind','volume') or parent.get('RW') is not True:
+            continue
+        destination = parent.get('Destination')
+        backing = parent.get('Source')
+        if (not isinstance(destination,str) or not Path(destination).is_absolute()
+                or '..' in Path(destination).parts or destination == '/'
+                or backing is not None and (not isinstance(backing,str) or not Path(backing).is_absolute() or '..' in Path(backing).parts)
+                or parent['Type']=='bind' and (not isinstance(backing,str) or not Path(backing).is_absolute() or '..' in Path(backing).parts)
+                or parent['Type']=='volume' and (not isinstance(parent.get('Name'),str) or not parent['Name']
+                    or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]*',parent['Name']))):
+            continue
+        prefixes=[Path(destination)]
+        if isinstance(backing,str) and Path(backing).is_absolute() and '..' not in Path(backing).parts:
+            prefixes.append(Path(backing))
+        candidates = []
+        for prefix in prefixes:
+            try: relative = directory.relative_to(prefix)
+            except ValueError: continue
+            if not relative.parts: continue
+            candidates.append(Path(destination)/relative)
+        for worker_directory in set(candidates):
+            matches.append((parent,worker_directory))
+    if len(matches)!=1:
+        raise UpdateError('Updater needs one unambiguous writable persistent auth mount.')
+    parent,worker_directory = matches[0]
+    # Nested mount shadowing would send worker state to another backing store.
+    for other in source.get('Mounts', []):
+        if other is parent: continue
+        destination=other.get('Destination')
+        if isinstance(destination,str):
+            other_destination=Path(destination)
+            selected_destination=Path(parent['Destination'])
+            # Dockerfile VOLUME /data coexists with the more-specific auth
+            # mount. Only mounts within the chosen mount can shadow its store.
+            if other_destination in selected_destination.parents: continue
+            if (other_destination==selected_destination or selected_destination in other_destination.parents):
+                if (other_destination==worker_directory or other_destination in worker_directory.parents
+                        or worker_directory in other_destination.parents):
+                    raise UpdateError('ambiguous_worker_store')
     mount = _mount_request(parent)
     return {
         'Config': {'Image': source['Image'], 'Entrypoint': ['python3'],
-                   'Cmd': ['-m', 'cryptolabs_proxy.updates', 'worker', job_id, str(directory)],
+                   'Cmd': ['-m', 'cryptolabs_proxy.updates', 'worker', job_id, str(worker_directory)],
                    'Env': ['PYTHONPATH=/app/src'], 'Healthcheck': {'Test': ['NONE']},
                    'Labels': {'io.cryptolabs.update.worker': job_id, 'com.centurylinklabs.watchtower.enable': 'false'}},
         'HostConfig': {'NetworkMode': 'host', 'RestartPolicy': {'Name': 'no'},
@@ -512,79 +592,155 @@ def helper_request(source, directory, job_id):
     }
 
 
+def _mapped_job(mapping, directory, engine=None):
+    try:
+        job = read_job(directory, mapping['job_id'])
+    except UpdateError:
+        job = dict(mapping['initial_job'])
+        job.update(state='recovery-required', success=False, message='Dispatch journal requires reconciliation.')
+        write_job(directory, job)
+    if job.get('operation_id') != mapping['operation_id'] or job.get('request_fingerprint') != mapping['request_fingerprint']:
+        raise UpdateError('operation_conflict')
+    # A replay never creates/starts another helper, including after a lost reply.
+    if job.get('state') in ACTIVE_STATES:
+        job = job_status(job['id'], directory=directory, engine=engine)
+    return job
+
+
+def operation_status(operation_id, *, directory=JOBS_DIR, engine=None):
+    try:
+        if str(uuid.UUID(operation_id)) != operation_id: raise ValueError()
+        mapping = json.loads((Path(directory) / 'operations' / (operation_id + '.json')).read_text())
+    except (ValueError, OSError, TypeError): raise UpdateError('operation_not_found') from None
+    return _mapped_job(mapping, directory, engine)
+
+
+# TRACEWEAVER: entrypoint=submit_job; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 def submit_job(service, branch, action, *, directory=JOBS_DIR, engine=None,
-               selection_id=None, selection_sha256=None, selection_directory=None):
+               selection_id=None, selection_sha256=None, selection_directory=None,
+               components=None, operation_id=None, request_fingerprint=None):
     if branch not in ('main', 'dev') or action not in ('pull', 'update'):
         raise UpdateError('Invalid update channel or action.')
     if service != 'all' and (service not in SERVICES or (action == 'update' and SERVICES[service].get('update_supported') is False)):
         raise UpdateError('Service is not managed by this updater.')
+    scoped = components is not None
+    if scoped or operation_id is not None or request_fingerprint is not None:
+        if (not isinstance(components, list) or not 1 <= len(components) <= 32
+                or any(type(n) is not str or n not in SERVICES or n == 'cryptolabs-proxy' or SERVICES[n].get('update_supported') is False for n in components)
+                or len(set(components)) != len(components) or service not in components
+                or not isinstance(operation_id, str) or not isinstance(request_fingerprint, str)
+                or not re.fullmatch('[0-9a-f]{64}', request_fingerprint)):
+            raise UpdateError('invalid_release_operation')
+        try:
+            if str(uuid.UUID(operation_id)) != operation_id: raise ValueError()
+        except ValueError: raise UpdateError('invalid_release_operation') from None
+        if selection_id is None or selection_sha256 is None: raise UpdateError('selection_pair_required')
+    request_identity = {'service': service, 'branch': branch, 'action': action,
+        'components': components, 'selection_id': selection_id, 'selection_sha256': selection_sha256}
+    with _lock(directory, 'dispatch.lock'):
+        if scoped:
+            mapping_path = Path(directory) / 'operations' / (operation_id + '.json')
+            if mapping_path.exists():
+                mapping = json.loads(mapping_path.read_text())
+                if mapping.get('request_fingerprint') != request_fingerprint or mapping.get('request') != request_identity:
+                    raise UpdateError('operation_conflict')
+                return _mapped_job(mapping, directory, engine)
+        return _submit_job_locked(service, branch, action, directory=directory, engine=engine,
+            selection_id=selection_id, selection_sha256=selection_sha256, selection_directory=selection_directory,
+            components=components, operation_id=operation_id, request_fingerprint=request_fingerprint, request_identity=request_identity)
+
+
+def _submit_job_locked(service, branch, action, *, directory, engine, selection_id, selection_sha256,
+                       selection_directory, components, operation_id, request_fingerprint, request_identity):
     engine = engine or UpdateEngine()
     snapshot = installed_selection(selection_directory, selection_id=selection_id, selection_sha256=selection_sha256)
-    if snapshot and branch == 'dev':
-        raise UpdateError('selection_channel_conflict')
-    targets, sources = _selection_plan(snapshot, engine) if snapshot else ({}, {})
+    if components is not None and snapshot is None: raise UpdateError('selection_required')
+    targets, sources = _selection_plan(snapshot, engine, components) if snapshot else ({}, {})
+    if snapshot:
+        names = components if components is not None else ([service] if service != 'all' else list(targets))
+        channels = {snapshot['manifest'].get('component_channels', {}).get(n, 'main') for n in names}
+        if channels != {branch}: raise UpdateError('selection_channel_conflict')
     if snapshot and service != 'all' and (service not in targets or targets[service]['owner'] != 'proxy-updater'):
         raise UpdateError('service_not_selected')
-    with _lock(directory, 'dispatch.lock'):
-        try:
-            controller_recovery.require_clear(directory)
-        except controller_recovery.RecoveryError:
-            raise UpdateError('controller_recovery_required') from None
-        active = Path(directory) / 'active.json'
-        if active.exists():
-            previous = read_job(directory, json.loads(active.read_text())['id'])
-            if previous.get('state') in ACTIVE_STATES:
-                try:
-                    running = engine.inspect(previous['helper'])['State']['Running']
-                except MigrationError as error:
-                    if not str(error).endswith('HTTP 404'):
-                        # An inaccessible Engine is not proof that a worker stopped.
-                        raise UpdateBusy(previous) from None
-                    running = False
-                except Exception:
+    try:
+        controller_recovery.require_clear(directory)
+    except controller_recovery.RecoveryError:
+        raise UpdateError('controller_recovery_required') from None
+    active = Path(directory) / 'active.json'
+    if active.exists():
+        previous = read_job(directory, json.loads(active.read_text())['id'])
+        if previous.get('state') == 'recovery-required': raise UpdateBusy(previous)
+        if previous.get('state') in ACTIVE_STATES:
+            try:
+                running = engine.inspect(previous['helper'])['State']['Running']
+            except MigrationError as error:
+                if not str(error).endswith('HTTP 404'):
                     # An inaccessible Engine is not proof that a worker stopped.
                     raise UpdateBusy(previous) from None
-                if running:
-                    raise UpdateBusy(previous)
-                previous.update(state='interrupted', success=False,
-                                message='Update helper exited before recording completion. Inspect service status before retrying.')
-                write_job(directory, previous)
-        source = engine.inspect('cryptolabs-proxy')
-        if action == 'update' and service in ('all', 'cryptolabs-proxy'):
-            proxy_target = targets.get('cryptolabs-proxy') if snapshot else None
-            if snapshot and proxy_target and proxy_target['owner'] == 'proxy-updater':
-                try: noop = not _proxy_replacement_required(source, engine.image(proxy_target['reference']), proxy_target)
-                except Exception: noop = False
-                if not noop: raise UpdateError(PROXY_ADOPTION_MESSAGE)
-            elif not snapshot and source.get('State', {}).get('Running') and target_for('cryptolabs-proxy',source,branch):
-                # Floating channels cannot prove a future old helper's pull is a
-                # no-op. A host dispatcher must not launch unpatched source code.
-                raise UpdateError(PROXY_ADOPTION_MESSAGE)
-        if snapshot:
-            _require_selected_updater(engine, source)
-        job_id = uuid.uuid4().hex
-        helper = 'cryptolabs-update-' + job_id
-        request = helper_request(source, Path(directory), job_id)
-        if action == 'pull':
-            _invalidate_checks(directory, SERVICES if service == 'all' else [service], branch)
-        job = {'id': job_id, 'helper': helper, 'service': service, 'branch': branch,
-               'action': action, 'state': 'queued', 'results': {}, 'created_at': time.time(),
-               'scope': 'proxy-updater', 'suite_complete': False, 'external_owners': []}
-        if snapshot:
-            job.update(selection_id=snapshot['selection_id'], selection_sha256=snapshot['selection_sha256'],
-                manifest_sha256=snapshot['manifest_sha256'], selection_snapshot=snapshot, targets=targets,
-                sources=sources, scope='proxy-updater', suite_complete=False,
-                external_owners=sorted({t['owner'] for t in targets.values() if t['owner'] != 'proxy-updater'}))
+                running = False
+            except Exception:
+                # An inaccessible Engine is not proof that a worker stopped.
+                raise UpdateBusy(previous) from None
+            if running:
+                raise UpdateBusy(previous)
+            previous.update(state='interrupted', success=False,
+                            message='Update helper exited before recording completion. Inspect service status before retrying.')
+            write_job(directory, previous)
+    source = engine.inspect('cryptolabs-proxy')
+    if action == 'update' and service in ('all', 'cryptolabs-proxy'):
+        proxy_target = targets.get('cryptolabs-proxy') if snapshot else None
+        if snapshot and proxy_target and proxy_target['owner'] == 'proxy-updater':
+            try: noop = not _proxy_replacement_required(source, engine.image(proxy_target['reference']), proxy_target)
+            except Exception: noop = False
+            if not noop: raise UpdateError(PROXY_ADOPTION_MESSAGE)
+        elif not snapshot and source.get('State', {}).get('Running') and target_for('cryptolabs-proxy',source,branch):
+            # Floating channels cannot prove a future old helper's pull is a
+            # no-op. A host dispatcher must not launch unpatched source code.
+            raise UpdateError(PROXY_ADOPTION_MESSAGE)
+    if snapshot:
+        _require_selected_updater(engine, source, snapshot['manifest']['selection_contract'], scoped=components is not None)
+    if snapshot:
+        installed_selection(selection_directory,selection_id=snapshot['selection_id'],selection_sha256=snapshot['selection_sha256'])
+    job_id = uuid.uuid4().hex
+    helper = 'cryptolabs-update-' + job_id
+    request = helper_request(source, Path(directory), job_id)
+    if action == 'pull':
+        _invalidate_checks(directory, SERVICES if service == 'all' else [service], branch)
+    job = {'id': job_id, 'helper': helper, 'service': service, 'branch': branch,
+           'action': action, 'state': 'queued', 'results': {}, 'created_at': time.time(),
+           'scope': 'proxy-updater', 'suite_complete': False, 'external_owners': []}
+    if snapshot:
+        job.update(selection_id=snapshot['selection_id'], selection_sha256=snapshot['selection_sha256'],
+            manifest_sha256=snapshot['manifest_sha256'], selection_snapshot=snapshot, targets=targets,
+            sources=sources, scope='proxy-updater', suite_complete=False,
+            external_owners=sorted({t['owner'] for t in targets.values() if t['owner'] != 'proxy-updater'}))
+    if components is not None:
+        job.update(components=list(components), operation_id=operation_id, request_fingerprint=request_fingerprint)
+        _write_json(Path(directory) / 'operations' / (operation_id + '.json'),
+            {'operation_id': operation_id, 'request_fingerprint': request_fingerprint,
+             'request': request_identity, 'job_id': job_id, 'initial_job': job})
+    write_job(directory, job)
+    _write_json(active, {'id': job_id})
+    try:
+        engine.create(helper, request)
+        engine.start(helper)
+    except Exception:
+        # A worker can finish before the Engine start reply is lost. Its
+        # durable outcome wins; dispatch must never overwrite it with a guess.
+        recorded = read_job(directory, job_id)
+        if recorded.get('state') != 'queued': return recorded
+        if components is not None:
+            try:
+                helper_state = engine.inspect(helper)
+                if helper_state.get('State', {}).get('Running'):
+                    return recorded
+            except Exception:
+                pass
+        job.update(state='recovery-required' if components is not None else 'failed', success=False,
+                   message='Helper launch outcome requires reconciliation.' if components is not None else 'Could not launch update helper.')
         write_job(directory, job)
-        _write_json(active, {'id': job_id})
-        try:
-            engine.create(helper, request)
-            engine.start(helper)
-        except Exception:
-            job.update(state='failed', success=False, message='Could not launch update helper.')
-            write_job(directory, job)
-            raise UpdateError(job['message']) from None
-        return job
+        if components is None: raise UpdateError(job['message']) from None
+    return read_job(directory,job_id)
 
 
 def pull_target(target):
@@ -605,11 +761,11 @@ def _run_selected_job(directory, job, engine):
             raise UpdateError('selection_changed')
         if selection.sha256(engine.manifest_bytes(job['manifest_sha256'])) != job['manifest_sha256']:
             raise UpdateError('manifest_changed')
-        targets, sources = _selection_plan(snapshot, engine)
+        targets, sources = _selection_plan(snapshot, engine, job.get('components'))
         if targets != job['targets'] or sources != job['sources']:
             raise UpdateError('runtime_changed')
         names = [name for name, target in targets.items() if target['owner'] == 'proxy-updater'
-                 and job['service'] in ('all', name)]
+                 and (name in job['components'] if 'components' in job else job['service'] in ('all', name))]
         names.sort(key=lambda name: name == 'cryptolabs-proxy')
         staged = {}
         for name in names:
@@ -639,7 +795,7 @@ def _run_selected_job(directory, job, engine):
                     pass  # Optional channel discovery cannot block a verified selected artifact.
         # A policy edit or container replacement during pulls invalidates the
         # complete plan before the first stop, rather than allowing partial work.
-        if selection.sha256(engine.selection_bytes()) != job['selection_sha256'] or selection.sha256(engine.manifest_bytes(job['manifest_sha256'])) != job['manifest_sha256'] or _selection_plan(snapshot, engine)[1] != sources:
+        if selection.sha256(engine.selection_bytes()) != job['selection_sha256'] or selection.sha256(engine.manifest_bytes(job['manifest_sha256'])) != job['manifest_sha256'] or _selection_plan(snapshot, engine, job.get('components'))[1] != sources:
             raise UpdateError('selection_or_runtime_changed')
         for name, check in checked.items():
             _write_json(_check_path(directory, name, job['branch']), check)
@@ -787,17 +943,23 @@ def main(argv=None):
     submit.add_argument('--action', choices=('update', 'pull'), default='update')
     submit.add_argument('--selection-id')
     submit.add_argument('--selection-sha256')
+    submit.add_argument('--component',dest='components',action='append')
+    submit.add_argument('--operation-id')
+    submit.add_argument('--request-fingerprint')
     commands.add_parser('capabilities')
     status = commands.add_parser('status')
-    status.add_argument('job_id')
+    status.add_argument('job_id',nargs='?',default='')
     worker = commands.add_parser('worker')
     worker.add_argument('job_id')
     worker.add_argument('directory', type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == 'submit':
+            operation = {}
+            if args.components is not None or args.operation_id is not None or args.request_fingerprint is not None:
+                operation = dict(components=args.components,operation_id=args.operation_id,request_fingerprint=args.request_fingerprint)
             result = submit_job(args.service, args.branch, args.action,
-                selection_id=args.selection_id, selection_sha256=args.selection_sha256)
+                selection_id=args.selection_id, selection_sha256=args.selection_sha256,**operation)
         elif args.command == 'capabilities':
             result = get_capabilities()
         elif args.command == 'status':

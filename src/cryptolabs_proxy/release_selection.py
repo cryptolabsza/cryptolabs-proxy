@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """Pure, bounded contract1 consumer; approval remains with the host operator.
 
 Hashes identify exact imported bytes, not publisher trust. Never interpret data
@@ -71,13 +72,14 @@ def _json(data):
         raise SelectionError('invalid_json') from None
 
 
+# TRACEWEAVER: entrypoint=validate; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 def validate(selection_bytes, manifest_bytes, *, selection_id=None, selection_sha256=None):
     """Validate exact bytes, all declared artifacts and every enabled role."""
     selection = _json(selection_bytes)
     manifest = _json(manifest_bytes)
     _fields(selection, ('schema_version', 'selection_id', 'manifest_sha256', 'components'))
-    _fields(manifest, ('schema_version', 'selection_contract', 'baseline_id', 'components'))
-    if type(selection['schema_version']) is not int or selection['schema_version'] != 1 or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1 or type(manifest['selection_contract']) is not int or manifest['selection_contract'] != 1:
+    _fields(manifest, ('schema_version', 'selection_contract', 'baseline_id', 'components'), ('component_channels',))
+    if type(selection['schema_version']) is not int or selection['schema_version'] != 1 or type(manifest['schema_version']) is not int or manifest['schema_version'] not in (1, 2) or type(manifest['selection_contract']) is not int or manifest['selection_contract'] != manifest['schema_version']:
         raise SelectionError('unsupported_contract')
     _identifier(selection['selection_id']); _identifier(manifest['baseline_id'])
     _hash(selection['manifest_sha256'])
@@ -91,6 +93,11 @@ def validate(selection_bytes, manifest_bytes, *, selection_id=None, selection_sh
             raise SelectionError('selection_changed')
     if not isinstance(manifest['components'], dict) or not isinstance(selection['components'], dict) or not selection['components']:
         raise SelectionError('invalid_components')
+    channels = manifest.get('component_channels', {})
+    if (not isinstance(channels, dict) or set(channels) - set(manifest['components'])
+            or any(type(v) is not str or v not in ('main', 'dev') for v in channels.values())
+            or (manifest['schema_version'] == 1 and 'component_channels' in manifest)):
+        raise SelectionError('invalid_component_channels')
     for name, component in manifest['components'].items():
         if name not in COMPONENTS:
             raise SelectionError('unknown_component')

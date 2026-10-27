@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """
 CryptoLabs Proxy - Unified Authentication Module
 
@@ -593,6 +594,7 @@ def verify_proxy_auth(headers: dict) -> Optional[dict]:
 # FLASK INTEGRATION HELPERS
 # =============================================================================
 
+# TRACEWEAVER: entrypoint=create_flask_auth_app; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 def create_flask_auth_app():
     """
     Create a Flask app for the proxy authentication API.
@@ -1280,6 +1282,144 @@ def create_flask_auth_app():
             'csrf_token': derive(b'cryptolabs/vpm/csrf/v1:'),
         }, 200
 
+    def release_authority(mutation=False):
+        from .release_client import ReleaseBrokerError
+        user,status=current_admin_user()
+        if status!=200: raise ReleaseBrokerError('admin_required','Current administrator access required.',status)
+        cookie=request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        if not cookie: raise ReleaseBrokerError('admin_required','Current administrator access required.',401)
+        binding=session.get('_release_session')
+        valid=(isinstance(binding,dict) and binding.get('principal')==user['username']
+            and isinstance(binding.get('nonce'),str) and len(binding['nonce'])==64
+            and all(c in '0123456789abcdef' for c in binding['nonce']))
+        if not valid:
+            if mutation:
+                raise ReleaseBrokerError('csrf_or_origin','Release session token must be issued before mutation.',403)
+            # This integrity-protected identifier is visible in Flask's signed
+            # cookie. Authority still depends on the server HMAC and live user.
+            binding={'principal':user['username'],'nonce':secrets.token_hex(32)}
+            session['_release_session']=binding
+        material=json.dumps([user['username'],binding['nonce']],separators=(',',':')).encode('utf-8')
+        def derive(purpose):
+            return hmac.new(AUTH_SECRET_KEY.encode(),purpose+material,hashlib.sha256).hexdigest()
+        token=derive(b'cryptolabs/releases/csrf/v1:')
+        if mutation:
+            # Only an installed canonical origin grants browser mutation authority.
+            origin=app.config.get('RELEASE_PUBLIC_ORIGIN') or os.environ.get('FLEET_PUBLIC_ORIGIN','')
+            supplied=request.headers.get('X-CSRF-Token','')
+            if not origin or request.headers.get('Origin')!=origin or not hmac.compare_digest(supplied,token):
+                raise ReleaseBrokerError('csrf_or_origin','Release origin and session token required.',403)
+        return {'kind':'fleet-admin','username':user['username'],'subject':derive(b'cryptolabs/releases/subject/v1:')},token
+
+    def release_error(error):
+        return jsonify({'error':error.message,'code':error.code}),error.status
+
+    def release_dispatch(action,params):
+        from .release_client import ReleaseBrokerClient,ReleaseBrokerError,validate_params
+        try:
+            actor,_=release_authority(request.method=='POST')
+            validate_params(action,params)
+            return jsonify(ReleaseBrokerClient().request(action,params,actor=actor))
+        except ReleaseBrokerError as error: return release_error(error)
+
+    def release_body():
+        from .release_client import strict_json,ReleaseBrokerError,MAX_REQUEST
+        if request.content_length is None or request.content_length>MAX_REQUEST:
+            raise ReleaseBrokerError('invalid_request','Bounded JSON body required.',400)
+        try:
+            value=strict_json(request.get_data(cache=False))
+            if not isinstance(value,dict): raise ValueError()
+            return value
+        except (ValueError,UnicodeError): raise ReleaseBrokerError('invalid_request','Invalid release JSON.',400) from None
+
+    @app.route('/api/releases/session')
+    def release_session():
+        from .release_client import ReleaseBrokerError,SOCKET_PATH
+        try:
+            actor,token=release_authority()
+            return jsonify({'authenticated':True,'username':actor['username'],'csrf_token':token,
+                'broker_available':Path(SOCKET_PATH).exists(),
+                'origin_configured':bool(app.config.get('RELEASE_PUBLIC_ORIGIN') or os.environ.get('FLEET_PUBLIC_ORIGIN'))})
+        except ReleaseBrokerError as error: return release_error(error)
+
+    @app.route('/api/releases/candidates')
+    def release_candidates():
+        if set(request.args)-{'channel'}: return jsonify({'error':'Invalid discovery query.'}),400
+        return release_dispatch('list',{'channel':request.args.get('channel','main')})
+
+    @app.route('/api/releases/preview',methods=['POST'])
+    @app.route('/api/releases/apply',methods=['POST'])
+    def release_mutation():
+        from .release_client import ReleaseBrokerError
+        try:
+            release_authority(True)
+            return release_dispatch(request.path.rsplit('/',1)[-1],release_body())
+        except ReleaseBrokerError as error: return release_error(error)
+
+    @app.route('/api/releases/operations/<operation_id>')
+    def release_operation_status(operation_id):
+        return release_dispatch('status',{'operation_id':operation_id})
+
+    @app.route('/api/releases/operations/<operation_id>/recover',methods=['POST'])
+    def release_operation_recover(operation_id):
+        from .release_client import ReleaseBrokerError
+        try:
+            release_authority(True)
+            body=release_body()
+            if body not in ({},{'operation_id':operation_id}):
+                raise ReleaseBrokerError('invalid_request','Recovery identifier must match operation.',400)
+            return release_dispatch('recover',{'operation_id':operation_id})
+        except ReleaseBrokerError as error: return release_error(error)
+
+    @app.route('/api/update-status')
+    def legacy_update_status():
+        from .release_client import ReleaseBrokerError
+        from .updates import job_status,UpdateError
+        try:
+            release_authority()
+            return jsonify(job_status(request.args.get('id','')))
+        except ReleaseBrokerError as error: return release_error(error)
+        except UpdateError as error: return jsonify({'error':str(error)}),404
+
+    @app.route('/api/update',methods=['POST'])
+    @app.route('/api/pull',methods=['POST'])
+    @app.route('/api/update-settings',methods=['GET','POST'])
+    def legacy_release_mutation():
+        from .release_client import ReleaseBrokerError
+        from . import updates
+        try:
+            release_authority(request.method=='POST')
+            settings_path=DATA_DIR/'update-settings.json'
+            settings={'branch':'main','auto_update':True,'update_schedule':'daily'}
+            try: settings.update(json.loads(settings_path.read_text()))
+            except (OSError,ValueError,TypeError): pass
+            if request.method=='GET': return jsonify(settings)
+            body=release_body()
+            snapshot=updates.installed_selection()
+            if snapshot:
+                raise ReleaseBrokerError('release_owner_required','Selected releases require the Fleet Manager admitted release owner. Preview updates through /api/releases.',409)
+            if request.path=='/api/update-settings':
+                if set(body)-{'branch','auto_update','update_schedule'}:
+                    raise ReleaseBrokerError('invalid_request','Invalid settings fields.',400)
+                if ('branch' in body and body['branch'] not in ('main','dev') or
+                        'auto_update' in body and type(body['auto_update']) is not bool or
+                        'update_schedule' in body and body['update_schedule'] not in ('daily','weekly','manual')):
+                    raise ReleaseBrokerError('invalid_request','Invalid update settings.',400)
+                settings.update(body)
+                updates._write_json(settings_path,settings)
+                return jsonify({'success':True,'settings':settings})
+            if set(body)-{'service','branch','selection_id','selection_sha256'}:
+                raise ReleaseBrokerError('invalid_request','Invalid updater fields.',400)
+            branch=body.get('branch',settings['branch'])
+            if 'selection_id' in body or 'selection_sha256' in body:
+                raise ReleaseBrokerError('selection_conflict','Installed selection unavailable.',409)
+            job=updates.submit_job(body.get('service','all'),branch,'pull' if request.path=='/api/pull' else 'update')
+            return jsonify({'success':True,'job':job}),202
+        except ReleaseBrokerError as error: return release_error(error)
+        except updates.UpdateBusy as error: return jsonify({'error':str(error),'job':error.job}),409
+        except updates.UpdateError as error: return jsonify({'error':str(error)}),400
+        except (OSError,ValueError,TypeError): return jsonify({'error':'Updater unavailable; no update confirmed.'}),503
+
     # =========================================================================
     # ROUTES
     # =========================================================================
@@ -1303,6 +1443,7 @@ def create_flask_auth_app():
                     error = 'Passwords do not match'
                 else:
                     create_user(username, password, 'admin')
+                    session.pop('_release_session', None)
                     session['logged_in'] = True
                     session['username'] = username
                     session['role'] = 'admin'
@@ -1316,6 +1457,7 @@ def create_flask_auth_app():
                 # Normal login
                 user = verify_user(username, password)
                 if user:
+                    session.pop('_release_session', None)
                     session['logged_in'] = True
                     session['username'] = user['username']
                     session['role'] = user['role']

@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
 """Synthetic contract1 selection/update authority regressions."""
 import hashlib
 import importlib.util
@@ -133,17 +135,15 @@ def test_configured_missing_selection_cannot_fall_back_to_channel(tmp_path,monke
     assert engine.calls==[]
 
 
-def test_api_passes_selection_pair_and_keeps_202_envelope(monkeypatch):
-    path=Path(__file__).parents[1]/'scripts/health-api.py'
-    spec=importlib.util.spec_from_file_location('health_selection',path); api=importlib.util.module_from_spec(spec); spec.loader.exec_module(api)
+def test_selected_api_rejects_direct_dispatch_even_with_current_selection_pair(monkeypatch, app, logged_in_admin):
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost'
+    token=logged_in_admin.get('/api/releases/session').json['csrf_token']
     data={'service':'all','selection_id':'synthetic-selection','selection_sha256':'a'*64}
-    body=json.dumps(data).encode(); handler=object.__new__(api.HealthHandler)
-    handler.path='/api/update'; handler.headers={'Content-Length':str(len(body))}; handler.rfile=io.BytesIO(body)
-    response=[]; handler.send_json=lambda value,status=200: response.append((value,status))
-    submit=Mock(return_value={'id':'job'}); monkeypatch.setattr(api,'submit_update_job',submit)
-    handler.do_POST()
-    assert submit.call_args.kwargs=={'selection_id':data['selection_id'],'selection_sha256':data['selection_sha256']}
-    assert response==[({'success':True,'job':{'id':'job'}},202)]
+    monkeypatch.setattr(updates,'installed_selection',lambda:{k:v for k,v in data.items() if k!='service'})
+    submit=Mock(return_value={'id':'job'});monkeypatch.setattr(updates,'submit_job',submit)
+    response=logged_in_admin.post('/api/update',json=data,headers={'Origin':'http://localhost','X-CSRF-Token':token})
+    submit.assert_not_called()
+    assert response.status_code==409 and response.json['code']=='release_owner_required'
 
 
 def test_setup_config_adds_supported_selection_directory():
@@ -251,7 +251,7 @@ def test_missing_required_service_and_explicit_dev_reject_before_queue(tmp_path)
             updates.submit_job('all','dev' if failure=='dev' else 'main','update',directory=tmp_path/'jobs',engine=engine,
                 selection_id='synthetic-selection',selection_sha256=digest,selection_directory=directory)
         assert engine.calls==[]
-        assert not (tmp_path/'jobs').exists()
+        assert not list((tmp_path/'jobs').glob('*.json')), 'invalid selection must never queue a job'
 
 
 def test_customer_pin_exact_match_and_external_owner_outcomes(tmp_path,monkeypatch):
@@ -307,7 +307,7 @@ def test_api_cannot_upload_policy_paths_or_images(monkeypatch):
     response=[]; handler.send_json=lambda value,status=200:response.append((value,status))
     submit=Mock(); monkeypatch.setattr(api,'submit_update_job',submit)
     handler.do_POST(); submit.assert_not_called()
-    assert response[0][1]==400
+    assert response[0][1]==403
 
 
 def test_external_owner_is_reported_and_never_executed_by_proxy(tmp_path,monkeypatch):
