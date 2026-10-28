@@ -1,4 +1,5 @@
 # TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: file-role=account-pairing-routes; req=REQ-PAIR-004; trace=TRACE-PAIR-004; ver=VER-PAIR-004
 """
 CryptoLabs Proxy - Unified Authentication Module
 
@@ -36,6 +37,7 @@ from urllib.parse import urlsplit
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from .identity import VALID_ROLES, validate_identity_users
+from .account_link import PairStore, PairingError, atomic_write
 
 # Module-level logger for auth operations
 logger = logging.getLogger('cryptolabs_proxy.auth')
@@ -61,7 +63,17 @@ WATCHDOG_API_KEY = os.environ.get('WATCHDOG_API_KEY', '')
 WATCHDOG_URL = os.environ.get('WATCHDOG_URL', 'https://watchdog.cryptolabs.co.za')
 WATCHDOG_SIGNUP_URL = 'https://www.cryptolabs.co.za/dc-watchdog-signup/'
 
+def _pair_store():
+    return PairStore(DATA_DIR, WATCHDOG_API_KEY)
+
+
 def get_watchdog_api_key() -> str:
+    # Cooperating readers recover any interrupted pairing commit before use.
+    with _pair_store().locked():
+        return _get_watchdog_api_key_unlocked()
+
+
+def _get_watchdog_api_key_unlocked() -> str:
     """Get the DC Watchdog API key from environment or persistent storage."""
     # First check persistent storage (for keys obtained via OAuth callback)
     key_file = DATA_DIR / 'watchdog_api_key'
@@ -101,9 +113,9 @@ def is_watchdog_verified() -> bool:
 def set_watchdog_verified() -> bool:
     """Mark DC Watchdog as verified after SSO completion."""
     try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        verified_file = DATA_DIR / 'watchdog_verified'
-        verified_file.write_text('1')
+        with _pair_store().locked():
+            verified_file = DATA_DIR / 'watchdog_verified'
+            atomic_write(verified_file, b'1', 0o644)
         logger.info(f"DC Watchdog verified flag set at {verified_file}")
         return True
     except Exception as e:
@@ -114,12 +126,14 @@ def set_watchdog_verified() -> bool:
 def save_watchdog_api_key(api_key: str) -> bool:
     """Save the DC Watchdog API key to persistent storage."""
     try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        key_file = DATA_DIR / 'watchdog_api_key'
-        key_file.write_text(api_key)
-        # 0644 so other containers sharing fleet-auth-data volume can read it
-        # (dc-overview runs as dcuser, not root)
-        os.chmod(key_file, 0o644)
+        store = _pair_store()
+        with store.locked() as state:
+            # Legacy callbacks/configuration share pairing's process lock.
+            # Invalidate the old generation before their atomic key change.
+            state['attempt'] = None
+            state['generation'] += 1
+            store.save(state)
+            atomic_write(DATA_DIR / 'watchdog_api_key', api_key.encode(), 0o644)
         return True
     except Exception:
         return False
@@ -1420,6 +1434,13 @@ def create_flask_auth_app():
         except updates.UpdateError as error: return jsonify({'error':str(error)}),400
         except (OSError,ValueError,TypeError): return jsonify({'error':'Updater unavailable; no update confirmed.'}),503
 
+    def reset_pair_session():
+        binding = session.get('pair_session')
+        if binding:
+            _pair_store().invalidate(hashlib.sha256(binding.encode()).hexdigest())
+        session.pop('pair_csrf', None)
+        session['pair_session'] = secrets.token_urlsafe(32)
+
     # =========================================================================
     # ROUTES
     # =========================================================================
@@ -1444,6 +1465,7 @@ def create_flask_auth_app():
                 else:
                     create_user(username, password, 'admin')
                     session.pop('_release_session', None)
+                    reset_pair_session()
                     session['logged_in'] = True
                     session['username'] = username
                     session['role'] = 'admin'
@@ -1458,6 +1480,7 @@ def create_flask_auth_app():
                 user = verify_user(username, password)
                 if user:
                     session.pop('_release_session', None)
+                    reset_pair_session()
                     session['logged_in'] = True
                     session['username'] = user['username']
                     session['role'] = user['role']
@@ -1482,6 +1505,7 @@ def create_flask_auth_app():
     
     @app.route('/auth/logout')
     def logout():
+        reset_pair_session()
         session.clear()
         return redirect('/auth/login')
     
@@ -2281,6 +2305,157 @@ def create_flask_auth_app():
     # DC WATCHDOG AUTO-SSO
     # =========================================================================
     
+    def pair_origin_allowed():
+        scheme = request.scheme
+        if request.remote_addr in ('127.0.0.1', '::1'):
+            forwarded = request.headers.get('X-Forwarded-Proto')
+            if forwarded in ('http', 'https'):
+                scheme = forwarded
+        origin = request.headers.get('Origin')
+        return (request.headers.get('Sec-Fetch-Site') != 'cross-site'
+                and (origin is None or origin == scheme + '://' + request.host))
+
+    @app.route('/api/account-link/config')
+    def account_link_config():
+        _, status = current_admin_user()
+        if status != 200:
+            return jsonify({'error': 'Admin access required'}), status
+        if not pair_origin_allowed():
+            return jsonify({'error': 'Invalid origin'}), 403
+        session.setdefault('pair_session', secrets.token_urlsafe(32))
+        session.setdefault('pair_csrf', secrets.token_urlsafe(32))
+        reply = jsonify({'csrf_token': session['pair_csrf']})
+        reply.headers['Cache-Control'] = 'no-store'
+        reply.headers['Referrer-Policy'] = 'no-referrer'
+        return reply
+
+    @app.after_request
+    def account_link_cache_policy(response):
+        if request.path.startswith('/api/account-link/'):
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
+
+    @app.route('/api/account-link/<action>', methods=['POST'])
+# TRACEWEAVER: entrypoint=account_link_mutate; req=REQ-PAIR-004; trace=TRACE-PAIR-004; ver=VER-PAIR-004
+    def account_link_mutate(action):
+        user, status = current_admin_user()
+        if status != 200:
+            return jsonify({'error': 'Admin access required'}), status
+        csrf = request.headers.get('X-CSRF-Token', '')
+        if (not csrf or not session.get('pair_csrf')
+                or not hmac.compare_digest(csrf.encode(), session['pair_csrf'].encode())
+                or not pair_origin_allowed()):
+            return jsonify({'error': 'Invalid form token or origin'}), 403
+        try:
+            if request.content_length and request.content_length > 1024:
+                raise PairingError('invalid_request', 400)
+            def unique_object(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError('duplicate field')
+                    result[key] = value
+                return result
+            data = json.loads(request.get_data(), object_pairs_hook=unique_object)
+            fields = {'start': set(), 'status': {'attempt_id'}, 'cancel': {'attempt_id'},
+                      'commit': {'attempt_id', 'confirm'}}
+            if action not in fields or not isinstance(data, dict) or set(data) != fields[action]:
+                raise PairingError('invalid_request', 400)
+            if action != 'start' and (not isinstance(data.get('attempt_id'), str)
+                    or not 1 <= len(data['attempt_id']) <= 64):
+                raise PairingError('invalid_request', 400)
+            if action == 'commit' and data['confirm'] is not True:
+                raise PairingError('confirmation_required', 400)
+            binding = session.get('pair_session')
+            if not binding:
+                raise PairingError('invalid_session', 403)
+            binding = hashlib.sha256(binding.encode()).hexdigest()
+            store = _pair_store()
+            if action == 'start':
+                result = store.start(user['username'], binding, lambda: current_admin_user()[1] == 200)
+            elif action == 'status':
+                result = store.status(data['attempt_id'], user['username'], binding,
+                                      lambda: current_admin_user()[1] == 200)
+            elif action == 'commit':
+                result = store.commit(data['attempt_id'], user['username'], binding,
+                                      lambda: current_admin_user()[1] == 200)
+            else:
+                result = store.cancel(data['attempt_id'], user['username'], binding)
+            response, status = jsonify(result), 200
+        except PairingError as exc:
+            response, status = jsonify({'error': exc.error}), exc.status
+        except (ValueError, TypeError):
+            response, status = jsonify({'error': 'invalid_request'}), 400
+        except OSError:
+            response, status = jsonify({'error': 'temporarily_unavailable'}), 503
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response, status
+
+    @app.route('/auth/account-link')
+    def account_link_page():
+        _, status = current_admin_user()
+        if status != 200:
+            return redirect('/auth/login?next=/auth/account-link') if status == 401 else ('Admin access required', status)
+        response = app.make_response(render_template_string('''<!doctype html>
+        <html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="referrer" content="no-referrer"><title>Link CryptoLabs account</title>
+        <style>{{ style|safe }} main{max-width:640px;margin:8vh auto;padding:24px;line-height:1.5}
+        h1{font-size:2rem;margin-bottom:18px} p{margin:16px 0;color:var(--text-secondary)}
+        a{color:var(--accent-cyan);text-underline-offset:3px} button{font:inherit;font-weight:600;
+        margin:8px 8px 8px 0;padding:10px 16px;border:1px solid transparent;border-radius:6px;
+        background:var(--accent-cyan);color:var(--bg-primary);cursor:pointer}
+        button:focus-visible,a:focus-visible{outline:2px solid var(--accent-cyan);outline-offset:4px}
+        #attempt{margin-top:20px;padding:20px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px}
+        #cancel{background:transparent;color:var(--text-primary);border-color:var(--border-color)}
+        #message{color:var(--text-primary)} #code{font:2rem monospace;letter-spacing:.1em;color:var(--text-primary)}
+        #confirm{background:var(--accent-green)}</style></head>
+        <body><main><h1>Link CryptoLabs account</h1>
+        <p>Sign in or create an account on CryptoLabs, enter the code below and approve this controller.
+        Then return here to confirm the account. Existing service subscriptions still apply.</p>
+        <p>This uses your existing account-wide credential. Cancelling preserves the current local link.</p>
+        <button id="start">Start linking</button><section id="attempt" hidden>
+        <p id="code"></p><a href="https://www.cryptolabs.co.za/?clai_pair=1" target="_blank" rel="noopener noreferrer">Open CryptoLabs</a>
+        <button id="cancel">Cancel</button></section><p id="message" role="status" aria-live="polite"></p>
+        <button id="confirm" hidden>Confirm this account</button>
+        <p><a href="{{ dashboard }}">Open Watchdog dashboard</a> · <a href="/">Back to Fleet</a></p>
+        <script>
+        let csrf, attempt, timer;
+        const message=document.getElementById('message');
+        const confirmButton=document.getElementById('confirm');
+        async function call(action, body){
+          const r=await fetch('/api/account-link/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify(body)});
+          const data=await r.json(); if(!r.ok)throw Error(data.error||'Linking unavailable'); return data;
+        }
+        function stop(){clearTimeout(timer);confirmButton.hidden=true;}
+        async function poll(){
+          try{const d=await call('status',{attempt_id:attempt});
+            if(d.status==='awaiting_confirmation'){
+              message.textContent=d.account.display_name+' ('+d.account.email+'). Service access is checked by Watchdog.';
+              confirmButton.hidden=!d.can_commit;
+              if(!d.can_commit)message.textContent+=' The current link is preserved because this account’s Watchdog access could not be verified.';
+            }else{timer=setTimeout(poll,d.interval*1000);}
+          }catch(e){stop();message.textContent=e.message+'; the previous link is preserved. Start again if the code expired.';}
+        }
+        document.getElementById('start').onclick=async()=>{
+          stop();try{csrf=(await (await fetch('/api/account-link/config')).json()).csrf_token;
+            const d=await call('start',{});attempt=d.attempt_id;
+            document.getElementById('code').textContent=d.user_code;document.getElementById('attempt').hidden=false;
+            message.textContent='This code expires in five minutes. Match the code before approving.';
+            timer=setTimeout(poll,d.interval*1000);
+          }catch(e){message.textContent=e.message;}
+        };
+        document.getElementById('cancel').onclick=async()=>{stop();try{await call('cancel',{attempt_id:attempt});
+          document.getElementById('attempt').hidden=true;message.textContent='Cancelled. Previous link preserved.';}catch(e){message.textContent=e.message;}};
+        confirmButton.onclick=async()=>{stop();try{const d=await call('commit',{attempt_id:attempt,confirm:true});
+          document.getElementById('attempt').hidden=true;message.textContent='Linked to '+d.account.email+'. Open Watchdog to check service access.';
+          }catch(e){message.textContent=e.message+'; previous configuration preserved.';}};
+        </script></main></body></html>''', style=BASE_STYLE, dashboard=WATCHDOG_URL.rstrip('/') + '/login'))
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
+
     @app.route('/auth/watchdog/sso')
     def watchdog_sso():
         """Generate SSO URL for DC Watchdog - enables seamless one-click access.
@@ -2313,14 +2488,14 @@ def create_flask_auth_app():
         
         # Get API key (from env or persistent storage)
         api_key = get_watchdog_api_key()
+
+        if _pair_store().paired_account():
+            return redirect(WATCHDOG_URL.rstrip('/') + '/login')
         
         # If no API key configured, redirect to WordPress signup with callback
         # After signup, WordPress will redirect back with the API key
         if not api_key:
-            # Build callback URL for this Fleet Management instance
-            callback_url = request.host_url.rstrip('/') + '/auth/watchdog/callback'
-            signup_url = f"{WATCHDOG_SIGNUP_URL}?redirect_uri={callback_url}&source=fleet_management"
-            return redirect(signup_url)
+            return redirect('/auth/account-link')
         
         # Generate signed SSO payload
         # NOTE: DC Watchdog will validate this API key against WordPress server-to-server
@@ -2380,13 +2555,14 @@ def create_flask_auth_app():
         
         # Get API key (from env or persistent storage)
         api_key = get_watchdog_api_key()
+
+        if _pair_store().paired_account():
+            return jsonify({'sso_url': WATCHDOG_URL.rstrip('/') + '/login', 'auto_sso': False})
         
         # If no API key configured, return signup URL with callback
         if not api_key:
-            callback_url = request.host_url.rstrip('/') + '/auth/watchdog/callback'
-            signup_url = f"{WATCHDOG_SIGNUP_URL}?redirect_uri={callback_url}&source=fleet_management"
             return jsonify({
-                'sso_url': signup_url,
+                'sso_url': '/auth/account-link',
                 'auto_sso': False,
                 'needs_signup': True,
                 'message': 'API key not configured - redirect to signup'
@@ -2423,50 +2599,13 @@ def create_flask_auth_app():
         })
     
     @app.route('/auth/watchdog/callback')
+# TRACEWEAVER: entrypoint=watchdog_callback; req=REQ-PAIR-004; trace=TRACE-PAIR-004; ver=VER-PAIR-004
     def watchdog_callback():
-        """OAuth-style callback from WordPress after user signs up for DC Watchdog.
-        
-        WordPress redirects here with:
-        - api_key: The user's API key (sk-ipmi-xxx)
-        - user_email: User's email
-        - subscription: Subscription status (trial, active, etc.)
-        
-        We store the API key and then redirect to the DC Watchdog dashboard.
-        """
-        api_key = request.args.get('api_key')
-        user_email = request.args.get('user_email', '')
-        subscription = request.args.get('subscription', 'trial')
-        
-        if not api_key or not api_key.startswith('sk-ipmi-'):
-            return render_template_string('''
-                <!DOCTYPE html>
-                <html>
-                <head><title>Error</title></head>
-                <body style="font-family: sans-serif; padding: 40px; text-align: center;">
-                    <h2>❌ Invalid API Key</h2>
-                    <p>No valid API key was provided. Please try again.</p>
-                    <a href="/">Return to Dashboard</a>
-                </body>
-                </html>
-            '''), 400
-        
-        # Save the API key persistently and mark as verified (SSO completed)
-        if save_watchdog_api_key(api_key):
-            set_watchdog_verified()  # User completed SSO, now DC Watchdog is enabled
-            # Now redirect to DC Watchdog with SSO
-            return redirect('/auth/watchdog/sso')
-        else:
-            return render_template_string('''
-                <!DOCTYPE html>
-                <html>
-                <head><title>Error</title></head>
-                <body style="font-family: sans-serif; padding: 40px; text-align: center;">
-                    <h2>❌ Failed to Save API Key</h2>
-                    <p>Could not save the API key. Please try again.</p>
-                    <a href="/">Return to Dashboard</a>
-                </body>
-                </html>
-            '''), 500
+        """Restart obsolete popups without accepting unbound GET credentials."""
+        response = redirect('/auth/account-link')
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        return response
     
     @app.route('/auth/watchdog/status')
     def watchdog_status():

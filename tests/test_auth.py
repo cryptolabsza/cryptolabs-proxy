@@ -678,6 +678,7 @@ def test_release_authority_isolates_logins_and_rebinds_logout_and_principal(app,
     relogin=first.get('/api/releases/session').json['csrf_token'];assert relogin!=one
     assert apply(first,one).status_code==403 and apply(first,relogin).status_code==200
     assert actors[-1]['subject']!=actor_one['subject']
+
     one=relogin
     first.get('/auth/logout');assert apply(first,one).status_code==401
     first.post('/auth/login',data=admin_user)
@@ -690,3 +691,57 @@ def test_release_authority_isolates_logins_and_rebinds_logout_and_principal(app,
     rebound=first.get('/api/releases/session').json['csrf_token']
     assert apply(first,rebound).status_code==200 and actors[-1]['username']=='second-admin'
     assert actors[-1]['subject']!=actor_one['subject']
+
+
+@pytest.mark.parametrize('first_run', [False, True])
+def test_login_invalidates_release_and_persistent_pairing_authority(app, admin_user, monkeypatch, first_run):
+    """A retained cookie cannot carry either authority through successful login."""
+    from pathlib import Path
+    import requests
+    from cryptolabs_proxy import auth
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+
+    wire = json.loads((Path(__file__).parent / 'fixtures/pairing-wire-v1.json').read_text())
+    reply = requests.Response()
+    reply.status_code = 201
+    reply._content = json.dumps(wire['start_response']).encode()
+    monkeypatch.setattr(auth.requests, 'post', lambda *args, **kwargs: reply)
+    monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda *args, **kwargs: {})
+    app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+    client = app.test_client()
+    assert client.post('/auth/login', data=admin_user).status_code == 302
+    release_token = client.get('/api/releases/session').json['csrf_token']
+    pair_token = client.get('/api/account-link/config').json['csrf_token']
+    headers = {'Origin': 'http://localhost', 'X-CSRF-Token': pair_token}
+    started = client.post('/api/account-link/start', json={}, headers=headers)
+    assert started.status_code == 200
+    state_path = auth.DATA_DIR / 'account_link.json'
+    before = json.loads(state_path.read_text())
+    assert before['attempt']['id'] == started.json['attempt_id']
+    with client.session_transaction() as current:
+        pair_binding = current['pair_session']
+    if first_run:
+        auth.save_users({})
+    credentials = {**admin_user, 'confirm_password': admin_user['password']}
+    assert client.post('/auth/login', data=credentials).status_code == 302
+    after = json.loads(state_path.read_text())
+    assert after['attempt'] is None
+    assert after['generation'] == before['generation'] + 1
+    with client.session_transaction() as current:
+        assert current['pair_session'] != pair_binding
+        assert 'pair_csrf' not in current
+        assert '_release_session' not in current
+    body = {'operation_id': '12345678-1234-4234-8234-123456789abc', 'preview_id': 'fixture',
+            'preview_sha256': 'a' * 64, 'expected_selection_id': 'fixture', 'expected_selection_sha256': 'b' * 64}
+    assert client.post('/api/releases/apply', json=body,
+                       headers={'Origin': 'http://localhost', 'X-CSRF-Token': release_token}).status_code == 403
+    assert client.post('/api/account-link/cancel', json={'attempt_id': started.json['attempt_id']},
+                       headers=headers).status_code == 403
+    next_release = client.get('/api/releases/session').json['csrf_token']
+    next_pair = client.get('/api/account-link/config').json['csrf_token']
+    assert next_release != release_token and next_pair != pair_token
+    assert next_release != next_pair
+    assert client.post('/api/releases/apply', json=body,
+                       headers={'Origin': 'http://localhost', 'X-CSRF-Token': next_pair}).status_code == 403
+    assert client.post('/api/account-link/cancel', json={'attempt_id': started.json['attempt_id']},
+                       headers={'Origin': 'http://localhost', 'X-CSRF-Token': next_release}).status_code == 403

@@ -287,3 +287,9 @@ an old archive over ambiguous newer candidate auth. Other uncertain phases remai
 and auth/config/selection evidence, so its changed container ID does not prevent later
 `failed-restored` reconciliation. An orphaned exclusion helper is reclaimed only by its
 recorded ID, image, mount and fixed owner identity under the registry lock.
+
+Account pairing reads can create an empty `account_link.lock` mutex in the shared
+auth directory. Recovery preserves that regular file and ignores only its empty
+presence when comparing account state. A nonempty lock, changed pairing account
+or journal JSON, or other external state still holds rollback for forward repair;
+pairing state is never added to the rollback-owned file set.

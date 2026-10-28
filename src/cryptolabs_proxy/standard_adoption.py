@@ -53,6 +53,9 @@ def auth_state(data, *, allow_active_jobs=False):
                 if p.is_absolute() or '..' in p.parts or not p.parts or p.parts[0]!='auth' or not(member.isfile() or member.isdir()): raise AdoptionError('auth_snapshot_unsupported')
                 if member.isdir(): continue
                 content=archive.extractfile(member).read(); name='/'.join(p.parts[1:])
+                # PairStore creates this empty mutex on reads. Preserve it on
+                # disk without treating first-read presence as account state.
+                if name=='account_link.lock' and not content: continue
                 if name=='users.json':
                     try: validate_identity_users(json.loads(content))
                     except (ValueError,UnicodeError): raise AdoptionError('auth_identity_store_invalid; operator recovery required') from None

@@ -415,6 +415,78 @@ def test_external_shared_store_change_holds_old_image_restore(tmp_path,monkeypat
     assert json.loads((directory/'standard-adoptions'/plan['plan_id']/'outcome.json').read_text())['state']=='forward_repair_required'
 
 
+@pytest.mark.parametrize('external_change', ['read-only', 'nonempty-lock', 'pairing-journal', 'other-empty'])
+def test_pairing_first_read_preserves_rollback_and_real_external_state(tmp_path, monkeypatch, external_change):
+    """A real PairStore read creates a mutex, while real state still holds rollback."""
+    import io
+    import tarfile
+    from cryptolabs_proxy.account_link import PairStore
+    from cryptolabs_proxy.standard_adoption import AdoptionError, OWNED_AUTH_FILES, auth_state, owned_auth_archive
+
+    adoption, engine, settings, directory = system(tmp_path, monkeypatch)
+    auth_dir = tmp_path / 'actual-auth'
+    auth_dir.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(engine.auth)) as source:
+        for member in source:
+            (auth_dir / Path(member.name).name).write_bytes(source.extractfile(member).read())
+    users_before = (auth_dir / 'users.json').read_bytes()
+
+    def archive(name):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w') as target:
+            target.add(auth_dir, arcname='auth')
+        return output.getvalue()
+
+    def restore(name, data, image, identity):
+        engine.calls.append(('restore-auth', name, data))
+        for owned in OWNED_AUTH_FILES:
+            (auth_dir / owned).unlink(missing_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(owned_auth_archive(data))) as source:
+            for member in source:
+                (auth_dir / Path(member.name).name).write_bytes(source.extractfile(member).read())
+        assert auth_state(archive(name)) == auth_state(data)
+
+    monkeypatch.setattr(engine, 'archive_auth', archive)
+    monkeypatch.setattr(engine, 'restore_auth', restore)
+    plan = adoption.plan(settings)
+    start = engine.start
+
+    def candidate_read(name):
+        start(name)
+        if engine.containers[name]['Id'] == 'new-id':
+            assert PairStore(auth_dir).paired_account() is None
+            assert (auth_dir / 'account_link.lock').read_bytes() == b''
+            assert not (auth_dir / 'account_link.json').exists()
+            if external_change == 'nonempty-lock':
+                (auth_dir / 'account_link.lock').write_bytes(b'operator-state')
+            elif external_change == 'pairing-journal':
+                (auth_dir / 'account_link.json').write_text(json.dumps({'version': 1, 'journal': {'pending': True}}))
+            elif external_change == 'other-empty':
+                (auth_dir / 'unrelated.lock').write_bytes(b'')
+
+    monkeypatch.setattr(engine, 'start', candidate_read)
+    engine.fail_health = True
+    with pytest.raises(AdoptionError):
+        adoption.adopt(settings, plan['plan_id'])
+    outcome = json.loads((directory / 'standard-adoptions' / plan['plan_id'] / 'outcome.json').read_text())
+    assert (auth_dir / 'account_link.lock').exists()
+    assert (auth_dir / 'users.json').read_bytes() == users_before
+    if external_change == 'read-only':
+        assert outcome['state'] == 'rolled_back'
+        assert engine.containers['cryptolabs-proxy']['State']['Running']
+        assert engine.containers['cryptolabs-proxy']['Image'] == 'sha256:old'
+        assert [call for call in engine.calls if call[0] == 'restore-auth']
+    else:
+        assert outcome['state'] == 'forward_repair_required'
+        assert not [call for call in engine.calls if call[0] == 'restore-auth']
+        if external_change == 'nonempty-lock':
+            assert (auth_dir / 'account_link.lock').read_bytes() == b'operator-state'
+        elif external_change == 'pairing-journal':
+            assert json.loads((auth_dir / 'account_link.json').read_text())['journal'] == {'pending': True}
+        else:
+            assert (auth_dir / 'unrelated.lock').read_bytes() == b''
+
+
 def test_inspect_reports_active_upstreams_and_safe_unmapped_directive_context(tmp_path,monkeypatch):
     from cryptolabs_proxy.standard_adoption import AdoptionError
     adoption,engine,settings,directory=system(tmp_path,monkeypatch)
