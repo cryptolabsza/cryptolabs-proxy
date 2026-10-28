@@ -191,6 +191,43 @@ http {
             proxy_set_header Host $host;
         }
 
+        # Fleet release writes and status use live session authority in Flask.
+        location ^~ /api/releases/ {
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 20s;
+        }
+        location = /api/update {
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 20s;
+        }
+        location = /api/pull {
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 20s;
+        }
+        location = /api/update-settings {
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 20s;
+        }
+        location = /api/update-status {
+            client_max_body_size 64k;
+            proxy_pass http://127.0.0.1:8081;
+            proxy_set_header Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 20s;
+        }
+
         {% include "fleet-api-routes.conf.j2" %}
 
         # Static assets (no auth)

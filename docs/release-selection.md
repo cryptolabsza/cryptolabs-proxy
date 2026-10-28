@@ -225,3 +225,71 @@ scope. `suite_complete` remains false, and external VPM/CLI/worker owners have
 explicit required outcomes. The proxy does not execute their Compose, package
 or SSH operations. Final published digests, independently released compatible
 consumers and real customer install/upgrade evidence remain release gates.
+
+## Fleet Manager release owner
+
+The administrator UI discovers admitted stable (`main`) and development (`dev`)
+component releases through the installed DC release broker. Choosing a channel
+filters discovery; it does not rewrite installed component channels or pins.
+Preview names the exact components and target manifest. Fleet Manager itself is
+an explicit `proxy-adopt` operation through the installed host adoption owner.
+Service updates use one exact component group and a durable operation UUID; a
+lost reply or reload returns the same job, including its terminal result.
+
+The fixed socket is `/run/dc-overview-release-broker.sock`. It is mounted only
+when the operator's owner declaration sets `release_broker_enabled: true` and
+its installed socket is root owned with mode `0600`. Browser requests cannot
+supply socket paths, declarations, commands, Docker settings or trust keys.
+Every release and legacy updater write requires the current Fleet administrator,
+a release-purpose session token and the exact installed `FLEET_PUBLIC_ORIGIN`.
+The raw health handler refuses updater/settings writes. An absent installed
+origin or broker leaves the release controls unavailable.
+
+The proxy advertises legacy `selection_contract: 1` together with
+`supported_selection_contracts: [1, 2]`. Contract 2 adds only the manifest-level
+`component_channels` map. Omitted entries mean `main`; component artifact objects
+and the schema-1 selection record retain their existing shape. The live source
+image, as well as the host package, must support the selected contract and scoped
+idempotent dispatch before a new broker job can run.
+
+`StandardAdoption.plan(..., proposed_selection=snapshot)` validates the exact
+proposed manifest and selection bytes without publishing them. Actual adoption
+revalidates the installed selection, source and existing recovery locks.
+`recover_adoption(plan_id)` inspects only its retained private owner journal and
+current runtime; uncertain state remains `recovery-required` and never triggers
+an automatic second adoption.
+
+Production writes default to disabled in the DC broker policy. Real publisher
+trust, fresh admission, installed bootstrap, packaged Linux checks, retained
+rollback and browser disconnect/reconnect evidence are required before enablement.
+Synthetic fixtures and local tests cannot activate releases. Without a real
+compatible admitted dev candidate, dev remains unavailable. Restore an exact
+compatible contract-1 selection before downgrading either reader.
+
+Selected installations refuse legacy HTTP update, pull and settings mutations with
+`release_owner_required` (409). Even a current administrator and matching pin cannot
+bypass fresh admission after a release is revoked. Use the admitted release preview
+and apply flow; nonselected authenticated legacy operation remains supported.
+
+The host updater keeps its journal path separate from the helper's container path.
+It derives both from exactly one inspected persistent writable volume or bind mount;
+ambiguous mappings and nested shadows are refused. Status reconciliation cannot mark
+a queued helper interrupted while dispatch still owns its launch transaction.
+
+Owner adoption records fsynced private phases around runtime mutations. Fixed restart
+recovery can restore a positively identified stopped original before candidate startup,
+after taking the same updater/selection exclusion and proving the source initializer
+preserves every latest quiescent auth file with bootstrap authority disabled. A legitimate
+write between the pre-stop capture and stop is retained as separate restoration evidence;
+the pre-stop comparison remains recorded. Failed startup proof holds recovery. It never restores
+an old archive over ambiguous newer candidate auth. Other uncertain phases remain
+`recovery-required`. Verified in-process rollback records the actual sanitized runtime
+and auth/config/selection evidence, so its changed container ID does not prevent later
+`failed-restored` reconciliation. An orphaned exclusion helper is reclaimed only by its
+recorded ID, image, mount and fixed owner identity under the registry lock.
+
+Account pairing reads can create an empty `account_link.lock` mutex in the shared
+auth directory. Recovery preserves that regular file and ignores only its empty
+presence when comparing account state. A nonempty lock, changed pairing account
+or journal JSON, or other external state still holds rollback for forward repair;
+pairing state is never added to the rollback-owned file set.

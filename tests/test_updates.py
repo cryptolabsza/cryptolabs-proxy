@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
 """Updater failures must not destroy existing runtime state or conceal outcomes."""
 import importlib.util
 import json
@@ -193,22 +195,15 @@ def test_helper_runs_independently_with_persistent_state_and_no_copied_secrets()
     assert request['Config']['Healthcheck'] == {'Test': ['NONE']}
 
 
-def test_update_api_queues_job_instead_of_mutating_docker(monkeypatch):
-    path = Path(__file__).parents[1] / 'scripts' / 'health-api.py'
-    spec = importlib.util.spec_from_file_location('health_api_updates', path)
-    api = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(api)
-    import io
-    body = json.dumps({'service': 'prometheus', 'branch': 'main'}).encode()
-    handler = object.__new__(api.HealthHandler)
-    handler.path = '/api/update'
-    handler.headers = {'Content-Length': str(len(body))}
-    handler.rfile = io.BytesIO(body)
-    replies = []
-    handler.send_json = lambda result, status=200: replies.append((result, status))
-    monkeypatch.setattr(api, 'submit_update_job', lambda *args, **kwargs: {'id': 'job', 'state': 'queued'})
-    handler.do_POST()
-    assert replies == [({'success': True, 'job': {'id': 'job', 'state': 'queued'}}, 202)]
+def test_update_api_queues_job_instead_of_mutating_docker(monkeypatch, app, logged_in_admin):
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost'
+    token=logged_in_admin.get('/api/releases/session').json['csrf_token']
+    monkeypatch.setattr(updates,'installed_selection',lambda:None)
+    monkeypatch.setattr(updates,'submit_job',lambda *args,**kwargs:{'id':'job','state':'queued'})
+    response=logged_in_admin.post('/api/update',json={'service':'prometheus','branch':'main'},
+        headers={'Origin':'http://localhost','X-CSRF-Token':token})
+    assert response.status_code==202
+    assert response.json=={'success':True,'job':{'id':'job','state':'queued'}}
 
 
 def test_cli_submit_and_status_return_machine_readable_jobs(monkeypatch, capsys):
@@ -356,3 +351,149 @@ def test_landing_renders_partial_failure_as_error():
     result = json.loads(run.stdout)
     assert result['kind'] == 'error'
     assert 'Original restored' in result['message']
+
+
+def test_release_operation_replays_terminal_job_and_rejects_changed_fingerprint(tmp_path):
+    from tests.test_release_selection import selection_files, SelectedEngine
+    directory, digest = selection_files(tmp_path)
+    engine = SelectedEngine(tmp_path)
+    engine.updater_capabilities = lambda source_id: updates.get_capabilities()
+    operation = '12345678-1234-4234-8234-123456789abc'
+    options = dict(directory=tmp_path/'jobs', engine=engine, selection_id='synthetic-selection',
+                   selection_sha256=digest, selection_directory=directory,
+                   components=['prometheus'], operation_id=operation, request_fingerprint='a'*64)
+    job = updates.submit_job('prometheus', 'main', 'update', **options)
+    assert job['components'] == ['prometheus'] and set(job['targets']) == {'prometheus'}
+    job.update(state='completed', success=True)
+    updates.write_job(tmp_path/'jobs', job)
+    engine.calls.clear()
+    assert updates.submit_job('prometheus', 'main', 'update', **options) == job
+    assert engine.calls == []
+    options['request_fingerprint'] = 'b'*64
+    with pytest.raises(updates.UpdateError, match='operation_conflict'):
+        updates.submit_job('prometheus', 'main', 'update', **options)
+
+
+def test_release_operation_lost_create_reply_keeps_same_helper_and_recovery_hold(tmp_path):
+    from tests.test_release_selection import selection_files, SelectedEngine
+    directory, digest = selection_files(tmp_path)
+    engine = SelectedEngine(tmp_path)
+    engine.updater_capabilities = lambda source_id: updates.get_capabilities()
+    def uncertain_create(name, request):
+        engine.calls.append(('create', name))
+        raise OSError('reply lost after helper creation')
+    engine.create = uncertain_create
+    operation = '12345678-1234-4234-8234-123456789abc'
+    options = dict(directory=tmp_path/'jobs', engine=engine, selection_id='synthetic-selection',
+                   selection_sha256=digest, selection_directory=directory,
+                   components=['prometheus'], operation_id=operation, request_fingerprint='a'*64)
+    first = updates.submit_job('prometheus', 'main', 'update', **options)
+    second = updates.submit_job('prometheus', 'main', 'update', **options)
+    assert first['id'] == second['id']
+    assert second['state'] == 'recovery-required'
+    assert len([call for call in engine.calls if call[0] == 'create']) == 1
+
+
+def test_landing_reload_ignores_stale_operation_response():
+    script = landing_script() + '''
+    let observed = [];
+    showUpdateStatus = (kind,message) => observed.push({kind,message});
+    loadVersions = () => {}; loadServices = () => {};
+    globalThis.localStorage = {setItem:()=>{},removeItem:()=>{}};
+    globalThis.fetch = async () => ({ok:true,json:async()=>({id:'old',state:'completed',success:true})});
+    activeUpdateJob = 'new';
+    pollUpdateJob('old',0,'old').then(()=>console.log(JSON.stringify({active:activeUpdateJob,observed})));
+    '''
+    run = subprocess.run(['node'],input=script,capture_output=True,text=True)
+    assert run.returncode == 0,run.stderr
+    result=json.loads(run.stdout)
+    assert result == {'active':'new','observed':[]}
+
+
+def test_lost_helper_start_reply_does_not_overwrite_worker_terminal_result(tmp_path):
+    from tests.test_release_selection import selection_files, SelectedEngine
+    directory, digest = selection_files(tmp_path)
+    engine = SelectedEngine(tmp_path)
+    engine.updater_capabilities = lambda source_id: updates.get_capabilities()
+    def completed_before_lost_reply(name):
+        active=json.loads((tmp_path/'jobs/active.json').read_text())
+        job=updates.read_job(tmp_path/'jobs',active['id'])
+        job.update(state='completed',success=True)
+        updates.write_job(tmp_path/'jobs',job)
+        raise OSError('start response lost after worker completed')
+    engine.start=completed_before_lost_reply
+    result=updates.submit_job('prometheus','main','update',directory=tmp_path/'jobs',engine=engine,
+        selection_id='synthetic-selection',selection_sha256=digest,selection_directory=directory,
+        components=['prometheus'],operation_id='12345678-1234-4234-8234-123456789abc',request_fingerprint='a'*64)
+    assert result['state']=='completed' and result['success'] is True
+
+
+def test_explicit_component_group_preserves_unscoped_missing_service(tmp_path,monkeypatch):
+    from tests.test_release_selection import selection_files, SelectedEngine, REF
+    directory,_=selection_files(tmp_path)
+    manifest=json.loads(next((directory/'manifests').iterdir()).read_text())
+    for name,repository in [('grafana','grafana/grafana'),('ipmi-monitor','ghcr.io/cryptolabsza/ipmi-monitor')]:
+        manifest['components'][name]={'owner':'proxy-updater','release':'synthetic-1','artifacts':{'linux/amd64':{'kind':'oci','reference':repository+'@sha256:'+'a'*64}}}
+    raw=json.dumps(manifest).encode();digest=__import__('hashlib').sha256(raw).hexdigest()
+    (directory/'manifests'/(digest+'.json')).write_bytes(raw)
+    selection=json.loads((directory/'selection.json').read_text());selection['manifest_sha256']=digest
+    for name in ['grafana','ipmi-monitor']:selection['components'][name]={'enabled':True,'origin':'baseline'}
+    raw=json.dumps(selection).encode();(directory/'selection.json').write_bytes(raw)
+    engine=SelectedEngine(tmp_path);engine.selection=raw
+    engine.containers['grafana']=deepcopy(engine.current)
+    engine.containers['grafana']['Id']='c'*64
+    engine.updater_capabilities=lambda source_id:updates.get_capabilities()
+    old_image=engine.image
+    def image(reference):
+        result=old_image(reference)
+        if '@sha256:' in reference:result['RepoDigests']=[reference]
+        return result
+    engine.image=image
+    job=updates.submit_job('prometheus','main','pull',directory=tmp_path/'jobs',engine=engine,
+        selection_id='synthetic-selection',selection_sha256=__import__('hashlib').sha256(raw).hexdigest(),selection_directory=directory,
+        components=['prometheus','grafana'],operation_id='12345678-1234-4234-8234-123456789abc',request_fingerprint='a'*64)
+    assert set(job['targets'])=={'prometheus','grafana'}
+    assert 'ipmi-monitor' not in job['sources']
+    monkeypatch.setattr(updates,'pull_target',lambda reference:True)
+    result=updates.run_job(tmp_path/'jobs',job['id'],engine=engine)
+    assert result['success'] is True and set(result['results'])=={'prometheus','grafana'}
+    assert not [call for call in engine.calls if call[0]=='stop']
+
+
+@pytest.mark.parametrize('kind,name,source_path',[
+    ('volume','fleet-auth-data','/var/lib/docker/volumes/fleet-auth-data/_data'),
+    ('bind',None,'/srv/fleet/auth'),
+])
+def test_host_job_store_maps_to_same_backing_worker_namespace(kind,name,source_path):
+    source={'Image':'sha256:source','Mounts':[
+        {'Type':'volume','Name':'anonymous-data','Source':'/var/lib/docker/volumes/anonymous-data/_data','Destination':'/data','RW':True},
+        {'Type':kind,'Name':name,'Source':source_path,'Destination':'/data/auth','RW':True}]}
+    request=updates.helper_request(source,Path(source_path)/'update-jobs','a'*32)
+    assert request['Config']['Cmd'][-1]=='/data/auth/update-jobs'
+    assert request['HostConfig']['Mounts'][0]['Source']==(name if kind=='volume' else source_path)
+    assert request['HostConfig']['Mounts'][0]['Target']=='/data/auth'
+    if kind=='volume':
+        source['Mounts'].append({'Type':'bind','Source':'/shadow/operations','Destination':'/data/auth/update-jobs/operations','RW':True})
+        with pytest.raises(updates.UpdateError):updates.helper_request(source,Path(source_path)/'update-jobs','a'*32)
+        source['Mounts'].pop()
+    source['Mounts'].append({'Type':'bind','Source':source_path,'Destination':'/other','RW':True})
+    with pytest.raises(updates.UpdateError):updates.helper_request(source,Path(source_path)/'update-jobs','a'*32)
+
+
+def test_status_cannot_interrupt_dispatch_before_helper_start(tmp_path,monkeypatch):
+    from tests.test_release_selection import selection_files,SelectedEngine
+    directory,digest=selection_files(tmp_path);engine=SelectedEngine(tmp_path)
+    engine.updater_capabilities=lambda _:updates.get_capabilities()
+    observations=[];operation='12345678-1234-4234-8234-123456789abc'
+    original_create=engine.create
+    def create(name,request):
+        observations.append(updates.operation_status(operation,directory=tmp_path/'jobs',engine=engine)['state'])
+        original_create(name,request)
+    engine.create=create
+    result=updates.submit_job('prometheus','main','pull',directory=tmp_path/'jobs',engine=engine,
+        selection_id='synthetic-selection',selection_sha256=digest,selection_directory=directory,
+        components=['prometheus'],operation_id=operation,request_fingerprint='a'*64)
+    assert observations==['queued'] and result['state']=='queued'
+    monkeypatch.setattr(updates,'pull_target',lambda _:True)
+    engine.selection=(directory/'selection.json').read_bytes()
+    assert updates.run_job(tmp_path/'jobs',result['id'],engine=engine)['state']=='completed'

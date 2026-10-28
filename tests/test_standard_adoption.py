@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+# TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
 """Synthetic standard adoption: production render and compensated switch path."""
 import hashlib
 import json
@@ -413,6 +415,78 @@ def test_external_shared_store_change_holds_old_image_restore(tmp_path,monkeypat
     assert json.loads((directory/'standard-adoptions'/plan['plan_id']/'outcome.json').read_text())['state']=='forward_repair_required'
 
 
+@pytest.mark.parametrize('external_change', ['read-only', 'nonempty-lock', 'pairing-journal', 'other-empty'])
+def test_pairing_first_read_preserves_rollback_and_real_external_state(tmp_path, monkeypatch, external_change):
+    """A real PairStore read creates a mutex, while real state still holds rollback."""
+    import io
+    import tarfile
+    from cryptolabs_proxy.account_link import PairStore
+    from cryptolabs_proxy.standard_adoption import AdoptionError, OWNED_AUTH_FILES, auth_state, owned_auth_archive
+
+    adoption, engine, settings, directory = system(tmp_path, monkeypatch)
+    auth_dir = tmp_path / 'actual-auth'
+    auth_dir.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(engine.auth)) as source:
+        for member in source:
+            (auth_dir / Path(member.name).name).write_bytes(source.extractfile(member).read())
+    users_before = (auth_dir / 'users.json').read_bytes()
+
+    def archive(name):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w') as target:
+            target.add(auth_dir, arcname='auth')
+        return output.getvalue()
+
+    def restore(name, data, image, identity):
+        engine.calls.append(('restore-auth', name, data))
+        for owned in OWNED_AUTH_FILES:
+            (auth_dir / owned).unlink(missing_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(owned_auth_archive(data))) as source:
+            for member in source:
+                (auth_dir / Path(member.name).name).write_bytes(source.extractfile(member).read())
+        assert auth_state(archive(name)) == auth_state(data)
+
+    monkeypatch.setattr(engine, 'archive_auth', archive)
+    monkeypatch.setattr(engine, 'restore_auth', restore)
+    plan = adoption.plan(settings)
+    start = engine.start
+
+    def candidate_read(name):
+        start(name)
+        if engine.containers[name]['Id'] == 'new-id':
+            assert PairStore(auth_dir).paired_account() is None
+            assert (auth_dir / 'account_link.lock').read_bytes() == b''
+            assert not (auth_dir / 'account_link.json').exists()
+            if external_change == 'nonempty-lock':
+                (auth_dir / 'account_link.lock').write_bytes(b'operator-state')
+            elif external_change == 'pairing-journal':
+                (auth_dir / 'account_link.json').write_text(json.dumps({'version': 1, 'journal': {'pending': True}}))
+            elif external_change == 'other-empty':
+                (auth_dir / 'unrelated.lock').write_bytes(b'')
+
+    monkeypatch.setattr(engine, 'start', candidate_read)
+    engine.fail_health = True
+    with pytest.raises(AdoptionError):
+        adoption.adopt(settings, plan['plan_id'])
+    outcome = json.loads((directory / 'standard-adoptions' / plan['plan_id'] / 'outcome.json').read_text())
+    assert (auth_dir / 'account_link.lock').exists()
+    assert (auth_dir / 'users.json').read_bytes() == users_before
+    if external_change == 'read-only':
+        assert outcome['state'] == 'rolled_back'
+        assert engine.containers['cryptolabs-proxy']['State']['Running']
+        assert engine.containers['cryptolabs-proxy']['Image'] == 'sha256:old'
+        assert [call for call in engine.calls if call[0] == 'restore-auth']
+    else:
+        assert outcome['state'] == 'forward_repair_required'
+        assert not [call for call in engine.calls if call[0] == 'restore-auth']
+        if external_change == 'nonempty-lock':
+            assert (auth_dir / 'account_link.lock').read_bytes() == b'operator-state'
+        elif external_change == 'pairing-journal':
+            assert json.loads((auth_dir / 'account_link.json').read_text())['journal'] == {'pending': True}
+        else:
+            assert (auth_dir / 'unrelated.lock').read_bytes() == b''
+
+
 def test_inspect_reports_active_upstreams_and_safe_unmapped_directive_context(tmp_path,monkeypatch):
     from cryptolabs_proxy.standard_adoption import AdoptionError
     adoption,engine,settings,directory=system(tmp_path,monkeypatch)
@@ -474,3 +548,216 @@ def test_selected_image_must_have_normal_auth_module_even_without_overlay(tmp_pa
     monkeypatch.setattr(engine,'artifact_file_sha256',lambda *args:'0'*64,raising=False)
     with pytest.raises(AdoptionError): adoption.adopt(settings,plan['plan_id'])
     assert not [c for c in engine.calls if c[0]=='stop']
+
+
+def test_proposed_selection_plan_is_pure_and_revalidates_exact_bytes(tmp_path, monkeypatch):
+    from cryptolabs_proxy import release_selection
+    adoption, engine, settings, directory = system(tmp_path, monkeypatch)
+    releases = Path(settings['release_selection_dir'])
+    before = {str(p):p.read_bytes() for p in releases.rglob('*') if p.is_file()}
+    old = release_selection.load(releases)
+    manifest = json.loads(old['manifest_bytes'])
+    manifest['components']['cryptolabs-proxy']['artifacts']['linux/amd64']['reference'] = REF.replace('a'*64, 'b'*64)
+    manifest_raw = json.dumps(manifest).encode()
+    selected = json.loads(old['selection_bytes'])
+    selected['manifest_sha256'] = hashlib.sha256(manifest_raw).hexdigest()
+    proposed = release_selection.validate(json.dumps(selected).encode(), manifest_raw)
+    preview = adoption.plan(settings, proposed_selection=proposed)
+    assert preview['image'].endswith('b'*64)
+    assert preview['selection_sha256'] == proposed['selection_sha256']
+    assert {str(p):p.read_bytes() for p in releases.rglob('*') if p.is_file()} == before
+    assert engine.calls == []
+    proposed['selection_sha256'] = '0'*64
+    with pytest.raises(ValueError): adoption.plan(settings, proposed_selection=proposed)
+
+
+def test_recover_adoption_reports_retained_success_only_with_live_identity(tmp_path, monkeypatch):
+    adoption, engine, settings, directory = system(tmp_path, monkeypatch)
+    plan = adoption.plan(settings)
+    result = adoption.adopt(settings, plan['plan_id'])
+    assert result['state'] == 'adopted'
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os, 'getuid', __import__('os').getuid, raising=False)
+    assert adoption.recover_adoption(plan['plan_id'])['state'] == 'completed'
+    engine.current['Config']['Env'].append('UNRELATED=drift')
+    # Installed serving object, not a stale source pointer.
+    engine.containers['cryptolabs-proxy']['Config']['Env'].append('DRIFT=true')
+    assert adoption.recover_adoption(plan['plan_id'])['state'] == 'recovery-required'
+
+
+def test_previous_standard_profile_is_exact_and_adoptable(tmp_path,monkeypatch):
+    import subprocess
+    from cryptolabs_proxy.config import get_jinja_env
+    from cryptolabs_proxy.standard_adoption import AdoptionError
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    raw=(Path(__file__).parents[1]/'src/cryptolabs_proxy/templates/previous-standard-nginx-444d7c0.conf.j2').read_bytes()
+    assert hashlib.sha256(raw).hexdigest()=='f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de'
+    template=raw.decode()
+    old=get_jinja_env().from_string(template).render(domain=settings['domain'],letsencrypt=False,services=settings['services'],host_forward_groups=[],acme_challenge=None,hostname_policy=None,http_policy=None).encode()
+    engine.config=old
+    plan=adoption.plan(settings)
+    assert plan['source_profile']=='standard-444d7c0'
+    engine.config=old.replace(b'keepalive_timeout 65;',b'keepalive_timeout 66;')
+    with pytest.raises(AdoptionError):adoption.plan(settings)
+    engine.config=old
+    assert adoption.adopt(settings,plan['plan_id'])['state']=='adopted'
+
+
+@pytest.mark.parametrize('enabled',[True,False,'true'])
+def test_real_compose_renderer_preserves_validated_broker_flag(tmp_path,enabled):
+    from cryptolabs_proxy.config import generate_docker_compose
+    registry=ServiceRegistry(tmp_path);registry.config={'domain':'fleet.example.test','release_broker_enabled':enabled};registry.save()
+    if type(enabled) is not bool:
+        with pytest.raises(ValueError):generate_docker_compose(tmp_path)
+        assert not (tmp_path/'docker-compose.yml').exists()
+    else:
+        generate_docker_compose(tmp_path)
+        assert ('/run/dc-overview-release-broker.sock:' in (tmp_path/'docker-compose.yml').read_text()) is enabled
+
+
+def test_fixed_recovery_restores_stopped_source_before_auth_archive_gap(tmp_path,monkeypatch):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);stop=engine.stop
+    def die(name,ignore_missing=False):
+        stop(name,ignore_missing)
+        raise KeyboardInterrupt('owner died immediately after stop')
+    engine.stop=die
+    with pytest.raises(KeyboardInterrupt):adoption.adopt(settings,plan['plan_id'])
+    assert not engine.inspect('cryptolabs-proxy')['State']['Running']
+    engine.stop=stop
+    recovered=adoption.recover_adoption(plan['plan_id'])
+    assert recovered['state']=='failed-restored'
+    serving=engine.inspect('cryptolabs-proxy')
+    assert serving['State']['Running'] and serving['Image']=='sha256:old'
+    assert 'FLEET_ADMIN_PASS=' in serving['Config']['Env']
+    assert engine.auth==auth_tar({'users.json':b'synthetic-auth-archive'})
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='failed-restored'
+
+
+def test_recovery_recognizes_actual_sanitized_rollback_identity(tmp_path,monkeypatch):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);engine.fail_health=True
+    with pytest.raises(owner.AdoptionError):adoption.adopt(settings,plan['plan_id'])
+    assert engine.inspect('cryptolabs-proxy')['Id']!=plan['container_id']
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='failed-restored'
+    engine.auth=auth_tar({'users.json':b'changed-authority'})
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='recovery-required'
+
+
+def test_fixed_recovery_never_replays_candidate_start_or_overwrites_new_auth(tmp_path,monkeypatch):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);start=engine.start
+    def die(name):
+        start(name)
+        if engine.inspect(name)['Image']=='sha256:new':
+            engine.auth=auth_tar({'users.json':b'new-authority'})
+            raise KeyboardInterrupt('owner died after candidate start')
+    engine.start=die
+    with pytest.raises(KeyboardInterrupt):adoption.adopt(settings,plan['plan_id'])
+    archive=engine.auth;calls=list(engine.calls)
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='recovery-required'
+    assert engine.auth==archive and engine.calls==calls
+
+
+@pytest.mark.parametrize("startup_preserves_auth",[True,False])
+def test_fixed_recovery_preserves_latest_quiescent_auth_after_stop(tmp_path,monkeypatch,startup_preserves_auth):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);stop=engine.stop
+    def die(name,ignore_missing=False):
+        stop(name,ignore_missing)
+        raise KeyboardInterrupt('after stop')
+    engine.stop=die
+    with pytest.raises(KeyboardInterrupt):adoption.adopt(settings,plan['plan_id'])
+    engine.stop=stop;engine.auth=auth_tar({'users.json':b'concurrent-authority'})
+    latest=engine.auth
+    if not startup_preserves_auth:
+        def reject(*args):
+            raise owner.AdoptionError('source_auth_startup_unverified')
+        engine.prove_recovery_auth=reject
+    assert adoption.recover_adoption(plan['plan_id'])['state']==('failed-restored' if startup_preserves_auth else 'recovery-required')
+    assert engine.inspect('cryptolabs-proxy')['State']['Running'] is startup_preserves_auth
+    assert engine.auth==latest
+    assert not [call for call in engine.calls if call[0]=='restore-auth']
+    if startup_preserves_auth:
+        assert adoption.recover_adoption(plan['plan_id'])['state']=='failed-restored'
+        phase=json.loads((adoption.backup_root/plan['plan_id']/'phase.json').read_text())
+        assert phase['prestop_auth_match'] is False and phase['restoration_auth']!=phase['prestop_auth']
+
+
+def test_verified_restoration_receipt_survives_missing_final_outcome(tmp_path,monkeypatch):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);engine.fail_health=True
+    with pytest.raises(owner.AdoptionError):adoption.adopt(settings,plan['plan_id'])
+    (adoption.backup_root/plan['plan_id']/'outcome.json').unlink()
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='failed-restored'
+
+
+@pytest.mark.parametrize('owned',[True,False])
+def test_finished_owner_reclaims_only_exact_orphan_guard(tmp_path,monkeypatch,owned):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);adoption.adopt(settings,plan['plan_id'])
+    path=adoption.backup_root/plan['plan_id']/'phase.json';journal=json.loads(path.read_text())
+    journal['guard_id']='guard-id';path.write_text(json.dumps(journal))
+    name='cryptolabs-adoption-lock-'+plan['plan_id']
+    auth=next(m for m in engine.current['Mounts'] if m['Destination']=='/data/auth')
+    helper={'Id':'guard-id','Image':journal['candidate_image_id'],'Config':{
+        'Entrypoint':['python3'],'Cmd':['-c','fixed-lock-script','/data/auth/update-jobs','/tmp/updater-held'],
+        'Labels':{'io.cryptolabs.adoption.guard':plan['plan_id'] if owned else 'another-plan'}},'Mounts':[deepcopy(auth)]}
+    engine.containers[name]=helper;engine.by_id['guard-id']=helper
+    removed=[];remove=engine.remove
+    def remove_id(identifier,ignore_missing=False):
+        removed.append(identifier)
+        found=next((n for n,v in engine.containers.items() if v.get('Id')==identifier),identifier)
+        remove(found,ignore_missing)
+    engine.remove=remove_id
+    assert adoption.recover_adoption(plan['plan_id'])['state']==('completed' if owned else 'recovery-required')
+    assert removed==(['guard-id'] if owned else [])
+
+
+def test_fixed_recovery_preserves_external_registry_change_after_owner_death(tmp_path,monkeypatch):
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    import cryptolabs_proxy.standard_adoption as owner
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);stop=engine.stop
+    def die(name,ignore_missing=False):
+        stop(name,ignore_missing);raise KeyboardInterrupt('after stop')
+    engine.stop=die
+    with pytest.raises(KeyboardInterrupt):adoption.adopt(settings,plan['plan_id'])
+    engine.stop=stop
+    path=directory/'services.yaml';changed=path.read_bytes()+b'\n# external owner change\n';path.write_bytes(changed)
+    assert adoption.recover_adoption(plan['plan_id'])['state']=='recovery-required'
+    assert path.read_bytes()==changed and not engine.inspect('cryptolabs-proxy')['State']['Running']
+    assert not [call for call in engine.calls if call[0]=='prove-recovery-auth']
+
+
+def test_inprocess_latest_auth_restoration_reconciles_repeat_without_archive_restore(tmp_path,monkeypatch):
+    import cryptolabs_proxy.standard_adoption as owner
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    monkeypatch.setattr(owner.os,'getuid',__import__('os').getuid,raising=False)
+    plan=adoption.plan(settings);stop=engine.stop
+    latest=auth_tar({'users.json':b'latest-authority','sessions.json':b'latest-session'})
+    def changed_stop(name,ignore_missing=False):
+        stop(name,ignore_missing)
+        if name==plan['container_id']:engine.auth=latest
+    engine.stop=changed_stop
+    with pytest.raises(owner.AdoptionError):adoption.adopt(settings,plan['plan_id'])
+    assert engine.inspect('cryptolabs-proxy')['State']['Running']
+    assert engine.auth==latest
+    for _ in range(2):
+        assert adoption.recover_adoption(plan['plan_id'])['state']=='failed-restored'
+        assert engine.auth==latest
+    assert not [call for call in engine.calls if call[0]=='restore-auth']
+    journal=json.loads((adoption.backup_root/plan['plan_id']/'phase.json').read_text())
+    assert journal['restoration_auth']!=journal['prestop_auth']

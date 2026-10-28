@@ -1,4 +1,15 @@
 {
+  "schema_version": "owner-approved-work-item-pointer/1",
+  "work_item": "fleet-manager-build-20261027",
+  "canonical_contract": "../../artifacts/ipmi-readiness-20261026/release/fleet-manager-build-20261027/intent-contract.json",
+  "requirement": "REQ-FLEETUPDATE-001",
+  "trace": "TRACE-FLEETUPDATE-001",
+  "verification": "VER-FLEETUPDATE-001",
+  "validation": "VAL-FLEETUPDATE-001",
+  "approved_plan_sha256": "ec14802b47a1078ad6b1d051ba2943d43c77160e5bfe119c366eb4209caec516",
+  "mode": "implementation-no-publication",
+  "production_writes": "disabled-until-approved-integration-evidence",
+  "must_not_change": "unrelated worktrees, versions, secrets, customer settings, shared runner authority",
   "intent_contract_id": "PAIR-PROXY-20261028-01",
   "traceweaver_mode": "advisory",
   "account_pairing_scope": {
