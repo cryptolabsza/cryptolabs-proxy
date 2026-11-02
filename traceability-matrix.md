@@ -43,6 +43,7 @@ Implementation candidate; all installed/runtime/native/browser/requirement closu
 | src/cryptolabs_proxy/standard_adoption.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-recovery |
 | src/cryptolabs_proxy/config.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | fleet-release-compose-consumer |
 | src/cryptolabs_proxy/config.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-compose-consumer |
+| src/cryptolabs_proxy/standard_adoption.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-stock-profile-renderer |
 | src/cryptolabs_proxy/update_recovery.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | native-service-recovery |
 | src/cryptolabs_proxy/update_recovery.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | native-service-recovery |
 | src/cryptolabs_proxy/updates.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-implementation |
@@ -113,3 +114,25 @@ hashes are retained at `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/e
 Shared pre-code V&V is `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-vv-root-reviewed.json`.
 Native installed-wheel bootstrap, source publication, production reconciliation,
 site continuity, signed admission and UI acceptance remain held.
+
+
+## Main 1.6 stock-profile compatibility evidence
+
+FLEET-MAIN16-COMPAT-20261102 retains the existing REQ/TRACE/VER/VAL-FLEETUPDATE-001
+labels and owner-approved amendment159af842. Accepted authority and root source GO:
+`../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/plan.json` and `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/root-source-go.json`.
+Verification: actual preimplementation RED in `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/definition/worktree-red-evidence.json`,
+then initial source/package evidence in `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/build/`. Local GREEN does not close
+VAL-FLEETUPDATE-001 or installed/native/browser acceptance; final independent review remains held.
+
+The following immutable copied/generated data exceptions preserve released producer bytes,
+including existing source comments and whitespace. No inserted anchors or byte normalization
+are permitted. Exact Main template Git blob is `d1dd2d87eaa5f696d610997f522a983026b3ef6d`;
+producer/template dependency identities are in `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/definition/producer-provenance.json`.
+Root approved the frozen fixture scope in `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/root-test-only-go.json`.
+
+| Artifact Path | Requirement | Trace | Verification | Anchor Type | Provenance / acceptance |
+| --- | --- | --- | --- | --- | --- |
+| src/cryptolabs_proxy/templates/previous-standard-nginx-8e2b421.conf.j2 | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 05828b78143c5d6cd7cbe60700cfc54b627cb4efff9a7af43439fdb56e25edab; exact-byte provenance and adoption/corruption tests; native/site acceptance held |
+| tests/fixtures/main16-self-signed.conf | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 f1f570ca848b5dbf15d635bf4d3de90cbb89a68e2c9da0761d6295b7d46a80b6; exact-byte provenance and adoption/corruption tests; native/site acceptance held |
+| tests/fixtures/main16-letsencrypt.conf | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 5cad780fddc4aea67b2a13e26b808e9b1454f9a33abd6d459b82d8066423cbb5; exact-byte provenance and adoption/corruption tests; native/site acceptance held |

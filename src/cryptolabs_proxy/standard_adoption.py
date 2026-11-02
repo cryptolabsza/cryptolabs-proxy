@@ -230,15 +230,25 @@ def render_standard(declaration):
 
 
 PREVIOUS_STANDARD_SOURCE = '444d7c0e06e0f9935971c51872e9f37bd8869282'
+MAIN16_STANDARD_SOURCE = '8e2b421b65f6d8d47f780e5681d0f3d690686a6d'
 PREVIOUS_STANDARD_TEMPLATES = {'previous-standard-nginx-444d7c0.conf.j2': 'f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de', 'vast-price-manager-auth-blocks.conf.j2': 'b9d7013434557492887b0600bc2afc92227ee17f9efebe55b0cccc4b16bd3f81', 'acme-challenge.conf.j2': '7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a', 'fleet-api-routes.conf.j2': '6991ca6bf1dd4b258e8ee7851fc69ef50b19dfe2353570e4911a0ebadc68ed1b', 'vast-price-manager.conf.j2': '32483d169a09c42653396e66c5c7efe1995bd599f44f11ee64fa2f0731a0a2f8', 'standard-service-routes.conf.j2': 'ef0f55aae48e35127d288781e68281a371505ba27384c8fd04dff9200dce3963', 'exporter-auth-routes.conf.j2': '450f4c418c09474ac45b6dd314c47cc090fe7d230a0206b30e48c7975023133b', 'host-forwarding.conf.j2': '35c4a1fe1d3001865a77d7653350b7a61968953b94172dc7063bc31a42c0f9f7'}
 
 
-def render_previous_standard(declaration):
+# TRACEWEAVER: entrypoint=render_previous_standard; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+def render_previous_standard(declaration, *, source=PREVIOUS_STANDARD_SOURCE):
+    template='previous-standard-nginx-444d7c0.conf.j2'
+    templates=PREVIOUS_STANDARD_TEMPLATES
+    if source==MAIN16_STANDARD_SOURCE:
+        templates={name:digest for name,digest in templates.items() if name!=template}
+        template='previous-standard-nginx-8e2b421.conf.j2'
+        templates[template]='05828b78143c5d6cd7cbe60700cfc54b627cb4efff9a7af43439fdb56e25edab'
+    elif source!=PREVIOUS_STANDARD_SOURCE:
+        raise AdoptionError('previous_standard_profile_unavailable')
     env=get_jinja_env()
-    for name,expected in PREVIOUS_STANDARD_TEMPLATES.items():
+    for name,expected in templates.items():
         raw=env.loader.get_source(env,name)[0].encode()
         if sha256(raw)!=expected: raise AdoptionError('previous_standard_profile_unavailable')
-    return env.get_template('previous-standard-nginx-444d7c0.conf.j2').render(
+    return env.get_template(template).render(
         domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],
         host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),
         hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),
@@ -640,6 +650,7 @@ class StandardAdoption:
         actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
         if actual==expected: return 'standard'
         if actual==normalize(parse_nginx(render_previous_standard(declaration))): return 'standard-444d7c0'
+        if actual==normalize(parse_nginx(render_previous_standard(declaration,source=MAIN16_STANDARD_SOURCE))): return 'standard-8e2b421'
         legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
         profiles=[legacy]
         for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))

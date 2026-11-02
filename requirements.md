@@ -21,6 +21,21 @@ verified. No feature version bump or publication is part of this worktree change
 # CryptoLabs Proxy scoped requirements
 
 
+## Main 1.6 stock-profile compatibility evidence
+
+`FLEET-MAIN16-COMPAT-20261102` is a bounded integration repair under the existing
+REQ-FLEETUPDATE-001 authority. The owner-approved amendment SHA256 is
+`159af8421e4dde61e4ecc4f47849a1ddd7f07cd6fb158d247256f0bb36ed316e`.
+The accepted [child plan](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/plan.json)
+and [root source GO](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/root-source-go.json)
+bound this repair to the exact released Main `8e2b421` standard profile. Existing
+Fleet and pairing requirement statements remain authoritative. Verification
+uses VER-FLEETUPDATE-001 and the [worktree RED and V&V definition](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/definition/).
+Local implementation, package evidence and final independent review do not close
+VAL-FLEETUPDATE-001; protected CI, native and installed browser/site acceptance
+remain separately held. No recovery or native operation budget is reset.
+
+
 ## Owner-approved account pairing — PAIR-20261028-01
 
 Source: latest owner approval quoted in `.traceweaver/account-pairing-20261028/authority.json`. Reviewed scope hash: `9b80ccd96837cae1dd63723fa10ce8390dc4305fcc9e65f303a4868a917dc922`. The exact shared protocol is `.traceweaver/account-pairing-20261028/contract.json`. Existing requirements remain authoritative; this appendix governs only the approved pairing increment. Delivery and paid-service acceptance remain held until observed.
