@@ -69,22 +69,41 @@
       "verification_id": "VER-PAIR-006",
       "validation_id": "VAL-PAIR-006"
     }
-  ]
+  ],
+  "service_recovery_amendment_projection": {
+    "date": "2026-11-02",
+    "authority_plan": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/architecture/continuation-amendment.json",
+    "plan_sha256": "159af8421e4dde61e4ecc4f47849a1ddd7f07cd6fb158d247256f0bb36ed316e",
+    "owner_approval": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/owner-approval.json",
+    "implementation_contract_sha256": "91b873c548da7d10a113c8fbb74f09540559ba51339514c738e081d0dc75cf01",
+    "authority_gate": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-source-go.json",
+    "reviewed_vv": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-vv-root-reviewed.json",
+    "requirement": "REQ-FLEETUPDATE-001",
+    "trace": "TRACE-FLEETUPDATE-001",
+    "verification": "VER-FLEETUPDATE-001",
+    "validation": "VAL-FLEETUPDATE-001",
+    "source_only": true,
+    "native_acceptance": "held",
+    "production_writes": "disabled",
+    "publication": "held"
+  },
+  "main16_compatibility": {
+    "work_item_id": "FLEET-MAIN16-COMPAT-20261102",
+    "requirement": "REQ-FLEETUPDATE-001",
+    "trace": "TRACE-FLEETUPDATE-001",
+    "verification": "VER-FLEETUPDATE-001",
+    "validation": "VAL-FLEETUPDATE-001",
+    "approved_amendment_sha256": "159af8421e4dde61e4ecc4f47849a1ddd7f07cd6fb158d247256f0bb36ed316e",
+    "accepted_plan": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/plan.json",
+    "root_source_go": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/root-source-go.json",
+    "frozen_profile_sha256": "dd1692f7a21e9d9331049970d7176af59cf9cc7ee9a3f3fb975c227b08424a5d",
+    "released_main_source": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+    "stock_profile": "standard-8e2b421",
+    "evidence_directory": "../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat",
+    "frozen_data_exception": "Exact copied Main template and independently rendered static inputs retain original bytes; external matrix SHA256 mapping replaces new inline anchors.",
+    "must_not_change": "auth/current target/lifecycle/dependencies/versions/customer settings/publication/native authority",
+    "acceptance": "Local candidate only; final independent review, protected CI/native/installed browser/site acceptance held",
+    "prior_recovery_budget_reset": false,
+    "new_native_budget": 0
+  }
 }
-
-service_recovery_amendment_projection:
-  date: 2026-11-02
-  authority_plan: ../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/architecture/continuation-amendment.json
-  plan_sha256: 159af8421e4dde61e4ecc4f47849a1ddd7f07cd6fb158d247256f0bb36ed316e
-  owner_approval: ../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/owner-approval.json
-  implementation_contract_sha256: 91b873c548da7d10a113c8fbb74f09540559ba51339514c738e081d0dc75cf01
-  authority_gate: ../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-source-go.json
-  reviewed_vv: ../../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-vv-root-reviewed.json
-  requirement: REQ-FLEETUPDATE-001
-  trace: TRACE-FLEETUPDATE-001
-  verification: VER-FLEETUPDATE-001
-  validation: VAL-FLEETUPDATE-001
-  source_only: true
-  native_acceptance: held
-  production_writes: disabled
-  publication: held

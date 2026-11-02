@@ -585,22 +585,73 @@ def test_recover_adoption_reports_retained_success_only_with_live_identity(tmp_p
     assert adoption.recover_adoption(plan['plan_id'])['state'] == 'recovery-required'
 
 
-def test_previous_standard_profile_is_exact_and_adoptable(tmp_path,monkeypatch):
-    import subprocess
+@pytest.mark.parametrize('profile,tls', [
+    ('standard-444d7c0','self-signed'),
+    ('standard-8e2b421','self-signed'),
+    ('standard-8e2b421','letsencrypt'),
+])
+def test_previous_standard_profile_is_exact_and_adoptable(tmp_path,monkeypatch,profile,tls):
     from cryptolabs_proxy.config import get_jinja_env
     from cryptolabs_proxy.standard_adoption import AdoptionError
     adoption,engine,settings,directory=system(tmp_path,monkeypatch)
-    raw=(Path(__file__).parents[1]/'src/cryptolabs_proxy/templates/previous-standard-nginx-444d7c0.conf.j2').read_bytes()
-    assert hashlib.sha256(raw).hexdigest()=='f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de'
-    template=raw.decode()
-    old=get_jinja_env().from_string(template).render(domain=settings['domain'],letsencrypt=False,services=settings['services'],host_forward_groups=[],acme_challenge=None,hostname_policy=None,http_policy=None).encode()
+    settings['tls']=tls
+    if profile=='standard-444d7c0':
+        raw=(Path(__file__).parents[1]/'src/cryptolabs_proxy/templates/previous-standard-nginx-444d7c0.conf.j2').read_bytes()
+        assert hashlib.sha256(raw).hexdigest()=='f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de'
+        old=get_jinja_env().from_string(raw.decode()).render(domain=settings['domain'],letsencrypt=False,services=settings['services'],host_forward_groups=[],acme_challenge=None,hostname_policy=None,http_policy=None).encode()
+    else:
+        old=(Path(__file__).parent/'fixtures'/('main16-'+tls+'.conf')).read_bytes()
+        expected={'self-signed':'f1f570ca848b5dbf15d635bf4d3de90cbb89a68e2c9da0761d6295b7d46a80b6','letsencrypt':'5cad780fddc4aea67b2a13e26b808e9b1454f9a33abd6d459b82d8066423cbb5'}
+        assert hashlib.sha256(old).hexdigest()==expected[tls]
+        assert b'location ^~ /api/account-link/ {' in old
     engine.config=old
     plan=adoption.plan(settings)
-    assert plan['source_profile']=='standard-444d7c0'
+    assert plan['source_profile']==profile
     engine.config=old.replace(b'keepalive_timeout 65;',b'keepalive_timeout 66;')
-    with pytest.raises(AdoptionError):adoption.plan(settings)
+    with pytest.raises(AdoptionError,match='unsupported_source_behavior'):adoption.plan(settings)
+    assert engine.calls==[]
     engine.config=old
+    original_auth=engine.auth
     assert adoption.adopt(settings,plan['plan_id'])['state']=='adopted'
+    assert engine.auth==original_auth
+    assert b'location ^~ /api/account-link/ {' in engine.config
+    assert b'location ^~ /api/releases/ {' in engine.config
+    assert b'location = /api/update {' in engine.config
+    certificate=(b'/etc/letsencrypt/live/fleet.example.test/fullchain.pem' if tls=='letsencrypt' else b'/etc/nginx/ssl/server.crt')
+    assert b'ssl_certificate '+certificate+b';' in engine.config
+    assert next(m['Source'] for m in engine.request['HostConfig']['Mounts'] if m['Target']=='/data/auth')=='old-auth'
+    assert any(m['Target']=='/etc/letsencrypt' and m['Source']=='certs' for m in engine.request['HostConfig']['Mounts'])
+
+
+def test_main16_unknown_source_directive_is_refused_without_mutation(tmp_path,monkeypatch):
+    from cryptolabs_proxy.standard_adoption import AdoptionError
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    source=(Path(__file__).parent/'fixtures/main16-self-signed.conf').read_bytes()
+    assert b'keepalive_timeout 65;' in source
+    engine.config=source.replace(b'keepalive_timeout 65;',b'keepalive_timeout 66;')
+    before={p.name:p.read_bytes() for p in directory.iterdir()}
+    runtime=deepcopy(engine.current)
+    with pytest.raises(AdoptionError,match='unsupported_source_behavior'):adoption.plan(settings)
+    assert engine.calls==[] and engine.current==runtime
+    assert before=={p.name:p.read_bytes() for p in directory.iterdir()}
+
+
+def test_main16_corrupt_profile_asset_is_refused_without_mutation(tmp_path,monkeypatch):
+    from jinja2 import PackageLoader
+    from cryptolabs_proxy.standard_adoption import AdoptionError
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+    engine.config=(Path(__file__).parent/'fixtures/main16-self-signed.conf').read_bytes()
+    get_source=PackageLoader.get_source
+    def corrupt_main16(loader,environment,template):
+        source,filename,uptodate=get_source(loader,environment,template)
+        if template=='previous-standard-nginx-8e2b421.conf.j2':source+='\n# corrupted stock profile'
+        return source,filename,uptodate
+    monkeypatch.setattr(PackageLoader,'get_source',corrupt_main16)
+    before={p.name:p.read_bytes() for p in directory.iterdir()}
+    runtime=deepcopy(engine.current)
+    with pytest.raises(AdoptionError,match='previous_standard_profile_unavailable'):adoption.plan(settings)
+    assert engine.calls==[] and engine.current==runtime
+    assert before=={p.name:p.read_bytes() for p in directory.iterdir()}
 
 
 @pytest.mark.parametrize('enabled',[True,False,'true'])
