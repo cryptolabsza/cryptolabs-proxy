@@ -60,3 +60,22 @@ Verification: `VER-PAIR-005`; validation: `VAL-PAIR-005`. See scoped authority a
 The implementation shall preserve existing working links and legacy clients, keep the current pinned WordPress package/publisher boundary, and deliver installed product updates through accepted DC Overview Fleet Management. Deployment and paid-service acceptance shall remain held until observed in the intended environment.
 
 Verification: `VER-PAIR-006`; validation: `VAL-PAIR-006`. See scoped authority and protocol for executable acceptance boundaries.
+
+
+## 2 November 2026 native service recovery amendment
+
+The existing administrative REQ/TRACE/VER/VAL-FLEETUPDATE-001 labels also
+project the exact owner-approved [continuation amendment](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/architecture/continuation-amendment.json),
+SHA256 `159af8421e4dde61e4ecc4f47849a1ddd7f07cd6fb158d247256f0bb36ed316e`,
+and its [owner receipt](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/owner-approval.json). The frozen implementation
+contract is [contract.json](../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/contract/contract.json), SHA256
+`91b873c548da7d10a113c8fbb74f09540559ba51339514c738e081d0dc75cf01`.
+This is a linked projection, not a new approval or requirement identity.
+
+The fixed root host command verifies retained pre-job evidence and the exact
+original service before publishing a private job-bound `original_restored`
+receipt. The failed job and active pointer stay intact. Selector, native submit
+and worker revalidate restoration and retain predecessor dependencies through
+blocked successors. New-job phase diagnostics contain only allowlisted facts.
+Source tests do not establish actual Linux bootstrap, release, target or browser
+acceptance; those gates and publication remain held.

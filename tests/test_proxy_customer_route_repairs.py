@@ -171,9 +171,11 @@ def test_additive_capabilities_getter_matches_cli_contract(capsys):
     capabilities=updates.get_capabilities()
     assert capabilities=={'selection_contract':1,'supported_selection_contracts':[1,2],
         'release_components':1,'release_idempotency':1,'proxy_selection_preview':1,'proxy_adoption_recovery':1,
+        'native_service_recovery':1,
         'proxy_replacement_policy':'host-adoption-required-v1',
         'controller_adoption_guard':{'schema_version':1,'api':'AdoptionEngine.controller_guard',
                                      'durable_updater_exclusion':True}}
+    assert type(capabilities['native_service_recovery']) is int
     assert type(capabilities['controller_adoption_guard']['schema_version']) is int
     assert capabilities['controller_adoption_guard']['durable_updater_exclusion'] is True
     assert updates.main(['capabilities'])==0

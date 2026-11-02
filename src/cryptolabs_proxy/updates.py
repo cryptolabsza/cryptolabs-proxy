@@ -24,6 +24,7 @@ from urllib.request import urlopen
 from .migration import DockerEngine, MigrationError, _mount_request, endpoint_configurations
 from . import release_selection as selection
 from . import controller_recovery
+from . import update_recovery as recovery
 
 
 SERVICES = {
@@ -62,6 +63,7 @@ def get_capabilities():
             'supported_selection_contracts': [1, 2],
             'release_components': 1, 'release_idempotency': 1,
             'proxy_selection_preview': 1, 'proxy_adoption_recovery': 1,
+            'native_service_recovery': 1,
             'proxy_replacement_policy': PROXY_REPLACEMENT_POLICY,
             'controller_adoption_guard': dict(controller_recovery.CAPABILITY)}
 
@@ -86,6 +88,131 @@ def _require_selected_updater(engine, source, contract=1, *, scoped=False):
             raise ValueError()
     except Exception:
         raise UpdateError('Selected helper requires verified live updater capabilities. '+PROXY_ADOPTION_MESSAGE) from None
+
+
+def _require_terminated_helper(engine, job):
+    helper = 'cryptolabs-update-' + job['id']
+    recovery.require(job['helper'] == helper)
+    try:
+        helper_state = engine.inspect(helper)['State']
+        recovery.require(helper_state.get('Status') in ('exited', 'dead') and
+            all(helper_state.get(k) is False for k in ('Running', 'Paused', 'Restarting')))
+    except MigrationError as error:
+        if not str(error).endswith('HTTP 404'):
+            recovery.hold()
+
+
+# TRACEWEAVER: entrypoint=observe_original; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+def observe_original(engine, job):
+    """Observe exact original, terminal helper and bounded private continuity."""
+    try:
+        original = job['sources']['ipmi-monitor']
+        current = engine.inspect('ipmi-monitor')
+        state = current['State']
+        recovery.require(current['Id'] == original['container_id'] and current['Image'] == original['image_id'])
+        recovery.require(current['Name'] == '/ipmi-monitor' and state.get('Running') is True)
+        recovery.require(all(state.get(k) is False for k in ('Paused', 'Restarting', 'Dead')))
+        recovery.require(state.get('Status') == 'running')
+        _require_terminated_helper(engine, job)
+        proof = engine.recovery_probe(original['container_id'])
+        recovery.require(type(proof) is dict and set(proof) == {'continuity', 'last_collection'})
+        recovery.require(recovery._timestamp(proof['last_collection']) > recovery._timestamp(state['StartedAt']))
+        continuity = dict(proof['continuity'], projection='ipmi-original-continuity-v1',
+                          **recovery.runtime_fingerprints(current))
+        recovery.validate_continuity(continuity)
+        # Inspect once more after the read-only probe; same-name replacement is
+        # never evidence for the original. No helper or service is stopped here.
+        final = engine.inspect('ipmi-monitor')
+        recovery.require(final['Id'] == current['Id'] and final['Image'] == current['Image'] and
+                         all(final['State'].get(k) == state.get(k) for k in ('Running','Status','Paused','Restarting','Dead','StartedAt')) and
+                         recovery.runtime_fingerprints(final) == recovery.runtime_fingerprints(current))
+        _require_terminated_helper(engine, job)
+        return recovery.OriginalObservation(current['Id'], current['Image'], True, True, continuity)
+    except (KeyError, TypeError, OSError, MigrationError, ValueError):
+        recovery.hold()
+
+
+def _needs_service_receipt(job):
+    return any(type(result) is dict and result.get('state') == 'recovery_required'
+               for result in job.get('results', {}).values())
+
+
+def _retains_predecessor(job):
+    result = job.get('results', {}).get('ipmi-monitor', {})
+    verified = (job.get('action') == 'update' and result.get('success') is True and
+        result.get('state') in ('completed', 'unchanged'))
+    return 'recovery_predecessor' in job and not verified
+
+
+def _require_recovery_capability(engine):
+    source = engine.inspect('cryptolabs-proxy')
+    caps = engine.updater_capabilities(source['Id'])
+    recovery.require(source.get('State', {}).get('Running') is True and type(caps) is dict and
+                     type(caps.get('native_service_recovery')) is int and caps['native_service_recovery'] == 1)
+    final = engine.inspect('cryptolabs-proxy')
+    recovery.require(final['Id'] == source['Id'] and final['Image'] == source['Image'] and
+                     final.get('State', {}).get('Running') is True)
+
+
+def _validate_predecessor(fd, binding, engine, seen=None):
+    """Read-only bounded dependency validation; never replay an old worker."""
+    seen = set() if seen is None else seen
+    recovery.require(type(binding) is dict and set(binding) == {'job_id', 'job_sha256', 'receipt_sha256'})
+    old_id = binding['job_id']
+    recovery.require(recovery._pattern(old_id, '[0-9a-f]{32}') and old_id not in seen and len(seen) < 16)
+    seen.add(old_id)
+    for key in ('job_sha256', 'receipt_sha256'):
+        recovery.require(recovery._pattern(binding[key], '[0-9a-f]{64}'))
+    raw = recovery.read_private(fd, old_id + '.json', recovery.MAX_JOB)
+    receipt_raw = recovery.read_private(fd, 'service-recovery-' + old_id + '.json')
+    recovery.require(recovery.sha256(raw) == binding['job_sha256'] and recovery.sha256(receipt_raw) == binding['receipt_sha256'])
+    old = recovery.validate_job(raw, old_id)
+    recovery.validate_original_restored(raw, receipt_raw, observe_original(engine, old))
+    if _retains_predecessor(old):
+        _validate_predecessor(fd, old['recovery_predecessor'], engine, seen)
+    return binding
+
+
+# TRACEWEAVER: entrypoint=service_recovery_dependency; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
+def service_recovery_dependency(directory, previous, engine, *, require_capability=True):
+    """Called under dispatch/selector exclusion before creating any new work."""
+    if not _needs_service_receipt(previous) and not _retains_predecessor(previous):
+        return None
+    if require_capability:
+        _require_recovery_capability(engine)
+    with recovery.open_existing_directory(directory) as fd:
+        inherited = None
+        if _retains_predecessor(previous):
+            inherited = _validate_predecessor(fd, previous['recovery_predecessor'], engine)
+        if not _needs_service_receipt(previous):
+            return inherited
+        raw, active = recovery.load_bound_job(fd, previous['id'])
+        receipt_raw = recovery.read_private(fd, 'service-recovery-' + previous['id'] + '.json')
+        receipt = recovery.validate_original_restored(raw, receipt_raw, observe_original(engine, previous))
+        recovery.require(receipt['active_sha256'] == recovery.sha256(active))
+        return {'job_id': previous['id'], 'job_sha256': recovery.sha256(raw),
+                'receipt_sha256': recovery.sha256(receipt_raw)}
+
+
+def _check_worker_predecessor(directory, job, engine):
+    if 'recovery_predecessor' not in job:
+        return
+    _require_recovery_capability(engine)
+    with recovery.open_existing_directory(directory) as fd:
+        pointer = recovery.strict_json(recovery.read_private(fd, 'active.json'))
+        recovery.require(pointer == {'id': job['id']})
+        _validate_predecessor(fd, job['recovery_predecessor'], engine)
+
+
+def _worker_mutation_guard(directory, job, engine):
+    """Check once at the actual first effect; later service updates advance state."""
+    started = False
+    def check():
+        nonlocal started
+        if not started:
+            _check_worker_predecessor(directory, job, engine)
+            started = True
+    return check
 
 
 def _proxy_replacement_required(source, candidate, policy=None):
@@ -130,6 +257,17 @@ class UpdateEngine(DockerEngine):
             return value
         except (OSError, subprocess.SubprocessError, ValueError):
             raise UpdateError('Live updater capabilities unavailable.') from None
+
+    def recovery_probe(self, original_id):
+        """Fixed read-only Python; never execute caller code or pass private data."""
+        recovery.require(recovery._pattern(original_id, '[0-9a-f]{64}'))
+        try:
+            result = subprocess.run(['docker', '--host', 'unix:///var/run/docker.sock', 'exec', original_id, 'python3', '-c', recovery.FIXED_PROBE],
+                                    capture_output=True, timeout=15)
+            recovery.require(result.returncode == 0 and len(result.stdout) <= recovery.MAX_RECEIPT)
+            return recovery.strict_json(result.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            recovery.hold()
 
     def selection_bytes(self):
         return self._release_bytes('selection.json')
@@ -389,64 +527,152 @@ def wait_ready(engine, name, image_id, timeout=150):
         time.sleep(1)
 
 
-def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=None, policy=None, expected_image=None):
-    """Swap without destroying the previous runtime; prove recovery on failure."""
+def phase_recorder(directory, job, service):
+    """Persist allowlisted intent before an Engine effect on new jobs only."""
+    started = time.monotonic()
+    allowed = {'phase', 'operation', 'error_category', 'http_status', 'elapsed', 'deadline',
+               'recovery_phase', 'recovery_outcome'}
+    def record(**event):
+        if set(event) - allowed:
+            raise UpdateError('invalid_phase_diagnostic')
+        event['elapsed'] = round(time.monotonic() - started, 3)
+        history = job.setdefault('diagnostics', {}).setdefault(service, [])
+        if len(history) >= 64:
+            raise UpdateError('phase_diagnostic_limit')
+        history.append(event)
+        write_job(directory, job)
+    return record
+
+
+def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=None, policy=None, expected_image=None, record_phase=None, before_mutation=None):
+    """Swap and restore only inspected owned identities, including lost replies."""
     backup = f'{name}.rollback-{job_id}'
-    detached = []
-    started_stop = renamed = created = False
-    source = None
+    started_stop = False
+    source = candidate = None
+    def record(**event):
+        if record_phase is not None:
+            record_phase(**event)
+    def mutate(operation, function, *args):
+        record(phase='intent', operation=operation, deadline=timeout)
+        value = function(*args)
+        record(phase='completed', operation=operation, deadline=timeout)
+        return value
+    def inspect_optional(identity):
+        try:
+            return engine.inspect(identity)
+        except MigrationError as error:
+            if str(error).endswith('HTTP 404'):
+                return None
+            raise
     try:
         source = engine.inspect(name)
         if expected_id and source['Id'] != expected_id:
-            raise UpdateError('Container changed during update preparation.')
+            raise UpdateError('runtime_changed')
         if not source.get('State', {}).get('Running'):
-            raise UpdateError('Service is stopped; use its installer to start it.')
+            raise UpdateError('service_stopped')
         candidate = engine.image(image)
         if expected_image and candidate['Id'] != expected_image:
-            raise UpdateError('Candidate changed during update preparation.')
+            raise UpdateError('candidate_changed')
         if policy and (image not in candidate.get('RepoDigests', []) or _platform(candidate) != policy['platform']):
-            raise UpdateError('Candidate digest or platform verification failed.')
+            raise UpdateError('artifact_identity_mismatch')
         if candidate['Id'] == source['Image'] and (not policy or (source['Config'].get('Labels') or {}).get(WATCHTOWER_LABEL) == 'false'):
             return {'success': True, 'state': 'unchanged', 'image_id': source['Image'], 'message': 'Already running the selected image.'}
-        if name == 'cryptolabs-proxy': return _proxy_hold()
+        if name == 'cryptolabs-proxy':
+            return _proxy_hold()
+        # A preexisting rollback name is not owned by this attempted switch.
+        if inspect_optional(backup) is not None:
+            raise UpdateError('rollback_name_occupied')
         request = build_update_request(source, engine.image(source['Image']), candidate)
+        request['Config']['Labels']['io.cryptolabs.update.job'] = job_id
         if policy:
             request['Config']['Labels'].update({WATCHTOWER_LABEL: 'false',
                 'io.cryptolabs.update.origin': policy['origin'], 'io.cryptolabs.update.reference': image})
         if not image.startswith('sha256:'):
             request['Config']['Labels'].update({CHANNEL_LABEL: image, IMAGE_LABEL: candidate['Id']})
         endpoints = request['NetworkingConfig']['EndpointsConfig']
+        if before_mutation is not None:
+            try:
+                before_mutation()
+            except Exception:
+                record(phase='blocked', operation='update', error_category='internal_error')
+                return {'success': False, 'state': 'blocked', 'reason': 'native_service_recovery_required',
+                        'message': 'native_service_recovery_required'}
+        # Intent is durable before marking a possibly effective stop.
+        record(phase='intent', operation='stop', deadline=timeout)
         started_stop = True
-        engine.stop(name)
+        engine.stop(source['Id'])
+        record(phase='completed', operation='stop', deadline=timeout)
         for network in endpoints:
-            engine.disconnect(name, network)
-            detached.append(network)
-        engine.rename(name, backup)
-        renamed = True
-        engine.create(name, request)
-        created = True
-        engine.start(name)
-        if not wait_ready(engine, name, candidate['Id'], timeout):
-            raise UpdateError('Replacement failed application health or image verification.')
+            mutate('disconnect', engine.disconnect, source['Id'], network)
+        mutate('rename', engine.rename, source['Id'], backup)
+        mutate('create', engine.create, name, request)
+        created = engine.inspect(name)
+        if created['Image'] != candidate['Id'] or (created['Config'].get('Labels') or {}).get('io.cryptolabs.update.job') != job_id:
+            raise UpdateError('candidate_identity_mismatch')
+        mutate('start', engine.start, created['Id'])
+        if not wait_ready(engine, name, candidate['Id'], timeout) or engine.inspect(name)['Id'] != created['Id']:
+            raise UpdateError('health_failed')
         return {'success': True, 'state': 'completed', 'image_id': candidate['Id'],
                 'rollback_container': backup, 'message': 'Updated and health verified.'}
     except Exception as error:
-        message = str(error) if isinstance(error, UpdateError) else 'Container update failed.'
-        if not started_stop:
-            return {'success': False, 'state': 'failed', 'message': message}
+        # Never export exception text (including exceptions of our public type
+        # raised by a transport adapter). Only a small fixed diagnostic survives.
+        category = 'engine_error' if isinstance(error, MigrationError) else 'internal_error'
+        diagnostic = {'phase': 'failed', 'operation': 'update', 'error_category': category}
+        status = re.search(r'HTTP ([1-5][0-9]{2})$', str(error)) if isinstance(error, MigrationError) else None
+        if status:
+            diagnostic['http_status'] = int(status.group(1))
         try:
-            if created:
-                engine.remove(name, ignore_missing=True)
-            if renamed:
-                engine.rename(backup, name)
-            for network in detached:
-                engine.connect(name, network, endpoints[network])
-            engine.start(name)
-            if not wait_ready(engine, name, source['Image'], timeout):
-                raise UpdateError('Original service did not recover.')
-            return {'success': False, 'state': 'rolled_back', 'message': message + ' Original service restored and health verified.'}
+            record(**diagnostic)
         except Exception:
-            return {'success': False, 'state': 'recovery_required', 'message': message + ' Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup if renamed else name}
+            return {'success': False, 'state': 'recovery_required' if started_stop else 'failed',
+                    'message': 'Update evidence unavailable; operator inspection required.'}
+        if not started_stop:
+            return {'success': False, 'state': 'failed', 'message': 'Container update failed.'}
+        try:
+            # Replies may be lost after stop/disconnect/rename/create/start took
+            # effect. Re-observe names and full IDs before ANY restoration effect.
+            current = inspect_optional(name)
+            retained = inspect_optional(backup)
+            originals = [item for item in (current, retained) if item and item['Id'] == source['Id'] and item['Image'] == source['Image']]
+            if len(originals) != 1:
+                raise UpdateError('original_identity_unavailable')
+            original = originals[0]
+            if current and current['Id'] != source['Id']:
+                if (current['Image'] != candidate['Id'] or
+                        (current['Config'].get('Labels') or {}).get('io.cryptolabs.update.job') != job_id):
+                    raise UpdateError('unowned_candidate')
+                record(phase='intent', operation='remove', recovery_phase='remove_owned_candidate')
+                engine.remove(current['Id'])
+                record(phase='completed', operation='remove', recovery_phase='remove_owned_candidate')
+            elif current and current['Image'] != source['Image']:
+                raise UpdateError('original_identity_changed')
+            if retained and retained['Id'] == source['Id']:
+                record(phase='intent', operation='rename', recovery_phase='restore_original_name')
+                engine.rename(source['Id'], name)
+                record(phase='completed', operation='rename', recovery_phase='restore_original_name')
+            restored = engine.inspect(name)
+            if restored['Id'] != source['Id'] or restored['Image'] != source['Image']:
+                raise UpdateError('original_identity_changed')
+            for network, endpoint in endpoints.items():
+                if network not in restored.get('NetworkSettings', {}).get('Networks', {}):
+                    record(phase='intent', operation='connect', recovery_phase='restore_original_network')
+                    engine.connect(source['Id'], network, endpoint)
+                    record(phase='completed', operation='connect', recovery_phase='restore_original_network')
+            record(phase='intent', operation='start', recovery_phase='restore_original_running')
+            engine.start(source['Id'])
+            record(phase='completed', operation='start', recovery_phase='restore_original_running')
+            if not wait_ready(engine, name, source['Image'], timeout) or engine.inspect(name)['Id'] != source['Id']:
+                raise UpdateError('original_health_unavailable')
+            record(phase='completed', operation='recovery', recovery_outcome='original_restored')
+            return {'success': False, 'state': 'rolled_back', 'message': 'Container update failed. Original service restored and health verified.'}
+        except Exception:
+            try:
+                record(phase='failed', operation='recovery', recovery_outcome='recovery_required')
+            except Exception:
+                pass
+            return {'success': False, 'state': 'recovery_required',
+                    'message': 'Container update failed. Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup}
 
 
 def _job_path(directory, job_id):
@@ -667,9 +893,14 @@ def _submit_job_locked(service, branch, action, *, directory, engine, selection_
     except controller_recovery.RecoveryError:
         raise UpdateError('controller_recovery_required') from None
     active = Path(directory) / 'active.json'
+    predecessor = None
     if active.exists():
         previous = read_job(directory, json.loads(active.read_text())['id'])
         if previous.get('state') == 'recovery-required': raise UpdateBusy(previous)
+        try:
+            predecessor = service_recovery_dependency(directory, previous, engine)
+        except Exception:
+            raise UpdateBusy(previous) from None
         if previous.get('state') in ACTIVE_STATES:
             try:
                 running = engine.inspect(previous['helper'])['State']['Running']
@@ -709,6 +940,8 @@ def _submit_job_locked(service, branch, action, *, directory, engine, selection_
     job = {'id': job_id, 'helper': helper, 'service': service, 'branch': branch,
            'action': action, 'state': 'queued', 'results': {}, 'created_at': time.time(),
            'scope': 'proxy-updater', 'suite_complete': False, 'external_owners': []}
+    if predecessor is not None:
+        job['recovery_predecessor'] = predecessor
     if snapshot:
         job.update(selection_id=snapshot['selection_id'], selection_sha256=snapshot['selection_sha256'],
             manifest_sha256=snapshot['manifest_sha256'], selection_snapshot=snapshot, targets=targets,
@@ -754,6 +987,7 @@ def pull_target(target):
 def _run_selected_job(directory, job, engine):
     """Stage all exact artifacts and clone requests before stopping any service."""
     try:
+        _check_worker_predecessor(directory, job, engine)
         stored = job['selection_snapshot']
         snapshot = selection.validate(stored['selection_bytes'].encode(), stored['manifest_bytes'].encode(),
             selection_id=job['selection_id'], selection_sha256=job['selection_sha256'])
@@ -797,10 +1031,12 @@ def _run_selected_job(directory, job, engine):
         # complete plan before the first stop, rather than allowing partial work.
         if selection.sha256(engine.selection_bytes()) != job['selection_sha256'] or selection.sha256(engine.manifest_bytes(job['manifest_sha256'])) != job['manifest_sha256'] or _selection_plan(snapshot, engine, job.get('components'))[1] != sources:
             raise UpdateError('selection_or_runtime_changed')
+        _check_worker_predecessor(directory, job, engine)
         for name, check in checked.items():
             _write_json(_check_path(directory, name, job['branch']), check)
     except Exception as error:
-        reason = str(error) if isinstance(error, (UpdateError, selection.SelectionError)) else 'preflight_unavailable'
+        reason = ('native_service_recovery_required' if 'recovery_predecessor' in job and not isinstance(error, (UpdateError, selection.SelectionError))
+                  else str(error) if isinstance(error, (UpdateError, selection.SelectionError)) else 'preflight_unavailable')
         job.update(state='blocked', success=False, reason=reason, finished_at=time.time(),
                    message=PROXY_ADOPTION_MESSAGE if reason=='proxy_host_adoption_required' else reason,
                    results={name: {'success': False, 'state': 'blocked', 'reason': reason,
@@ -814,6 +1050,7 @@ def _run_selected_job(directory, job, engine):
             job['results'][name] = {'success': False, 'state': 'blocked', 'owner': target['owner'],
                 'desired': target.get('reference', target.get('sha256')), 'observed': None,
                 'origin': target['origin'], 'reason': 'external_owner_required'}
+    before_mutation = _worker_mutation_guard(directory, job, engine)
     for name in names:
         target = targets[name]
         if job['action'] == 'pull':
@@ -821,10 +1058,16 @@ def _run_selected_job(directory, job, engine):
                       'update_available': staged[name] != sources[name]['image_id']}
         else:
             result = replace_container(engine, name, target['reference'], job['id'], policy=target,
-                expected_id=sources[name]['container_id'], expected_image=staged[name])
+                expected_id=sources[name]['container_id'], expected_image=staged[name],
+                record_phase=phase_recorder(directory, job, name),
+                before_mutation=before_mutation)
         result.update(owner=target['owner'], origin=target['origin'], desired=target['reference'],
-                      observed=result.get('image_id'), reason=None if result['success'] else 'replacement_failed')
+                      observed=result.get('image_id'), reason=None if result['success'] else result.get('reason', 'replacement_failed'))
         job['results'][name] = result
+        if result.get('state') == 'blocked' and result.get('reason') == 'native_service_recovery_required':
+            job.update(state='blocked', success=False, reason='native_service_recovery_required', finished_at=time.time())
+            write_job(directory, job)
+            return job
         write_job(directory, job)
         if not result['success']:
             break
@@ -845,6 +1088,13 @@ def run_job(directory, job_id, *, engine=None):
             controller_recovery.require_clear(directory)
         except controller_recovery.RecoveryError:
             job.update(state='blocked', success=False, reason='controller_recovery_required',
+                       finished_at=time.time(), results={})
+            write_job(directory, job)
+            return job
+        try:
+            _check_worker_predecessor(directory, job, engine)
+        except Exception:
+            job.update(state='blocked', success=False, reason='native_service_recovery_required',
                        finished_at=time.time(), results={})
             write_job(directory, job)
             return job
@@ -892,6 +1142,7 @@ def run_job(directory, job_id, *, engine=None):
                     message=PROXY_ADOPTION_MESSAGE if reason=='proxy_host_adoption_required' else reason,
                     finished_at=time.time())
                 write_job(directory,job); return job
+        before_mutation = _worker_mutation_guard(directory, job, engine)
         for name in names:
             if job['action'] == 'update' and SERVICES[name].get('update_supported') is False:
                 continue
@@ -915,7 +1166,9 @@ def run_job(directory, job_id, *, engine=None):
                         result = {'success': True, 'state': 'checked', 'image_id': image['Id'],
                                   'update_available': image['Id'] != source['Image'], 'message': 'Image checked; running service unchanged.'}
                     else:
-                        result = replace_container(engine, name, target, job_id, expected_id=source['Id'])
+                        result = replace_container(engine, name, target, job_id, expected_id=source['Id'],
+                            record_phase=phase_recorder(directory, job, name),
+                            before_mutation=before_mutation)
             except Exception as error:
                 missing = isinstance(error, MigrationError) and str(error).endswith('HTTP 404')
                 if missing and job['service'] == 'all':
@@ -923,6 +1176,10 @@ def run_job(directory, job_id, *, engine=None):
                 else:
                     result = {'success': False, 'state': 'failed', 'message': 'Could not inspect or prepare service; no update started.'}
             job['results'][name] = result
+            if result.get('state') == 'blocked' and result.get('reason') == 'native_service_recovery_required':
+                job.update(state='blocked', success=False, reason='native_service_recovery_required', finished_at=time.time())
+                write_job(directory, job)
+                return job
             write_job(directory, job)
             if result.get('state') == 'recovery_required':
                 break

@@ -8,7 +8,7 @@ implementation and installed customer acceptance are separate.
 
 | Trace | Requirement | Implementation | Verification | Validation | Acceptance status | Status |
 |---|---|---|---|---|---|---|
-| TRACE-FLEETUPDATE-001 | REQ-FLEETUPDATE-001 | `src/cryptolabs_proxy/auth.py`, `src/cryptolabs_proxy/config.py`, `src/cryptolabs_proxy/release_client.py`, `src/cryptolabs_proxy/release_selection.py`, `src/cryptolabs_proxy/standard_adoption.py`, `src/cryptolabs_proxy/updates.py`, `scripts/health-api.py` | VER-FLEETUPDATE-001: affected existing suites and shared preimplementation RED artifacts | VAL-FLEETUPDATE-001: shared validation-definition.json | Local implementation candidate; installed/native/browser/owner acceptance held | approved |
+| TRACE-FLEETUPDATE-001 | REQ-FLEETUPDATE-001 | `src/cryptolabs_proxy/auth.py`, `src/cryptolabs_proxy/config.py`, `src/cryptolabs_proxy/release_client.py`, `src/cryptolabs_proxy/release_selection.py`, `src/cryptolabs_proxy/standard_adoption.py`, `src/cryptolabs_proxy/updates.py`, `scripts/health-api.py`, `src/cryptolabs_proxy/update_recovery.py`, `tests/test_update_recovery.py`, `tests/test_updates.py`, `docs/native-service-recovery.md` | VER-FLEETUPDATE-001: affected existing suites and shared preimplementation RED artifacts | VAL-FLEETUPDATE-001: shared validation-definition.json | Local implementation candidate; installed/native/browser/owner acceptance held | approved |
 | TRACE-PAIR-001 | REQ-PAIR-001 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-001 | VAL-PAIR-001 | Source verification only; installed/public/paid acceptance held | Owner-approved source authority; reviewed scope |
 | TRACE-PAIR-002 | REQ-PAIR-002 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-002 | VAL-PAIR-002 | Source verification only; installed/public/paid acceptance held | Owner-approved source authority; reviewed scope |
 | TRACE-PAIR-003 | REQ-PAIR-003 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-003 | VAL-PAIR-003 | Source verification only; installed/public/paid acceptance held | Owner-approved source authority; reviewed scope |
@@ -43,6 +43,11 @@ Implementation candidate; all installed/runtime/native/browser/requirement closu
 | src/cryptolabs_proxy/standard_adoption.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-recovery |
 | src/cryptolabs_proxy/config.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | fleet-release-compose-consumer |
 | src/cryptolabs_proxy/config.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-compose-consumer |
+| src/cryptolabs_proxy/update_recovery.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | native-service-recovery |
+| src/cryptolabs_proxy/update_recovery.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | native-service-recovery |
+| src/cryptolabs_proxy/updates.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | entrypoint | fleet-release-implementation |
+| docs/native-service-recovery.md | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | recovery-operations-documentation |
+| tests/test_update_recovery.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | verifies | verification |
 
 | src/cryptolabs_proxy/account_link.py | REQ-PAIR-003 | TRACE-PAIR-003 | VER-PAIR-003 | file-role | pairing-store |
 | src/cryptolabs_proxy/auth.py | REQ-PAIR-004 | TRACE-PAIR-004 | VER-PAIR-004 | file-role | account-pairing-routes |
@@ -98,3 +103,13 @@ These are generated raw data copies within the approved verification scope. Inli
 | nginx/nginx.conf | 5a6f8bbd6c9121fb0b1a2fd4884205b996f52c332ae2e0ea9b026fc5a748ed7d | TRACE-FLEETUPDATE-001; TRACE-PAIR-001 | proxy-integration/implementation/format-verification.json and affected.log; separate local Unix socket rerun; protected CI and installed/native/browser acceptance held |
 | src/cryptolabs_proxy/templates/nginx.conf.j2 | d14273f48d5370f480870068b8bcf1ebb2a84a868979079ff97549ef8fcdd7ed | TRACE-FLEETUPDATE-001; TRACE-PAIR-001 | proxy-integration/implementation/format-verification.json and affected.log; separate local Unix socket rerun; protected CI and installed/native/browser acceptance held |
 | docs/release-selection.md | 1fb846663fce84ae693409de61d222ac031fa6dd77e3eec1d27326ecaf2abbd0 | TRACE-FLEETUPDATE-001 | proxy-integration/implementation/format-verification.json and affected.log; separate local Unix socket rerun; protected CI and installed/native/browser acceptance held |
+
+
+## Recovery amendment source evidence (2 November 2026)
+
+Authority is the exact approved amendment `159af842…` and frozen contract
+`91b873c5…` linked from requirements.md. Focused RED/GREEN and candidate
+hashes are retained at `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/build/manifest.json`.
+Shared pre-code V&V is `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/go/recovery-vv-root-reviewed.json`.
+Native installed-wheel bootstrap, source publication, production reconciliation,
+site continuity, signed admission and UI acceptance remain held.

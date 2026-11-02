@@ -88,7 +88,11 @@ class Engine:
         self.calls = []
         self.failure = failure
 
+    def resolve(self, name):
+        return next((key for key,value in self.containers.items() if value.get('Id')==name),name)
+
     def inspect(self, name):
+        name=self.resolve(name)
         if self.failure == 'inspect':
             raise RuntimeError('private detail')
         if name not in self.containers:
@@ -99,16 +103,22 @@ class Engine:
         return {'Id': 'sha256:old' if image == 'sha256:old' else 'sha256:new', 'Config': {}}
 
     def stop(self, name, **kwargs):
+        name=self.resolve(name)
         self.calls.append(('stop', name))
         self.containers[name]['State']['Running'] = False
 
     def disconnect(self, name, network):
+        name=self.resolve(name)
         self.calls.append(('disconnect', name, network))
+        self.containers[name]['NetworkSettings']['Networks'].pop(network,None)
 
     def connect(self, name, network, endpoint):
+        name=self.resolve(name)
         self.calls.append(('connect', name, network))
+        self.containers[name]['NetworkSettings']['Networks'][network]=deepcopy(endpoint)
 
     def rename(self, name, new):
+        name=self.resolve(name)
         self.calls.append(('rename', name, new))
         self.containers[new] = self.containers.pop(name)
 
@@ -117,10 +127,13 @@ class Engine:
         if self.failure == 'create':
             raise RuntimeError('private detail')
         self.containers[name] = deepcopy(source())
+        self.containers[name]['Id'] = 'b'*64
+        self.containers[name]['NetworkSettings']['Networks']=deepcopy(request.get('NetworkingConfig',{}).get('EndpointsConfig',{}))
         self.containers[name]['Config'] = request['Config']
         self.containers[name]['Image'] = request['Config']['Image']
 
     def start(self, name):
+        name=self.resolve(name)
         self.calls.append(('start', name))
         current = self.containers[name]
         current['State']['Running'] = True
@@ -128,6 +141,7 @@ class Engine:
             current['State']['Health']['Status'] = 'unhealthy'
 
     def remove(self, name, **kwargs):
+        name=self.resolve(name)
         self.calls.append(('remove', name))
         self.containers.pop(name, None)
 
@@ -250,6 +264,35 @@ def test_duplicate_submission_does_not_launch_second_helper(monkeypatch, tmp_pat
     with pytest.raises(updates.UpdateBusy):
         updates.submit_job('all', 'main', 'update', directory=tmp_path, engine=engine)
     assert not engine.calls
+
+
+@pytest.mark.parametrize('action', ['pull', 'update'])
+def test_terminal_service_recovery_hold_preserves_job_and_active_pointer(tmp_path, action):
+    """A failed outcome is not permission to bypass unresolved service recovery."""
+    engine = Engine()
+    engine.current['Mounts'].append({
+        'Type': 'volume', 'Name': 'fleet-data', 'Destination': str(tmp_path.parent), 'RW': True,
+    })
+    engine.containers['cryptolabs-proxy'] = engine.current
+    previous = {
+        'id': 'a' * 32, 'state': 'failed', 'success': False,
+        'helper': 'cryptolabs-update-' + 'a' * 32,
+        'service': 'ipmi-monitor', 'action': 'update', 'branch': 'main',
+        'results': {'ipmi-monitor': {'state': 'recovery_required', 'success': False,
+                                    'reason': 'replacement_failed'}},
+    }
+    updates.write_job(tmp_path, previous)
+    active = tmp_path / 'active.json'
+    active.write_text(json.dumps({'id': previous['id']}))
+    job_path = tmp_path / (previous['id'] + '.json')
+    before = {path.name: path.read_bytes() for path in (active, job_path)}
+
+    with pytest.raises(updates.UpdateBusy):
+        updates.submit_job('ipmi-monitor', 'main', action, directory=tmp_path, engine=engine)
+
+    assert not engine.calls
+    assert {path.name: path.read_bytes() for path in (active, job_path)} == before
+    assert set(tmp_path.glob('[0-9a-f]' * 32 + '.json')) == {job_path}
 
 
 def test_missing_helper_is_recorded_as_interrupted_not_left_active(tmp_path):
@@ -497,3 +540,268 @@ def test_status_cannot_interrupt_dispatch_before_helper_start(tmp_path,monkeypat
     monkeypatch.setattr(updates,'pull_target',lambda _:True)
     engine.selection=(directory/'selection.json').read_bytes()
     assert updates.run_job(tmp_path/'jobs',result['id'],engine=engine)['state']=='completed'
+
+
+@pytest.fixture
+def recovered_predecessor(tmp_path, monkeypatch):
+    from tests.test_release_selection import selection_files, SelectedEngine
+    from tests.test_update_recovery import receipt, historical_snapshot
+    from cryptolabs_proxy import release_selection
+    directory,digest=selection_files(tmp_path)
+    snapshot=historical_snapshot(release_selection.load(directory))
+    engine=SelectedEngine(tmp_path)
+    engine.updater_capabilities=lambda _:updates.get_capabilities()
+    jobs=tmp_path/'jobs'
+    prior=receipt()
+    prior.update(selection_id=snapshot['selection_id'],selection_sha256=snapshot['selection_sha256'],manifest_sha256=snapshot['manifest_sha256'])
+    job={'id':prior['job_id'],'helper':prior['helper_name'],'service':'ipmi-monitor','branch':'main','action':'update',
+        'state':'failed','success':False,'results':{'ipmi-monitor':{'state':'recovery_required','success':False}},
+        'selection_id':prior['selection_id'],'selection_sha256':prior['selection_sha256'],'manifest_sha256':prior['manifest_sha256'],
+        'selection_snapshot':snapshot,'sources':{'ipmi-monitor':{'container_id':prior['original_container_id'],'image_id':prior['original_image_id']}},
+        'targets':release_selection.targets(snapshot,'linux/amd64')}
+    updates.write_job(jobs,job);updates._write_json(jobs/'active.json',{'id':job['id']})
+    from cryptolabs_proxy import update_recovery as recovery
+    for name in ('dispatch.lock','operation.lock'):(jobs/name).touch(mode=0o600)
+    prior.update(job_sha256=recovery.sha256((jobs/(job['id']+'.json')).read_bytes()),active_sha256=recovery.sha256((jobs/'active.json').read_bytes()))
+    observation=recovery.OriginalObservation(prior['original_container_id'],prior['original_image_id'],True,True,prior['continuity'])
+    monkeypatch.setattr(updates,'observe_original',lambda *a:observation,raising=False)
+    fd=__import__('os').open(jobs,__import__('os').O_RDONLY|__import__('os').O_DIRECTORY)
+    try:recovery.publish_original_restored(fd,prior)
+    finally:__import__('os').close(fd)
+    return jobs,directory,digest,engine,job,prior,observation
+
+
+def submit_successor(fixture, operation='12345678-1234-4234-8234-123456789abc'):
+    jobs,directory,digest,engine,*_=fixture
+    return updates.submit_job('prometheus','main','pull',directory=jobs,engine=engine,
+        selection_id='synthetic-selection',selection_sha256=digest,selection_directory=directory,
+        components=['prometheus'],operation_id=operation,request_fingerprint='a'*64)
+
+
+def test_receipt_bound_dispatch_rechecks_worker_and_preserves_dependency_after_block(recovered_predecessor,monkeypatch):
+    jobs,directory,digest,engine,old,receipt,observation=recovered_predecessor
+    oldraw=(jobs/(old['id']+'.json')).read_bytes()
+    successor=submit_successor(recovered_predecessor)
+    assert successor['recovery_predecessor']=={'job_id':old['id'],'job_sha256':receipt['job_sha256'],
+        'receipt_sha256':__import__('hashlib').sha256((jobs/('service-recovery-'+old['id']+'.json')).read_bytes()).hexdigest()}
+    # Source drift after dispatch blocks before pulls/lifecycle, retaining old raw evidence.
+    from dataclasses import replace
+    monkeypatch.setattr(updates,'observe_original',lambda *a:replace(observation,healthy=False))
+    monkeypatch.setattr(updates,'pull_target',lambda *a:pytest.fail('pull before recovery revalidation'))
+    result=updates.run_job(jobs,successor['id'],engine=engine)
+    assert result['state']=='blocked' and result['reason']=='native_service_recovery_required'
+    calls=list(engine.calls)
+    with pytest.raises(updates.UpdateBusy):
+        submit_successor(recovered_predecessor,'22345678-1234-4234-8234-123456789abc')
+    assert engine.calls==calls
+    assert (jobs/(old['id']+'.json')).read_bytes()==oldraw
+    # Exact operation replay is read only even while drift prevents a new launch.
+    assert submit_successor(recovered_predecessor)['id']==successor['id']
+
+
+@pytest.mark.parametrize('failure',['missing','wrong-job','capability'])
+def test_recovery_receipt_or_capability_failure_blocks_before_dispatch_writes(recovered_predecessor,failure):
+    jobs,directory,digest,engine,old,receipt,observation=recovered_predecessor
+    path=jobs/('service-recovery-'+old['id']+'.json')
+    if failure=='missing':path.unlink()
+    elif failure=='wrong-job':
+        value=json.loads(path.read_bytes());value['job_sha256']='9'*64;path.write_text(json.dumps(value))
+    else:engine.updater_capabilities=lambda _:dict(updates.get_capabilities(),native_service_recovery=0)
+    before={p.name:p.read_bytes() for p in jobs.iterdir() if p.is_file()}
+    with pytest.raises(updates.UpdateBusy):submit_successor(recovered_predecessor)
+    assert {p.name:p.read_bytes() for p in jobs.iterdir() if p.is_file()}==before
+    assert not engine.calls
+
+
+def test_fixed_original_observer_requires_terminal_helper_and_fresh_exact_identity(monkeypatch):
+    from cryptolabs_proxy import update_recovery as recovery
+    engine=Engine();runtime=deepcopy(source())
+    runtime.update(Id='1'*64,Image='sha256:'+'2'*64,Name='/ipmi-monitor')
+    runtime['State'].update(Status='running',Paused=False,Restarting=False,Dead=False,StartedAt='2026-11-02T00:00:00Z')
+    runtime['NetworkSettings']['Networks']['cryptolabs']['NetworkID']='3'*64
+    engine.containers['ipmi-monitor']=runtime
+    proof={'continuity':{k:v for k,v in __import__('tests.test_update_recovery',fromlist=['receipt']).receipt()['continuity'].items()
+                         if k not in ('projection','runtime_config_sha256','host_config_sha256','mounts_sha256','network_sha256')},
+           'last_collection':'2026-11-02T00:00:01Z'}
+    engine.recovery_probe=lambda _:proof
+    job={'id':'a'*32,'helper':'cryptolabs-update-'+'a'*32,'sources':{'ipmi-monitor':{'container_id':runtime['Id'],'image_id':runtime['Image']}}}
+    assert updates.observe_original(engine,job).healthy is True
+    engine.containers[job['helper']]={'State':{'Running':False,'Paused':False,'Restarting':False,'Status':'created'}}
+    with pytest.raises(ValueError):updates.observe_original(engine,job)
+    engine.containers[job['helper']]['State']['Status']='exited'
+    assert updates.observe_original(engine,job).helper_terminated is True
+    engine.containers['ipmi-monitor']['Id']='8'*64
+    with pytest.raises(ValueError):updates.observe_original(engine,job)
+
+
+@pytest.mark.parametrize('lost',['stop','rename','create','start'])
+def test_new_phase_diagnostics_survive_lost_engine_reply_without_secrets(tmp_path,lost):
+    engine=Engine()
+    job={'id':'d'*32,'service':'prometheus','state':'running','results':{}}
+    updates.write_job(tmp_path,job)
+    events=[]
+    original=getattr(engine,lost)
+    once=[]
+    def lost_reply(*args,**kwargs):
+        original(*args,**kwargs)
+        if not once:
+            once.append(True)
+            raise updates.UpdateError('SECRET_SENTINEL-do-not-export')
+    setattr(engine,lost,lost_reply)
+    recorder=updates.phase_recorder(tmp_path,job,'prometheus')
+    def record(**event):
+        events.append(event)
+        recorder(**event)
+    result=updates.replace_container(engine,'prometheus','sha256:new',job['id'],timeout=0,record_phase=record)
+    assert result['state']=='rolled_back'
+    assert engine.inspect('prometheus')['Id']==source()['Id']
+    stored=updates.read_job(tmp_path,job['id'])
+    assert 'SECRET_SENTINEL' not in json.dumps([stored,result,events])
+    phases=stored['diagnostics']['prometheus']
+    assert any(event.get('operation')==lost and event.get('phase')=='intent' for event in phases)
+    assert all(set(event)<={'phase','operation','error_category','http_status','elapsed','deadline','recovery_phase','recovery_outcome'} for event in phases)
+    assert phases[-1]['recovery_outcome']=='original_restored'
+
+
+def test_worker_second_predecessor_check_blocks_drift_during_pull(recovered_predecessor,monkeypatch):
+    from dataclasses import replace
+    jobs,directory,digest,engine,old,receipt,observation=recovered_predecessor
+    successor=submit_successor(recovered_predecessor)
+    engine.selection=(directory/'selection.json').read_bytes()
+    pulled=[]
+    def pull(*a):
+        pulled.append(True)
+        monkeypatch.setattr(updates,'observe_original',lambda *a:replace(observation,healthy=False))
+        return True
+    monkeypatch.setattr(updates,'pull_target',pull)
+    result=updates.run_job(jobs,successor['id'],engine=engine)
+    assert pulled and result['state']=='blocked'
+    assert result['reason']=='native_service_recovery_required'
+    assert not [c for c in engine.calls if c[0]=='stop']
+
+
+def test_original_helper_restarting_during_probe_cannot_publish_observation():
+    engine=Engine();runtime=deepcopy(source())
+    runtime.update(Id='1'*64,Image='sha256:'+'2'*64,Name='/ipmi-monitor')
+    runtime['State'].update(Status='running',Paused=False,Restarting=False,Dead=False,StartedAt='2026-11-02T00:00:00Z')
+    runtime['NetworkSettings']['Networks']['cryptolabs']['NetworkID']='3'*64
+    engine.containers['ipmi-monitor']=runtime
+    from tests.test_update_recovery import receipt
+    job={'id':'a'*32,'helper':'cryptolabs-update-'+'a'*32,'sources':{'ipmi-monitor':{'container_id':runtime['Id'],'image_id':runtime['Image']}}}
+    def probe(_):
+        engine.containers[job['helper']]={'State':{'Status':'running','Running':True,'Paused':False,'Restarting':False}}
+        return {'continuity':{k:v for k,v in receipt()['continuity'].items() if k not in
+            ('projection','runtime_config_sha256','host_config_sha256','mounts_sha256','network_sha256')},
+            'last_collection':'2026-11-02T00:00:01Z'}
+    engine.recovery_probe=probe
+    with pytest.raises(ValueError):updates.observe_original(engine,job)
+
+
+def test_lost_effect_never_removes_same_name_foreign_container():
+    engine=Engine()
+    create=engine.create
+    def foreign_create(name,request):
+        create(name,request)
+        engine.containers[name]['Config']['Labels'].pop('io.cryptolabs.update.job',None)
+        raise OSError('uncertain creation')
+    engine.create=foreign_create
+    result=updates.replace_container(engine,'prometheus','sha256:new','d'*32,timeout=0)
+    assert result['state']=='recovery_required'
+    assert not [call for call in engine.calls if call[0]=='remove']
+    assert engine.inspect('prometheus.rollback-'+'d'*32)['Id']==source()['Id']
+
+
+def test_engine_diagnostic_keeps_only_http_status_not_error_body(tmp_path):
+    engine=Engine()
+    engine.create=lambda *a:(_ for _ in ()).throw(updates.MigrationError('SECRET_SENTINEL returned HTTP 503'))
+    job={'id':'d'*32,'state':'running','results':{}}
+    updates.write_job(tmp_path,job)
+    result=updates.replace_container(engine,'prometheus','sha256:new',job['id'],timeout=0,
+        record_phase=updates.phase_recorder(tmp_path,job,'prometheus'))
+    assert result['state']=='rolled_back'
+    event=next(e for e in job['diagnostics']['prometheus'] if e.get('error_category')=='engine_error')
+    assert event['http_status']==503
+    assert 'SECRET_SENTINEL' not in json.dumps(job)
+
+
+def test_worker_revalidates_at_actual_first_stop_boundary(recovered_predecessor,monkeypatch):
+    from dataclasses import replace
+    jobs,directory,digest,engine,old,receipt,observation=recovered_predecessor
+    successor=submit_successor(recovered_predecessor)
+    successor['action']='update';updates.write_job(jobs,successor)
+    engine.selection=(directory/'selection.json').read_bytes()
+    monkeypatch.setattr(updates,'pull_target',lambda *a:True)
+    image=engine.image;observed=[]
+    def image_with_late_drift(reference):
+        if reference=='sha256:old':
+            observed.append(reference)
+            if len(observed)==4:
+                monkeypatch.setattr(updates,'observe_original',lambda *a:replace(observation,healthy=False))
+        return image(reference)
+    engine.image=image_with_late_drift
+    result=updates.run_job(jobs,successor['id'],engine=engine)
+    assert len(observed)>=4 and result['state']=='blocked'
+    assert result['reason']=='native_service_recovery_required'
+    assert not [call for call in engine.calls if call[0]=='stop']
+
+
+@pytest.mark.parametrize('later_failure',[None,'create','health'])
+def test_successful_service_update_does_not_revalidate_archived_original_mid_bundle(recovered_predecessor,monkeypatch,later_failure):
+    from cryptolabs_proxy import release_selection, update_recovery as recovery
+    jobs,directory,digest,engine,old,receipt,observation=recovered_predecessor
+    # Docker container IDs are unique; the shared old fixture aliases proxy
+    # and Prometheus IDs, which would make exact-ID rollback address the proxy.
+    engine.containers['cryptolabs-proxy']['Id']='e'*64
+    historical=old['selection_snapshot']
+    selected=deepcopy(historical['selection'])
+    selected['components']={'ipmi-monitor':selected['components']['ipmi-monitor'],
+                            'prometheus':selected['components']['prometheus']}
+    selected_raw=json.dumps(selected).encode()
+    manifest_raw=historical['manifest_bytes'].encode()
+    (directory/'selection.json').write_bytes(selected_raw)
+    (directory/'manifests'/(historical['manifest_sha256']+'.json')).write_bytes(manifest_raw)
+    digest=recovery.sha256(selected_raw)
+    ipmi=deepcopy(source());ipmi.update(Id=receipt['original_container_id'],Image=receipt['original_image_id'],Name='/ipmi-monitor')
+    engine.containers['ipmi-monitor']=ipmi
+    reference=release_selection.targets(historical,'linux/amd64')['ipmi-monitor']['reference']
+    image=engine.image
+    def selected_image(value):
+        if value==reference:return {'Id':'sha256:'+'f'*64,'Config':{},'RepoDigests':[reference],'Os':'linux','Architecture':'amd64'}
+        return image(value)
+    engine.image=selected_image
+    # Give every created container a unique real-style ID so exact-ID effects
+    # can be distinguished across the helper and both service replacements.
+    create=engine.create
+    def unique_create(name,request):
+        if later_failure=='create' and name=='prometheus':
+            raise updates.MigrationError('synthetic later-service create failure')
+        create(name,request)
+        engine.containers[name]['Id']=__import__('hashlib').sha256(name.encode()).hexdigest()
+    engine.create=unique_create
+    def observe(*a):
+        if engine.inspect('ipmi-monitor')['Id']!=receipt['original_container_id']:recovery.hold()
+        return observation
+    monkeypatch.setattr(updates,'observe_original',observe)
+    successor=updates.submit_job('ipmi-monitor','main','update',directory=jobs,engine=engine,
+        selection_id=selected['selection_id'],selection_sha256=digest,selection_directory=directory,
+        components=['ipmi-monitor','prometheus'],operation_id='12345678-1234-4234-8234-123456789abc',request_fingerprint='a'*64)
+    engine.selection=selected_raw
+    monkeypatch.setattr(updates,'pull_target',lambda *a:True)
+    if later_failure=='health':engine.failure='health'
+    old_raw=(jobs/(old['id']+'.json')).read_bytes()
+    result=updates.run_job(jobs,successor['id'],engine=engine)
+    assert result['state']==('completed' if later_failure is None else 'failed')
+    assert result['success'] is (later_failure is None)
+    assert result['results']['ipmi-monitor']['state']=='completed'
+    assert result['results']['ipmi-monitor']['success'] is True
+    assert engine.inspect('ipmi-monitor')['Id']!=receipt['original_container_id']
+    assert result['results']['prometheus']['state']==('completed' if later_failure is None else 'rolled_back')
+    assert engine.inspect('prometheus')['State']['Running'] is True
+    assert (jobs/(old['id']+'.json')).read_bytes()==old_raw
+    # This is the selector-equivalent dependency gate, followed by the actual
+    # submit path: unrelated verified rollback cannot re-pin the old IPMI ID.
+    assert updates.service_recovery_dependency(jobs,result,engine) is None
+    next_job=updates.submit_job('prometheus','main','pull',directory=jobs,engine=engine,
+        selection_id=selected['selection_id'],selection_sha256=digest,selection_directory=directory,
+        components=['prometheus'],operation_id='22345678-1234-4234-8234-123456789abc',request_fingerprint='b'*64)
+    assert next_job['state']=='queued' and 'recovery_predecessor' not in next_job
