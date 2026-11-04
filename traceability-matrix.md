@@ -27,6 +27,12 @@ Implementation candidate; all installed/runtime/native/browser/requirement closu
 
 | Artifact Path | Requirement | Trace | Verification | Anchor Type | Role |
 | --- | --- | --- | --- | --- | --- |
+| tests/test_release_policy_ui.py | REQ-AUTOADVANCE-008 | TRACE-AUTOADVANCE-008 | VER-AUTOADVANCE-008 | file-role | policy-browser-contract |
+| tests/test_release_policy_ui.py | REQ-AUTOADVANCE-008 | TRACE-AUTOADVANCE-008 | VER-AUTOADVANCE-008 | verifies | policy-browser-contract |
+| src/cryptolabs_proxy/auth.py | REQ-AUTOADVANCE-005 | TRACE-AUTOADVANCE-005 | VER-AUTOADVANCE-005 | entrypoint | policy-entrypoint |
+
+| Artifact Path | Requirement | Trace | Verification | Anchor Type | Role |
+| --- | --- | --- | --- | --- | --- | --- |
 | src/cryptolabs_proxy/auth.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | fleet-release-implementation |
 | src/cryptolabs_proxy/release_client.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | fleet-release-implementation |
 | src/cryptolabs_proxy/release_selection.py | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | file-role | fleet-release-implementation |
@@ -97,7 +103,7 @@ The TRACE-PAIR rows identify owner-approved and quality-reviewed source implemen
 These are generated raw data copies within the approved verification scope. Inline trace fields would change the canonical producer/specification artifact. The external mapping is the supported generated-file exception, not a claim of inline source coverage. Exact producer bytes are emitted by the actual WordPress handler under synthetic credentials and compared by consumer tests. No API body, assertion or scanner rule changes. Source implementation and installed acceptance remain separately gated.
 
 | Artifact Path | Requirement | Trace | Verification | Anchor Type | Provenance / acceptance |
-| --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- |
 | tests/fixtures/pairing-producer-v1.json | REQ-PAIR-001; REQ-PAIR-003; REQ-PAIR-004; REQ-PAIR-005; REQ-PAIR-006 | TRACE-PAIR-001; TRACE-PAIR-003; TRACE-PAIR-004; TRACE-PAIR-005; TRACE-PAIR-006 | VER-PAIR-001; VER-PAIR-003; VER-PAIR-004; VER-PAIR-005; VER-PAIR-006 | Exception | Generated data approved for exact-byte provenance mapping; SHA256 d58a17f90c33e935b4307b5816e462d0445ee984b72e1d03948dfa3cd9d9404d; regenerate and drift-check from wordpress/actual-producer-fixture.json |
 | tests/fixtures/pairing-wire-v1.json | REQ-PAIR-001; REQ-PAIR-003; REQ-PAIR-004; REQ-PAIR-005; REQ-PAIR-006 | TRACE-PAIR-001; TRACE-PAIR-003; TRACE-PAIR-004; TRACE-PAIR-005; TRACE-PAIR-006 | VER-PAIR-001; VER-PAIR-003; VER-PAIR-004; VER-PAIR-005; VER-PAIR-006 | Exception | Generated data approved for exact-byte provenance mapping; SHA256 8ccd5db5c28c55da4e9118c7f913e45532e3213007b8e98a4af214f4bb20d652; regenerate and drift-check from fixtures/pairing-wire-v1.json |
 
@@ -136,7 +142,7 @@ producer/template dependency identities are in `../artifacts/ipmi-readiness-2026
 Root approved the frozen fixture scope in `../artifacts/ipmi-readiness-20261026/fleet-ui-20261102/execution/main16-compat/plan/root-test-only-go.json`.
 
 | Artifact Path | Requirement | Trace | Verification | Anchor Type | Provenance / acceptance |
-| --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- |
 | src/cryptolabs_proxy/templates/previous-standard-nginx-8e2b421.conf.j2 | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 05828b78143c5d6cd7cbe60700cfc54b627cb4efff9a7af43439fdb56e25edab; exact-byte provenance and adoption/corruption tests; native/site acceptance held |
 | tests/fixtures/main16-self-signed.conf | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 f1f570ca848b5dbf15d635bf4d3de90cbb89a68e2c9da0761d6295b7d46a80b6; exact-byte provenance and adoption/corruption tests; native/site acceptance held |
 | tests/fixtures/main16-letsencrypt.conf | REQ-FLEETUPDATE-001 | TRACE-FLEETUPDATE-001 | VER-FLEETUPDATE-001 | Exception | Immutable released Main producer data; SHA256 5cad780fddc4aea67b2a13e26b808e9b1454f9a33abd6d459b82d8066423cbb5; exact-byte provenance and adoption/corruption tests; native/site acceptance held |
@@ -145,7 +151,7 @@ Root approved the frozen fixture scope in `../artifacts/ipmi-readiness-20261026/
 ## Updater source integration Code Anchor Evidence
 
 | Artifact Path | Requirement | Trace | Verification | Anchor Type | Role |
-| --- | --- | --- | --- | --- | --- |
+| --- | --- | --- | --- | --- | --- | --- |
 | src/cryptolabs_proxy/migration.py | REQ-UPDATER-001 | TRACE-UPDATER-001 | VER-UPDATER-001 | file-role | bounded-docker-stop-transport |
 | src/cryptolabs_proxy/migration.py | REQ-UPDATER-001 | TRACE-UPDATER-001 | VER-UPDATER-001 | entrypoint | bounded-docker-stop-transport |
 | src/cryptolabs_proxy/updates.py | REQ-UPDATER-002 | TRACE-UPDATER-002 | VER-UPDATER-002 | file-role | safe-update-recovery-diagnostics |
@@ -170,3 +176,26 @@ Root approved the frozen fixture scope in `../artifacts/ipmi-readiness-20261026/
 | tests/fixtures/released-standard-1.5.4-declaration.json | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | Exception | Immutable released/synthetic resource; SHA256 c4f4f3e80ff3920522502f47335120e133bca6d8e8245133d0112b550f382274; root-precode-review.json generated_resource_anchor_exception; external provenance mapping, no inline mutation |
 | tests/fixtures/released-standard-1.5.4-provenance.json | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | Exception | Immutable released/synthetic resource; SHA256 a3203f4e7ef156b403cd039d53c7dc2f02940499c1abb1c862cd52fa5524bff3; root-precode-review.json generated_resource_anchor_exception; external provenance mapping, no inline mutation |
 | tests/fixtures/released-standard-1.5.4.nginx.conf | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | Exception | Immutable released/synthetic resource; SHA256 f1aa7a0ed767e7432dd21123fc0086e0cc98e0b26ad3c95eff5fe233095e3e72; root-precode-review.json generated_resource_anchor_exception; external provenance mapping, no inline mutation |
+
+## Approved auto-advance work-item mapping
+
+| Trace | Requirement | Implementation | Verification | Validation | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| TRACE-AUTOADVANCE-001 | REQ-AUTOADVANCE-001 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-001 | VAL-AUTOADVANCE-001 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-002 | REQ-AUTOADVANCE-002 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-002 | VAL-AUTOADVANCE-002 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-003 | REQ-AUTOADVANCE-003 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-003 | VAL-AUTOADVANCE-003 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-004 | REQ-AUTOADVANCE-004 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-004 | VAL-AUTOADVANCE-004 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-005 | REQ-AUTOADVANCE-005 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-005 | VAL-AUTOADVANCE-005 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-006 | REQ-AUTOADVANCE-006 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-006 | VAL-AUTOADVANCE-006 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-007 | REQ-AUTOADVANCE-007 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-007 | VAL-AUTOADVANCE-007 | owner-approved / verification pending |
+| TRACE-AUTOADVANCE-008 | REQ-AUTOADVANCE-008 | approved plan step1-5; file anchors added as implemented | VER-AUTOADVANCE-008 | VAL-AUTOADVANCE-008 | owner-approved / verification pending |
+
+## Traceability Matrix
+
+| Implementation | Requirement | Trace | Verification | Validation | Status |
+| --- | --- | --- | --- | --- | --- |
+| landing-page/index.html | REQ-AUTOADVANCE-001 | TRACE-AUTOADVANCE-001 | VER-AUTOADVANCE-001 | VAL-AUTOADVANCE-001 | owner-approved |
+| src/cryptolabs_proxy/auth.py | REQ-AUTOADVANCE-005 | TRACE-AUTOADVANCE-005 | VER-AUTOADVANCE-005 | VAL-AUTOADVANCE-005 | owner-approved |
+| src/cryptolabs_proxy/release_client.py | REQ-AUTOADVANCE-005 | TRACE-AUTOADVANCE-005 | VER-AUTOADVANCE-005 | VAL-AUTOADVANCE-005 | owner-approved |
+| tests/test_auth.py | REQ-AUTOADVANCE-005 | TRACE-AUTOADVANCE-005 | VER-AUTOADVANCE-005 | VAL-AUTOADVANCE-005 | owner-approved |
+| tests/test_release_policy_ui.py | REQ-AUTOADVANCE-008 | TRACE-AUTOADVANCE-008 | VER-AUTOADVANCE-008 | VAL-AUTOADVANCE-008 | owner-approved |

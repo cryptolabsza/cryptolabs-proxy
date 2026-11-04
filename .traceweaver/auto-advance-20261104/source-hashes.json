@@ -1,0 +1,7 @@
+{
+  "landing-page/index.html": "1d88cf658c71b58af29d501837e876c0f48c0e7d5083a0f90fab4ba8e6774552",
+  "src/cryptolabs_proxy/auth.py": "dd0149b619ee37aced86cd8de4829e3487b476217cd0733a570c727bff1be08d",
+  "src/cryptolabs_proxy/release_client.py": "dd496ad4d007cb98039e5ba8bdf899398dc576d2448e199be6e875b7c1d75fec",
+  "tests/test_auth.py": "223e6326f75ed320d7ebe62e232a61d478b9a83d8f2d98a971b48b1b0a25bec7",
+  "tests/test_release_policy_ui.py": "f687b25ce5ec67085ed3cb970b11248871888e5ac47382073fa25d2fd8616322"
+}

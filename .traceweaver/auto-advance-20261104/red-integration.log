@@ -1,0 +1,579 @@
+FFFF....FFFFFFFFFFFF                                                     [100%]
+=================================== FAILURES ===================================
+_ test_release_policy_routes_require_live_admin_origin_and_session_token[policy-set-body0] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106a98a10>
+action = 'policy-set'
+body = {'component': 'ipmi-monitor', 'mode': 'follow-stable', 'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}
+
+    @pytest.mark.parametrize('action,body', [
+        ('policy-set', {'component':'ipmi-monitor','mode':'follow-stable','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-set', {'component':'ipmi-monitor','mode':'pinned','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-refresh', {'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+    ])
+    def test_release_policy_routes_require_live_admin_origin_and_session_token(app, logged_in_admin, monkeypatch, action, body):
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+        calls = []
+        monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda self, action, params, actor: calls.append((action,params,actor)) or {'components':{}})
+        token = logged_in_admin.get('/api/releases/session').json['csrf_token']
+        path = '/api/releases/' + action
+>       assert logged_in_admin.post(path,json=body,headers={'Origin':'http://evil.test','X-CSRF-Token':token}).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post('/api/releases/policy-set', json={'component': 'ipmi-monitor', 'mode': 'follow-stable', 'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://evil.test', 'X-CSRF-Token': 'f4e2819467eff10cd0adc6c93495491bf360f7ee11f37006fe739334c0809e4b'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:24: AssertionError
+_ test_release_policy_routes_require_live_admin_origin_and_session_token[policy-set-body1] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1076c3740>
+action = 'policy-set'
+body = {'component': 'ipmi-monitor', 'mode': 'pinned', 'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}
+
+    @pytest.mark.parametrize('action,body', [
+        ('policy-set', {'component':'ipmi-monitor','mode':'follow-stable','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-set', {'component':'ipmi-monitor','mode':'pinned','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-refresh', {'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+    ])
+    def test_release_policy_routes_require_live_admin_origin_and_session_token(app, logged_in_admin, monkeypatch, action, body):
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+        calls = []
+        monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda self, action, params, actor: calls.append((action,params,actor)) or {'components':{}})
+        token = logged_in_admin.get('/api/releases/session').json['csrf_token']
+        path = '/api/releases/' + action
+>       assert logged_in_admin.post(path,json=body,headers={'Origin':'http://evil.test','X-CSRF-Token':token}).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post('/api/releases/policy-set', json={'component': 'ipmi-monitor', 'mode': 'pinned', 'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://evil.test', 'X-CSRF-Token': '489030e5a5d7a99ca6689cb0b5d0a2ec43807461971d77d97e56579a6185ca56'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:24: AssertionError
+_ test_release_policy_routes_require_live_admin_origin_and_session_token[policy-refresh-body2] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10779e5a0>
+action = 'policy-refresh'
+body = {'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}
+
+    @pytest.mark.parametrize('action,body', [
+        ('policy-set', {'component':'ipmi-monitor','mode':'follow-stable','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-set', {'component':'ipmi-monitor','mode':'pinned','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+        ('policy-refresh', {'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+    ])
+    def test_release_policy_routes_require_live_admin_origin_and_session_token(app, logged_in_admin, monkeypatch, action, body):
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+        calls = []
+        monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda self, action, params, actor: calls.append((action,params,actor)) or {'components':{}})
+        token = logged_in_admin.get('/api/releases/session').json['csrf_token']
+        path = '/api/releases/' + action
+>       assert logged_in_admin.post(path,json=body,headers={'Origin':'http://evil.test','X-CSRF-Token':token}).status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post('/api/releases/policy-refresh', json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://evil.test', 'X-CSRF-Token': 'c1ea9f93eadc8ed1b01d53419b234eb5d7d1eb9f446fe684549bddadc5942441'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:24: AssertionError
+______________ test_release_policy_listing_rejects_readonly_users ______________
+
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10782e8d0>
+
+    def test_release_policy_listing_rejects_readonly_users(logged_in_readonly, monkeypatch):
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**k:pytest.fail('readonly request reached host'))
+>       assert logged_in_readonly.get('/api/releases/policies').status_code == 403
+E       AssertionError: assert 404 == 403
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = get('/api/releases/policies')
+E        +      where get = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.get
+
+tests/test_auth.py:36: AssertionError
+__ test_policy_mutations_cannot_expand_browser_authority[readonly-policy-set] __
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10781f020>
+action = 'policy-set', failure = 'readonly'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-set'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'component': 'ipmi-monitor', 'mode': 'follow-stable'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': '266fb2d5cd34333d0f0c434569ecc163dd624450f502ef1437532baa17c3b2b8'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[readonly-policy-refresh] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10779f8c0>
+action = 'policy-refresh', failure = 'readonly'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-refresh'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': '9fba1e4efa15964bb18bdd87ee1d94b5d13c25b94b5a45476e90122a85305c92'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[missing-origin-policy-set] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107775bb0>
+action = 'policy-set', failure = 'missing-origin'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-set'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'component': 'ipmi-monitor', 'mode': 'follow-stable'}, headers={'X-CSRF-Token': '18541673df1f071d51c5137d40e8c63cb97cc048b9422d2ab99c8bf069005f22'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[missing-origin-policy-refresh] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10783a360>
+action = 'policy-refresh', failure = 'missing-origin'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-refresh'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'X-CSRF-Token': 'b652c4f1120b56f4f834eaea249db279a0518ff5b1a1f12d3a3819188fbd3743'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[missing-token-policy-set] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1079fa540>
+action = 'policy-set', failure = 'missing-token'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-set'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'component': 'ipmi-monitor', 'mode': 'follow-stable'}, headers={'Origin': 'http://localhost'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[missing-token-policy-refresh] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1079b6720>
+action = 'policy-refresh', failure = 'missing-token'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-refresh'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://localhost'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[other-session-policy-set] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107836270>
+action = 'policy-set', failure = 'other-session'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-set'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'component': 'ipmi-monitor', 'mode': 'follow-stable'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': '21fce137f67bdee3000fcd95684511c8dfb1b0f3457fbb1725e16a6839e473e6'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[other-session-policy-refresh] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078a6a50>
+action = 'policy-refresh', failure = 'other-session'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-refresh'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': 'efa27ff08281c6cbd5d79b899777303fd00120db4371cffd35e6217156214231'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+__ test_policy_mutations_cannot_expand_browser_authority[revoked-policy-set] ___
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10794be90>
+action = 'policy-set', failure = 'revoked'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-set'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'component': 'ipmi-monitor', 'mode': 'follow-stable'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': 'ff6acaf5a5e71acafb263e87243c84934abcc074d077a9bb9cafdfe98a50d3db'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+_ test_policy_mutations_cannot_expand_browser_authority[revoked-policy-refresh] _
+
+app = <Flask 'cryptolabs_proxy.auth'>
+logged_in_admin = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+logged_in_readonly = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078c2ed0>
+action = 'policy-refresh', failure = 'revoked'
+
+    @pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+    @pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+    def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+        import cryptolabs_proxy.auth as auth
+        from cryptolabs_proxy.release_client import ReleaseBrokerClient
+        app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+        monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+        # The two fixture clients may share the session; establish an independent admin session.
+        client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        token=client.get('/api/releases/session').json['csrf_token']
+        headers={'Origin':'http://localhost','X-CSRF-Token':token}
+        body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+        if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+        if failure=='readonly':client=logged_in_readonly
+        if failure=='missing-origin':headers.pop('Origin')
+        if failure=='missing-token':headers.pop('X-CSRF-Token')
+        if failure=='other-session':
+            other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+            headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+        if failure=='revoked':auth.update_user('admin',role='readonly')
+>       assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+E       AssertionError: assert 404 in (401, 403)
+E        +  where 404 = <WrapperTestResponse streamed [404 NOT FOUND]>.status_code
+E        +    where <WrapperTestResponse streamed [404 NOT FOUND]> = post(('/api/releases/' + 'policy-refresh'), json={'expected_selection_id': 'fixture', 'expected_selection_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, headers={'Origin': 'http://localhost', 'X-CSRF-Token': 'c1535ddcb1f0440216a1e5309e666f57f988916d80a6347ff97fda75ed2f093c'})
+E        +      where post = <FlaskClient <Flask 'cryptolabs_proxy.auth'>>.post
+
+tests/test_auth.py:67: AssertionError
+______ test_policy_action_uses_displayed_identity_and_never_calls_install ______
+
+    def test_policy_action_uses_displayed_identity_and_never_calls_install():
+        page = (Path(__file__).resolve().parents[1] / 'landing-page/index.html').read_text()
+        script = '\n'.join(re.findall(r'<script[^>]*>(.*?)</script>',page,re.S))
+        # Browser bootstrap does not run in this DOM fixture; call the actual public action.
+        fixture = r'''
+    const assert = require('assert'); const calls=[];
+    const nodes = new Map();
+    function node(){return {innerHTML:'',textContent:'',disabled:false,value:'main',hidden:false,
+    style:{},dataset:{},appendChild(){},append(){},replaceChildren(){},remove(){},after(){},
+    addEventListener(){},querySelector(){return node()},querySelectorAll(){return []}}}
+    global.document={getElementById(id){if(!nodes.has(id))nodes.set(id,node());return nodes.get(id)},
+    querySelector(){return node()},querySelectorAll(){return []},createElement:node,addEventListener(){}};
+    global.window={addEventListener(){},location:{origin:'http://fixture.test'}};
+    global.localStorage={getItem(){return null},setItem(){},removeItem(){}};
+    global.setInterval=()=>0;global.setTimeout=()=>0;global.clearTimeout=()=>{};
+    global.fetch=async(path,options={})=>{calls.push([path,options.body ? JSON.parse(options.body):null]);
+    return {ok:true,json:async()=>path.includes('session') ? {csrf_token:'fixture-token'} : {
+    selection_id:'displayed-release',selection_sha256:'a'.repeat(64),components:{'ipmi-monitor':{mode:'follow-stable',supported:true,installed_release:'1.4.0',selected_release:'1.4.0'}}}}};
+    '''
+        check = r'''
+    (async()=>{await loadReleasePolicies();await setReleasePolicy('ipmi-monitor','follow-stable');
+    const request=calls.find(x=>x[0]==='/api/releases/policy-set');assert(request);
+    assert.deepEqual(request[1],{component:'ipmi-monitor',mode:'follow-stable',expected_selection_id:'displayed-release',expected_selection_sha256:'a'.repeat(64)});
+    assert(!calls.some(x=>x[0]==='/api/update'||x[0]==='/api/releases/apply'));
+    console.log('policy action bound to displayed selection; no install');})().catch(e=>{console.error(e);process.exitCode=1});
+    '''
+        result = subprocess.run(['node'],input=fixture+script+check,text=True,capture_output=True)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: ReferenceError: loadReleasePolicies is not defined
+E             at [stdin]:1283:12
+E             at [stdin]:1287:73
+E             at runScriptInThisContext (node:internal/vm:219:10)
+E             at node:internal/process/execution:483:12
+E             at [stdin]-wrapper:6:24
+E             at runScriptInContext (node:internal/process/execution:481:60)
+E             at evalFunction (node:internal/process/execution:315:30)
+E             at evalTypeScript (node:internal/process/execution:327:3)
+E             at node:internal/main/eval_stdin:51:5
+E             at Socket.<anonymous> (node:internal/process/execution:237:5)
+E         Failed to load versions: TypeError: wdCard.cloneNode is not a function
+E             at loadVersions ([stdin]:675:53)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+E         Failed to load versions: TypeError: wdCard.cloneNode is not a function
+E             at loadVersions ([stdin]:675:53)
+E             at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node'], returncode=1, stdout='', stderr='ReferenceError: loadReleasePolicies is not defined\n ...t loadVersions ([stdin]:675:53)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n').returncode
+
+tests/test_release_policy_ui.py:35: AssertionError
+_____ test_check_updates_refreshes_policy_before_pull_and_does_not_install _____
+
+    def test_check_updates_refreshes_policy_before_pull_and_does_not_install():
+        page=(Path(__file__).resolve().parents[1]/'landing-page/index.html').read_text()
+        # A focused real-function execution avoids stubbing the rest of the dashboard.
+        start=page.index('async function checkForUpdates()')
+        function=page[start:page.index('\n        async function updateService',start)]
+        script=r'''
+    const assert=require('assert');const calls=[];
+    async function refreshReleasePolicies(){calls.push('advance')}
+    async function loadVersions(){calls.push('versions')}
+    async function startUpdateJob(action,service){calls.push([action,service])}
+    function showUpdateStatus(){throw Error('unexpected failure')}
+    '''+function+r'''
+    (async()=>{await checkForUpdates();assert.deepEqual(calls,['advance','versions',['pull','all']])})().catch(e=>{console.error(e);process.exitCode=1});
+    '''
+        result=subprocess.run(['node'],input=script,text=True,capture_output=True)
+>       assert result.returncode==0,result.stderr
+E       AssertionError: AssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:
+E         
+E         [
+E           [
+E             'pull',
+E             'all'
+E           ]
+E         ]
+E         
+E         should loosely deep-equal
+E         
+E         [
+E           'advance',
+E           'versions',
+E           [
+E             'pull',
+E             'all'
+E           ]
+E         ]
+E             at [stdin]:11:43
+E             at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+E           generatedMessage: true,
+E           code: 'ERR_ASSERTION',
+E           actual: [Array],
+E           expected: [Array],
+E           operator: 'deepEqual',
+E           diff: 'simple'
+E         }
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node'], returncode=1, stdout='', stderr="AssertionError [ERR_ASSERTION]: Expected values to be...\n  code: 'ERR_ASSERTION',\n  actual: [Array],\n  expected: [Array],\n  operator: 'deepEqual',\n  diff: 'simple'\n}\n").returncode
+
+tests/test_release_policy_ui.py:53: AssertionError
+=============================== warnings summary ===============================
+tests/test_auth.py: 24 warnings
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:375: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    'created_at': datetime.utcnow().isoformat(),
+
+tests/test_auth.py: 36 warnings
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:472: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    users[username]['last_login'] = datetime.utcnow().isoformat()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_auth.py::test_release_policy_routes_require_live_admin_origin_and_session_token[policy-set-body0]
+FAILED tests/test_auth.py::test_release_policy_routes_require_live_admin_origin_and_session_token[policy-set-body1]
+FAILED tests/test_auth.py::test_release_policy_routes_require_live_admin_origin_and_session_token[policy-refresh-body2]
+FAILED tests/test_auth.py::test_release_policy_listing_rejects_readonly_users
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[readonly-policy-set]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[readonly-policy-refresh]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[missing-origin-policy-set]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[missing-origin-policy-refresh]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[missing-token-policy-set]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[missing-token-policy-refresh]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[other-session-policy-set]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[other-session-policy-refresh]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[revoked-policy-set]
+FAILED tests/test_auth.py::test_policy_mutations_cannot_expand_browser_authority[revoked-policy-refresh]
+FAILED tests/test_release_policy_ui.py::test_policy_action_uses_displayed_identity_and_never_calls_install
+FAILED tests/test_release_policy_ui.py::test_check_updates_refreshes_policy_before_pull_and_does_not_install
+16 failed, 4 passed, 70 deselected, 60 warnings in 2.79s

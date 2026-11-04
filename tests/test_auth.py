@@ -9,6 +9,66 @@ from datetime import datetime, timedelta
 import pytest
 
 
+@pytest.mark.parametrize('action,body', [
+    ('policy-set', {'component':'ipmi-monitor','mode':'follow-stable','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+    ('policy-set', {'component':'ipmi-monitor','mode':'pinned','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+    ('policy-refresh', {'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}),
+])
+def test_release_policy_routes_require_live_admin_origin_and_session_token(app, logged_in_admin, monkeypatch, action, body):
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    app.config['RELEASE_PUBLIC_ORIGIN'] = 'http://localhost'
+    calls = []
+    monkeypatch.setattr(ReleaseBrokerClient, 'request', lambda self, action, params, actor: calls.append((action,params,actor)) or {'components':{}})
+    token = logged_in_admin.get('/api/releases/session').json['csrf_token']
+    path = '/api/releases/' + action
+    assert logged_in_admin.post(path,json=body,headers={'Origin':'http://evil.test','X-CSRF-Token':token}).status_code == 403
+    assert logged_in_admin.post(path,json=body,headers={'Origin':'http://localhost','X-CSRF-Token':'bad'}).status_code == 403
+    assert calls == []
+    response = logged_in_admin.post(path,json=body,headers={'Origin':'http://localhost','X-CSRF-Token':token})
+    assert response.status_code == 200
+    assert calls[-1][0:2] == (action,body)
+    assert calls[-1][2]['kind'] == 'fleet-admin'
+
+
+def test_release_policy_listing_rejects_readonly_users(logged_in_readonly, monkeypatch):
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**k:pytest.fail('readonly request reached host'))
+    assert logged_in_readonly.get('/api/releases/policies').status_code == 403
+
+
+@pytest.mark.parametrize('change', [{'mode':'latest'}, {'component':'../../etc/passwd'}, {'url':'https://evil.test'}, {'mode':True}])
+def test_policy_client_rejects_unknown_modes_paths_and_fields(change):
+    from cryptolabs_proxy.release_client import validate_params,ReleaseBrokerError
+    body = {'component':'ipmi-monitor','mode':'follow-stable','expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+    validate_params('policy-set',body)
+    body.update(change)
+    with pytest.raises(ReleaseBrokerError): validate_params('policy-set',body)
+
+
+@pytest.mark.parametrize('action', ['policy-set','policy-refresh'])
+@pytest.mark.parametrize('failure',['readonly','missing-origin','missing-token','other-session','revoked'])
+def test_policy_mutations_cannot_expand_browser_authority(app,logged_in_admin,logged_in_readonly,monkeypatch,action,failure):
+    import cryptolabs_proxy.auth as auth
+    from cryptolabs_proxy.release_client import ReleaseBrokerClient
+    app.config['RELEASE_PUBLIC_ORIGIN']='http://localhost';calls=[]
+    monkeypatch.setattr(ReleaseBrokerClient,'request',lambda *a,**kw:calls.append(a) or {})
+    # The two fixture clients may share the session; establish an independent admin session.
+    client=app.test_client();client.post('/auth/login',data={'username':'admin','password':'adminpass'})
+    token=client.get('/api/releases/session').json['csrf_token']
+    headers={'Origin':'http://localhost','X-CSRF-Token':token}
+    body={'expected_selection_id':'fixture','expected_selection_sha256':'a'*64}
+    if action=='policy-set':body.update(component='ipmi-monitor',mode='follow-stable')
+    if failure=='readonly':client=logged_in_readonly
+    if failure=='missing-origin':headers.pop('Origin')
+    if failure=='missing-token':headers.pop('X-CSRF-Token')
+    if failure=='other-session':
+        other=app.test_client();other.post('/auth/login',data={'username':'admin','password':'adminpass'})
+        headers['X-CSRF-Token']=other.get('/api/releases/session').json['csrf_token']
+    if failure=='revoked':auth.update_user('admin',role='readonly')
+    assert client.post('/api/releases/'+action,json=body,headers=headers).status_code in (401,403)
+    assert calls==[]
+
+
 # ---------------------------------------------------------------------------
 # Token management
 # ---------------------------------------------------------------------------

@@ -35,11 +35,19 @@ def strict_json(raw):
 def validate_params(action, params):
     fields = {'list': {'channel'}, 'preview': {'candidate_ids','components','expected_selection_id','expected_selection_sha256','operation_kind'},
               'apply': {'operation_id','preview_id','preview_sha256','expected_selection_id','expected_selection_sha256'},
-              'status': {'operation_id'}, 'recover': {'operation_id'}}
+              'status': {'operation_id'}, 'recover': {'operation_id'}, 'policy-list':set(),
+              'policy-set':{'component','mode','expected_selection_id','expected_selection_sha256'},
+              'policy-refresh':{'expected_selection_id','expected_selection_sha256'}}
     if action not in fields or not isinstance(params, dict) or set(params) != fields[action]:
         raise ReleaseBrokerError('invalid_request', 'Invalid release request fields.', 400)
     for key, value in params.items():
-        if key in ('candidate_ids','components'):
+        if key == 'component':
+            if not isinstance(value,str) or value not in COMPONENTS:
+                raise ReleaseBrokerError('invalid_request','Invalid release component.',400)
+        elif key == 'mode':
+            if value not in ('pinned','follow-stable'):
+                raise ReleaseBrokerError('invalid_request','Invalid update policy.',400)
+        elif key in ('candidate_ids','components'):
             if (not isinstance(value, list) or not 1 <= len(value) <= 32
                     or any(not isinstance(x,str) or not 1 <= len(x) <= 128 for x in value)
                     or len(set(value)) != len(value) or key == 'components' and any(x not in COMPONENTS for x in value)):
