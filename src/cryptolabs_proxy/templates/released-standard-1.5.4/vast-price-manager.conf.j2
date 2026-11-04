@@ -1,0 +1,43 @@
+        # Vast Price Manager has a dedicated admin-only route.  It strips the
+        # prefix once and explicitly preserves the remainder and query string.
+        location = /_vast_pricing_admin {
+            internal;
+            proxy_pass http://127.0.0.1:8081/auth/vast-price-manager/authorize;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Cookie $http_cookie;
+            proxy_set_header X-Original-URI $request_uri;
+        }
+
+        location = /vast-pricing {
+            return 308 /vast-pricing/;
+        }
+
+        location ~ ^/vast-pricing(?<vpm_upstream_path>/.*)$ {
+            auth_request /_vast_pricing_admin;
+            error_page 401 = @login_redirect;
+
+            # Runtime Docker DNS resolution permits startup before this opt-in
+            # service has been installed.
+            set $upstream_vast_price_manager vast-price-manager;
+            proxy_pass http://$upstream_vast_price_manager:8088$vpm_upstream_path$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # VPM directly introspects the signed Fleet session on its
+            # configured internal origin. Never pass client identity headers.
+            proxy_set_header X-Fleet-Auth-User "";
+            proxy_set_header X-Fleet-Auth-Role "";
+            proxy_set_header X-Fleet-Auth-Token "";
+            proxy_set_header X-Fleet-Authenticated "";
+            # Preserve the browser Fleet cookie for VPM's direct introspection.
+            proxy_set_header Cookie $http_cookie;
+            # Auth-request failures still use the redirect above. Do not
+            # intercept VPM's own 401 reauthentication result, which must
+            # reach its caller as an error rather than a Fleet login redirect.
+            proxy_intercept_errors off;
+            error_page 502 503 504 = @service_unavailable;
+        }

@@ -1,0 +1,22 @@
+{
+  "status": "definition only; staging not executed",
+  "entrypoint": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-red-definition/staging-check.py",
+  "setup": [
+    "Independent verifier provisions a fresh disposable Linux VM/daemon; attest ownership, isolation and exact daemon /info ID. Do not use production daemon, shared socket, unrelated containers or CI pool authority.",
+    "Preload exact released baseline and reviewed immutable repair images. Run verification entrypoint in repair-image Python runtime, PYTHONPATH=/app/src, exposing only the disposable daemon at /staging/docker.sock; copy this script into that temporary runtime. Record actual code hashes in runtime and compare reviewed migration.py/updates.py hashes.",
+    "Set UPDATER_STAGING_SOCKET=/staging/docker.sock, UPDATER_STAGING_DISPOSABLE=1, exact UPDATER_STAGING_DAEMON_ID, UPDATER_STAGING_OLD_IMAGE=<immutable baseline>, UPDATER_STAGING_REPAIR_IMAGE=<immutable repair>. These inputs contain no secrets.",
+    "Execute python3 /proof/staging-check.py. Capture stdout/stderr/exit and repair image digest, source/code hashes and VM destruction receipt. No Docker build/pull/publication is performed by the script."
+  ],
+  "executable_command": "PYTHONPATH=/app/src python3 /proof/staging-check.py",
+  "pass_signal": "exit0 and JSON status pass; two real daemon scenarios completed/rolled_back, exact new/old image IDs, real Docker health and retained synthetic history sentinel; clean teardown of uniquely named test containers/volume; independently verify disposal.",
+  "fault_injection": "UnhealthyCandidate changes only candidate HEALTHCHECK at real Docker create boundary. This forces actual daemon unhealthy state and production readiness/recovery logic; no mocked successful stop/health. Both source containers ignore TERM and exercise normal13s force-stop grace.",
+  "relation_to_local_tests": "Real socket default15s/13s grace/15.25s delayed ACK test is separately executable; staging proves daemon/image/data/recovery integration, not artificially delayed daemon ACK.",
+  "limitations": [
+    "Environment flag asserts isolation; independent operator evidence is mandatory and not proved by flag.",
+    "Script must run using frozen repaired image code, not arbitrary host source.",
+    "Staging is representative validation only; installed LTX updater identity and one actual retry acceptance remain separate held outcomes."
+  ],
+  "owner": "root orchestrator/independent verifier",
+  "release_impact": "No production retry before full-duration GREEN and disposable Docker proof; no release/production acceptance claim from local tests.",
+  "artifact_location_note": "One-off validation runner retained outside shipped source; original and independent executed copies/proofs are in run artifacts."
+}

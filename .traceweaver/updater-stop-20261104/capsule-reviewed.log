@@ -1,0 +1,5 @@
+vv_capsule_status=blocked
+vv_capsule_capsule=.traceweaver/updater-stop-20261104/vv-capsule.json
+vv_capsule_findings=2
+vv_capsule_finding=VV-CAPSULE-REVIEW-NOT-PASSED req_id=REQ-UPDATER-001 evidence=req_id="REQ-UPDATER-001" index=0
+vv_capsule_finding=VV-CAPSULE-REVIEW-NOT-PASSED req_id=REQ-UPDATER-002 evidence=req_id="REQ-UPDATER-002" index=1

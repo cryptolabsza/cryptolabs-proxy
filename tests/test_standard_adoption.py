@@ -1,3 +1,6 @@
+# TRACEWEAVER: file-role=historical-adoption-contract; req=REQ-UPDATER-003; trace=TRACE-UPDATER-003; ver=VER-UPDATER-003
+# TRACEWEAVER: verifies=VER-UPDATER-003; req=REQ-UPDATER-003; trace=TRACE-UPDATER-003
+# TRACEWEAVER: file-role=historical-adoption-contract; req=REQ-UPDATER-003; trace=TRACE-UPDATER-003; ver=VER-UPDATER-003
 """Synthetic standard adoption: production render and compensated switch path."""
 import hashlib
 import json
@@ -70,11 +73,16 @@ class Engine:
     def remove(self,name,ignore_missing=False): self.calls.append(('remove',name)); self.containers.pop(name,None)
 
 
-def system(tmp_path,monkeypatch):
+def system(tmp_path,monkeypatch, *, historical=False):
     from cryptolabs_proxy.standard_adoption import StandardAdoption
     settings=declaration(tmp_path); directory=tmp_path/'config'; directory.mkdir()
     generate_nginx_config(directory,settings['domain'],False,{n:DEFAULT_SERVICES[n] for n in KNOWN})
     config=(directory/'nginx.conf').read_bytes()
+    if historical:
+        fixtures=Path(__file__).with_name('fixtures')
+        recorded=json.loads((fixtures/'released-standard-1.5.4-declaration.json').read_text())
+        assert {k:v for k,v in settings.items() if k!='release_selection_dir'}==recorded
+        config=(fixtures/'released-standard-1.5.4.nginx.conf').read_bytes()
     reg=ServiceRegistry(directory); reg.config={'custom_config':{'mode':'vpm-managed','baseline_path':'private-old','baseline_sha256':'b'*64}}; reg.services={'vast-price-manager':DEFAULT_SERVICES['vast-price-manager']}; reg.save()
     engine=Engine(config); adoption=StandardAdoption(directory,engine=engine)
     monkeypatch.setattr('cryptolabs_proxy.standard_adoption.os', SimpleNamespace(geteuid=lambda: 0))
@@ -124,10 +132,12 @@ def test_plan_rejects_unsupported_without_mutation(tmp_path,monkeypatch,change):
     assert engine.calls==[] and ServiceRegistry(directory).config['custom_config']
 
 
-@pytest.mark.parametrize('change',['source','config','selection','digest','validation','mount-source','mount-rw','mount-option','mount-add','mount-remove','env-order'])
-def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change):
+@pytest.mark.parametrize('historical,change',
+    [(False,c) for c in ['source','config','selection','digest','validation','mount-source','mount-rw','mount-option','mount-add','mount-remove','env-order']]
+    +[(True,'source'),(True,'selection')])
+def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change,historical):
     from cryptolabs_proxy.standard_adoption import AdoptionError
-    adoption,engine,settings,directory=system(tmp_path,monkeypatch); plan=adoption.plan(settings)
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
     if change=='source': engine.current['Config']['Env'].append('NEW=drift')
     if change=='config': engine.config+=b'\n# drift'
     if change=='selection': (Path(settings['release_selection_dir'])/'selection.json').write_text('{}')
@@ -144,8 +154,10 @@ def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change):
     assert ServiceRegistry(directory).config['custom_config']
 
 
-def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monkeypatch):
-    adoption,engine,settings,directory=system(tmp_path,monkeypatch)
+@pytest.mark.parametrize('historical',[False,True])
+def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monkeypatch,historical):
+    from cryptolabs_proxy.standard_adoption import render_standard, _declaration
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical)
     inspect=engine.inspect
     from itertools import count
     inspections=count()
@@ -157,7 +169,12 @@ def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monke
         return observed
     monkeypatch.setattr(engine,'inspect',rotating_mounts)
     plan=adoption.plan(settings)
+    assert plan['source_profile']==('released-standard-1.5.4' if historical else 'standard')
+    expected=render_standard(_declaration(settings))
+    assert plan['candidate_sha256']==hashlib.sha256(expected).hexdigest()
+    assert b'location ^~ /api/account-link/ {' in expected
     outcome=adoption.adopt(settings,plan['plan_id']); assert outcome['state']=='adopted'
+    assert engine.config==expected
     request=engine.request
     assert request['Config']['Env'][:3]==engine.current['Config']['Env']
     assert request['Config']['Labels']['com.centurylinklabs.watchtower.enable']=='false'
@@ -174,9 +191,10 @@ def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monke
     calls=len(engine.calls); assert adoption.adopt(settings,plan['plan_id'])['state']=='already_adopted'; assert len(engine.calls)==calls
 
 
-def test_late_health_failure_restores_files_and_consistent_source_auth(tmp_path,monkeypatch):
+@pytest.mark.parametrize('historical',[False,True])
+def test_late_health_failure_restores_files_and_consistent_source_auth(tmp_path,monkeypatch,historical):
     from cryptolabs_proxy.standard_adoption import AdoptionError
-    adoption,engine,settings,directory=system(tmp_path,monkeypatch); plan=adoption.plan(settings)
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
     before={p.name:p.read_bytes() for p in directory.iterdir()}; engine.fail_health=True
     with pytest.raises(AdoptionError): adoption.adopt(settings,plan['plan_id'])
     assert engine.containers['cryptolabs-proxy']['Image']=='sha256:old' and engine.containers['cryptolabs-proxy']['State']['Running']
@@ -468,9 +486,55 @@ def test_interactive_setup_cannot_overwrite_custom_mode(tmp_path,monkeypatch):
     assert ServiceRegistry(tmp_path).config['custom_config']
 
 
-def test_selected_image_must_have_normal_auth_module_even_without_overlay(tmp_path,monkeypatch):
+@pytest.mark.parametrize('historical',[False,True])
+def test_selected_image_must_have_normal_auth_module_even_without_overlay(tmp_path,monkeypatch,historical):
     from cryptolabs_proxy.standard_adoption import AdoptionError
-    adoption,engine,settings,directory=system(tmp_path,monkeypatch); plan=adoption.plan(settings)
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
     monkeypatch.setattr(engine,'artifact_file_sha256',lambda *args:'0'*64,raising=False)
     with pytest.raises(AdoptionError): adoption.adopt(settings,plan['plan_id'])
     assert not [c for c in engine.calls if c[0]=='stop']
+
+
+@pytest.mark.parametrize('change',['directive','upstream','auth','extra-server','extra-route','route-order'])
+def test_historical_full_tree_changes_are_rejected_before_mutation(tmp_path,monkeypatch,change):
+    from cryptolabs_proxy.standard_adoption import AdoptionError
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=True)
+    original=engine.config
+    if change=='directive': engine.config=original.replace(b'keepalive_timeout 65;',b'keepalive_timeout 66;',1)
+    if change=='upstream': engine.config=original.replace(b'http://dc-overview:5001',b'http://unapproved:5001',1)
+    if change=='auth': engine.config=original.replace(b'auth_request /_auth_check;',b'',1)
+    if change=='extra-server': engine.config=original.replace(b'http {',b'http { server { listen 8089; return 200; }',1)
+    if change=='extra-route': engine.config=original.replace(b'server_name fleet.example.test;',b'server_name fleet.example.test; location /unapproved/ { return 200; }',1)
+    if change=='route-order':
+        # Swap complete regex route blocks, retaining their original bodies.
+        def block(header):
+            start=original.index(header); opening=original.index(b'{',start); depth=1; end=opening+1
+            while depth:
+                depth+=(original[end:end+1]==b'{')-(original[end:end+1]==b'}'); end+=1
+            return start,end
+        first,last=sorted([block(b'location ~ ^/ipmi/api/(.*)$'),block(b'location ~ ^/dc/(.*)$')])
+        a,b=first; c,d=last
+        engine.config=original[:a]+original[c:d]+original[b:c]+original[a:b]+original[d:]
+    assert engine.config!=original
+    with pytest.raises(AdoptionError,match='unsupported_source_behavior'):
+        adoption.plan(settings)
+    assert not engine.calls
+    assert engine.current['State']['Running']
+
+
+@pytest.mark.parametrize('resource',['nginx.conf.j2','fleet-api-routes.conf.j2','provenance.json'])
+def test_historical_resource_drift_fails_closed(tmp_path,monkeypatch,resource):
+    from cryptolabs_proxy.standard_adoption import AdoptionError
+    adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=True)
+    read=Path.read_bytes; changed=[]
+    def drift(path):
+        data=read(path)
+        if path.parent.name=='released-standard-1.5.4' and path.name==resource:
+            changed.append(path.name)
+            return b'{}' if resource=='provenance.json' else data+b'\n# altered package\n'
+        return data
+    monkeypatch.setattr(Path,'read_bytes',drift)
+    with pytest.raises(AdoptionError,match='historical_profile_unavailable'):
+        adoption.plan(settings)
+    assert changed==[resource]
+    assert not engine.calls

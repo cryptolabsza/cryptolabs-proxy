@@ -1,3 +1,6 @@
+# TRACEWEAVER: file-role=real-stop-socket-deadline; req=REQ-UPDATER-001; trace=TRACE-UPDATER-001; ver=VER-UPDATER-001
+# TRACEWEAVER: verifies=VER-UPDATER-001; req=REQ-UPDATER-001; trace=TRACE-UPDATER-001
+# TRACEWEAVER: file-role=real-stop-socket-deadline; req=REQ-UPDATER-001; trace=TRACE-UPDATER-001; ver=VER-UPDATER-001
 """Customer lifecycle regressions; real auth, renderer, switch, and file locks."""
 from contextlib import contextmanager
 from copy import deepcopy
@@ -12,6 +15,111 @@ import pytest
 from werkzeug.security import check_password_hash
 from cryptolabs_proxy import auth, setup, standard_adoption as sa, updates
 from tests.test_standard_adoption import Engine, REF, system
+
+
+@contextmanager
+def delayed_stop_socket(delay):
+    """Real HTTP/Unix boundary; only the remote Docker response is substituted."""
+    import socket
+    import threading
+    # macOS AF_UNIX paths are short; pytest's tmp_path can exceed 104 bytes.
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='stop-ack-', dir='/tmp') as directory:
+        socket_path = str(Path(directory) / 'docker.sock')
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(socket_path)
+        listener.listen(1)
+        listener.settimeout(5)
+        requests, errors = [], []
+        finish = threading.Event()
+
+        def serve():
+            try:
+                connection, _ = listener.accept()
+                with connection:
+                    connection.settimeout(5)
+                    request = b''
+                    while b'\r\n\r\n' not in request:
+                        part = connection.recv(4096)
+                        if not part:
+                            raise AssertionError('client closed before HTTP headers')
+                        request += part
+                    requests.append(request.split(b'\r\n', 1)[0].decode())
+                    if not finish.wait(delay):
+                        try:
+                            connection.sendall(b'HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n')
+                        except BrokenPipeError:
+                            pass  # Expected when a bounded client times out.
+            except Exception as error:
+                errors.append(error)
+
+        thread = threading.Thread(target=serve)
+        thread.start()
+        try:
+            yield socket_path, requests
+        finally:
+            finish.set()
+            listener.close()
+            thread.join(timeout=6)
+            assert not thread.is_alive()
+            assert not errors, errors
+
+
+def test_stop_delayed_ack_uses_headroom_without_changing_grace(monkeypatch):
+    """Short regression; opt in to the same default-15s path for release proof."""
+    from cryptolabs_proxy import migration
+    full_duration = os.environ.get('UPDATER_FULL_DURATION') == '1'
+    transport = 15 if full_duration else .2
+    delay = 15.25 if full_duration else .6
+    if not full_duration:
+        monkeypatch.setattr(migration, 'STOP_ACK_HEADROOM', .35, raising=False)
+    with delayed_stop_socket(delay) as (socket_path, requests):
+        engine = updates.UpdateEngine(socket_path=socket_path, timeout=transport)
+        engine.stop('service/name')
+        assert requests == [f'POST /v1.45/containers/service%2Fname/stop?t={max(1, transport - 2)} HTTP/1.1']
+        assert engine.timeout == transport
+
+
+def test_stop_ack_exceeding_budget_is_bounded_and_recovers(monkeypatch):
+    import time
+    from cryptolabs_proxy import migration
+    from tests.test_updates import Engine as UpdateFixtureEngine
+
+    monkeypatch.setattr(migration, 'STOP_ACK_HEADROOM', .35, raising=False)
+    with delayed_stop_socket(5) as (socket_path, requests):
+        socket_engine = updates.UpdateEngine(socket_path=socket_path, timeout=.2)
+
+        class SocketStopEngine(UpdateFixtureEngine):
+            def stop(self, name, **kwargs):
+                super().stop(name, **kwargs)
+                socket_engine.stop(name, **kwargs)
+
+        engine = SocketStopEngine()
+        started = time.monotonic()
+        result = updates.replace_container(engine, 'prometheus', 'sha256:new', 'job', timeout=0)
+        elapsed = time.monotonic() - started
+        # Preserved short-caller grace 1s + .35s ACK headroom, with scheduler tolerance.
+        assert 1.2 <= elapsed < 3, elapsed
+        assert result['state'] == 'rolled_back'
+        assert result['failure_phase'] == 'stop'
+        assert result['failure_category'] == 'timeout'
+        assert engine.inspect('prometheus')['State']['Running'] is True
+        assert requests == ['POST /v1.45/containers/prometheus/stop?t=1 HTTP/1.1']
+        assert not any(call[0] in ('rename', 'create') for call in engine.calls)
+
+
+def test_non_stop_socket_request_keeps_its_transport_budget():
+    """Raising the global timeout must not accidentally satisfy the stop test."""
+    import time
+    from cryptolabs_proxy.migration import MigrationError
+    with delayed_stop_socket(5) as (socket_path, requests):
+        engine = updates.UpdateEngine(socket_path=socket_path, timeout=.2)
+        started = time.monotonic()
+        with pytest.raises(MigrationError) as caught:
+            engine.inspect('prometheus')
+        assert isinstance(caught.value.__cause__, TimeoutError)
+        assert time.monotonic() - started < 1
+        assert requests == ['GET /v1.45/containers/prometheus/json HTTP/1.1']
 
 
 def archive(directory):

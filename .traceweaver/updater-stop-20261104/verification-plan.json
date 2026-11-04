@@ -1,0 +1,87 @@
+{
+  "skill_name": "verification-planner",
+  "skill_version": "0.1",
+  "source_inputs": [
+    ".traceweaver/updater-stop-20261104/authority.json",
+    ".traceweaver/updater-stop-20261104/approved-plan.html",
+    ".traceweaver/updater-stop-20261104/approved-plan-review.html"
+  ],
+  "authority_status": "existing owner-approved controls; local identifier mapping pending orchestrator verification",
+  "baseline_reference": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "decision": "held",
+  "decision_rationale": "RED evidence exists; independent executable/validation definition review and mapping verification required before production mutation.",
+  "hold_conditions": [
+    "new verification/validation artifacts not independently reviewed",
+    "production implementation intentionally untouched"
+  ],
+  "recommended_next_skill": "tw-auto",
+  "verification_plan": {
+    "plan_id": "VER-PLAN-UPDATER-20261104",
+    "requirement_ids": [
+      "REQ-UPDATER-001",
+      "REQ-UPDATER-002"
+    ],
+    "verification_scope": "Two approved stop-ack/diagnostic repair control groups; preserve existing tests and guards.",
+    "method": "test",
+    "success_criteria": [
+      "53 focused cases pass on repaired source, including 6 cases that fail released source",
+      "Default15s request receives ACK at15.25s without changing13s grace; stop budget remains bounded28s",
+      "Scaled beyond-budget stop times out near1.35s and old source is restarted; no rename/create",
+      "TimeoutError wrapped by exact MigrationError maps to fixed timeout category; disconnect OSError maps os_error; unknown class maps unknown without formatting",
+      "Primary stop/timeout remains fixed when recovery start/os_error fails; safe fields survive actual worker write/read; synthetic secret and exception class names absent",
+      "Existing identity/selection/native controller recovery/security/readiness tests pass with no weakened assertions"
+    ],
+    "target_environment": "Local Python real AF_UNIX/HTTP client; isolated temporary files; later real disposable Linux Docker daemon",
+    "tested_ref_required": true,
+    "owner": "root orchestrator; implementation and independent verifier roles",
+    "status": "RED recorded; review pending"
+  },
+  "verification_cross_reference_matrix": [
+    {
+      "requirement_id": "REQ-UPDATER-001",
+      "method": "test",
+      "procedure_ref": "tests/test_proxy_lifecycle_review_repairs.py::test_stop_delayed_ack_uses_headroom_without_changing_grace; ::test_stop_ack_exceeding_budget_is_bounded_and_recovers; ::test_non_stop_socket_request_keeps_its_transport_budget",
+      "expected_result": "Short/default delayed stop success; bounded timeout/recovery; non-stop retains original bound.",
+      "evidence_required": [
+        "red-unsandboxed.log",
+        "red-full-duration.log",
+        "future focused-green.log and full-duration-green.log"
+      ],
+      "target_environment": "AF_UNIX standard-library production client, representative timings; Docker staging before release",
+      "harness_equivalence": "Uses actual UpdateEngine inherited DockerEngine.stop/_request and API-prefix forwarding against a delayed real Unix HTTP peer; does not model daemon scheduling, SIGTERM, force kill, container health or target host."
+    },
+    {
+      "requirement_id": "REQ-UPDATER-002",
+      "method": "test",
+      "procedure_ref": "tests/test_updates.py::test_worker_persists_safe_primary_and_recovery_diagnostics",
+      "expected_result": "4 parameterized actual-worker cases persist fixed phase/category without sensitive text; automatic recovery preserved or explicitly required.",
+      "evidence_required": [
+        "red-unsandboxed.log",
+        "future focused-green.log"
+      ],
+      "target_environment": "Actual worker, JSON persistence, reused in-memory Engine boundary",
+      "harness_equivalence": "Real production run_job/replace_container/write_job/read_job; only Engine operations substituted with precise wrapped errors. Not daemon/production acceptance."
+    }
+  ],
+  "execution_record_template": {
+    "execution_id": "VER-UPDATER-NEXT",
+    "procedure_or_command": "PYTHONPATH=src python3 -m pytest tests/test_updates.py tests/test_proxy_lifecycle_review_repairs.py -q",
+    "tested_ref": "record exact source SHA + dirty file hashes",
+    "expected_result": "53 passed",
+    "actual_result": "pending implementation",
+    "outcome": "blocked",
+    "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-red-definition/focused-green.log",
+    "deviations": []
+  },
+  "commands": {
+    "focused": "PYTHONPATH=src python3 -m pytest tests/test_updates.py tests/test_proxy_lifecycle_review_repairs.py -q",
+    "full_default": "UPDATER_FULL_DURATION=1 PYTHONPATH=src python3 -m pytest tests/test_proxy_lifecycle_review_repairs.py::test_stop_delayed_ack_uses_headroom_without_changing_grace -q",
+    "broader_affected": "PYTHONPATH=src python3 -m pytest /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_controller_guard_transport.py /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_controller_recovery_guard.py /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_proxy_lifecycle_review_repairs.py /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_release_selection.py /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_standard_adoption.py /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/test_updates.py -q",
+    "deterministic": "git diff --check; python3 -m compileall -q src/cryptolabs_proxy/migration.py src/cryptolabs_proxy/updates.py tests/test_updates.py tests/test_proxy_lifecycle_review_repairs.py"
+  },
+  "lean_test_value": {
+    "baseline": "46 passed in4.10s;23 existing deprecation warnings; no coverage metrics collected",
+    "added": "7 cases (4 diagnostic parameters, 2 timing/regression cases,1 non-stop guard); no deletions/skips/weakened assertions",
+    "purpose": "Protect real observed deadline relationship and discarded-diagnostic failure modes with reused Engine/source fixtures and real worker persistence. Short scale adds sub2s after repair; full15s representative proof opt-in before release, no per-edit full suite."
+  }
+}

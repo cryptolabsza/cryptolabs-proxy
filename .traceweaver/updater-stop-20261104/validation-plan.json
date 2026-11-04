@@ -1,0 +1,70 @@
+{
+  "skill_name": "validation-planner",
+  "skill_version": "0.1",
+  "source_inputs": [
+    ".traceweaver/updater-stop-20261104/approved-plan.html",
+    ".traceweaver/updater-stop-20261104/owner-approval.json"
+  ],
+  "authority_status": "owner approved sequence; outcomes held",
+  "baseline_reference": "candidate exact digest required",
+  "decision": "held",
+  "decision_rationale": "No repaired image, Docker staging or target acceptance exists in RED definition phase.",
+  "hold_conditions": [
+    "independent definition review pending",
+    "disposable Docker update/recovery not run",
+    "installed fixed-route Proxy identity not observed",
+    "single approved LTX IPMI retry not consumed"
+  ],
+  "validation_plan": {
+    "plan_id": "VAL-PLAN-UPDATER-20261104",
+    "need_ids": [
+      "approved-plan.html:incident658b5cc178cf40989335b6f51b5eb876"
+    ],
+    "intended_use": "LTX operator can update selected IPMI image without losing saved history and receives safe primary/recovery diagnostics if replacement fails.",
+    "operating_context": "Exact reviewed released Proxy patch first via approved installed fixed host route; then one scoped LTX IPMI1.4.0 retry. Charlotte and BMC untouched.",
+    "validation_method": "operational dry run then intended-environment acceptance",
+    "success_criteria": [
+      "Before production: independent verifier observes disposable Docker healthy update and unhealthy-candidate rollback with exact identities and retained data; no live socket mounts or shared host changes.",
+      "Before IPMI retry: installed repaired Proxy hash/digest, auth/health and unrelated pins verified.",
+      "One retry only: exact selected IPMI1.4.0 digest running/healthy,802 historical eventrows and6alert-history rows preserved (or current pre-retry verified baselines), collection and warning UI validated.",
+      "Unexpected failure holds rollout; original recovered/health verified with primary/recovery diagnostics retained. No blind repeat, manual replacement or guard bypass."
+    ],
+    "owner": "root orchestrator under owner approval; independent verifier judges evidence",
+    "status": "planned"
+  },
+  "stakeholder_or_rater_profile": {
+    "name_or_role": "Fresh independent Sol verifier and owner/operator represented by root; owner Hannes Zietsman retains acceptance authority",
+    "relationship_to_work": "Verifier did not author repair; root checks raw evidence and controls retry.",
+    "independence_note": "Current preparation worker cannot self-accept implementation or deployment. Requested model identity unattested unless runtime evidence supplied.",
+    "representative_reason": "Verifier exercises exact operator update/recovery sequence on disposable daemon before fixed-route intended workflow."
+  },
+  "validation_scenario_matrix": [
+    {
+      "scenario_id": "VAL-UPDATER-001",
+      "need_id": "approved-plan.html clauses2/4",
+      "scenario": "Disposable daemon update/recovery, then installed updater identity before retry",
+      "acceptance_signal": "Healthy candidate uses exact digest; failing candidate restores exact original healthy image and persistent sentinel; installed Proxy matches released repair.",
+      "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-red-definition/staging-result.json",
+      "status": "planned"
+    },
+    {
+      "scenario_id": "VAL-UPDATER-002",
+      "need_id": "approved-plan.html clauses1/4",
+      "scenario": "Safe failures in staging and exactly one LTX IPMI retry after gates",
+      "acceptance_signal": "Allowlisted diagnostics persist and preserve primary/recovery; retry proves image/history/collection/warning UI without secret/error-body leakage.",
+      "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-red-definition/ltx-acceptance.json",
+      "status": "planned"
+    }
+  ],
+  "adoption_evidence_record": {
+    "record_id": "VAL-UPDATER-PENDING",
+    "scenario_id": "VAL-UPDATER-001/002",
+    "rater_or_source": "not yet executed",
+    "result": "blocked",
+    "approval_package_inputs": [
+      ".traceweaver/updater-stop-20261104/verification-plan.json",
+      ".traceweaver/updater-stop-20261104/owner-approval.json"
+    ],
+    "deferred_trigger": null
+  }
+}

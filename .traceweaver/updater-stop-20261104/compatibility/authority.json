@@ -1,0 +1,28 @@
+{
+  "work_item_id": "UPDATER-COMPATIBILITY-20261104",
+  "source_authority": "owner-approval.json",
+  "approved_plan_sha256": "f4c398629d4767a76a0ec45d7036997bb80b432ccec5d61d7bb3bec27b62980b",
+  "id": "REQ-UPDATER-003",
+  "trace_id": "TRACE-UPDATER-003",
+  "ver_id": "VER-UPDATER-003",
+  "val_id": "VAL-UPDATER-003",
+  "statement": "Recognize one explicitly named released-standard1.5.4 source via complete ordered structural equality and immutable eight-template historical closure; preserve current candidate rendering, auth/module identity, selection/source drift denial, declaration and recovery guards. Verify matching official wheel/container and disposable staging adoption before bounded separate official hostvenv provisioning, fixed native Proxy adoption and the already-approved single LTX IPMI retry.",
+  "status": "owner-approved unchanged addendum controls; IDs only index approved scope",
+  "phase": "root-precode-review passed; exact approved compatibility source implementation permitted; runtime gates remainheld",
+  "implementation_scope": [
+    "src/cryptolabs_proxy/standard_adoption.py",
+    "src/cryptolabs_proxy/templates/released-standard-1.5.4/",
+    "tests/test_standard_adoption.py",
+    "tests/fixtures/ optional historical fixture/declaration only"
+  ],
+  "must_not_change": [
+    "originaltwofile frozenhashes",
+    "currentcandidate rendering",
+    "allauth/drift/rollbackguards",
+    "unreleaseddevFleet",
+    "globalhostCLI",
+    "CI/deps/pool",
+    "Charlotte",
+    "BMCpolicies"
+  ]
+}

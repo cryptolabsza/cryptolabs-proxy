@@ -1,0 +1,42 @@
+{
+  "schema": "updater-stop-authority/1",
+  "work_item_id": "UPDATER-STOP-20261104",
+  "source_revision": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "owner_approval": ".traceweaver/updater-stop-20261104/owner-approval.json",
+  "approved_plan_sha256": "5c48796eff976c9e614887931087494687d3626f5780d4db0acf28b7f2299342",
+  "plan_review": ".traceweaver/updater-stop-20261104/approved-plan-review.html",
+  "meaning": "Existing owner approval is authority; local IDs only label its unchanged two implementation control groups. Root pairing authority remains untouched.",
+  "implementation_scope": [
+    "src/cryptolabs_proxy/migration.py",
+    "src/cryptolabs_proxy/updates.py",
+    "tests/test_updates.py",
+    "tests/test_proxy_lifecycle_review_repairs.py"
+  ],
+  "current_phase": "Implementation allowed for original two production files under owner approval and root precode review; compatibility addendum excluded pending owner approval.",
+  "excluded": [
+    "CI/dependency/runner changes",
+    "BMC qualification or mutation",
+    "Charlotte",
+    "unreleased Fleet dev",
+    "publication or remote mutation by this worker"
+  ],
+  "controls": [
+    {
+      "id": "REQ-UPDATER-001",
+      "trace_id": "TRACE-UPDATER-001",
+      "ver_id": "VER-UPDATER-001",
+      "val_id": "VAL-UPDATER-001",
+      "source": "approved-plan.html clause 1; approved-plan-review.html amendment 1/5",
+      "text": "Bounded stop-only acknowledgement headroom; preserve existing stop grace (13s default), other socket timeouts and readiness deadlines."
+    },
+    {
+      "id": "REQ-UPDATER-002",
+      "trace_id": "TRACE-UPDATER-002",
+      "ver_id": "VER-UPDATER-002",
+      "val_id": "VAL-UPDATER-002",
+      "source": "approved-plan.html clause 1; approved-plan-review.html amendments 2/3/4",
+      "text": "Fixed allowlisted phase/category diagnostics, safe known wrapped-cause classification, separate primary/recovery failure; no exception text/payload/credentials/traceback serialization; diagnostics cannot interrupt recovery. Preserve rollback, identity, selection and native guards."
+    }
+  ],
+  "id_status": "Scoped indexing of approved clauses; orchestrator must verify mapping, not a new requirement approval."
+}

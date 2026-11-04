@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "-m",
+    "pytest",
+    "tests/test_updates.py",
+    "tests/test_proxy_lifecycle_review_repairs.py",
+    "-q"
+  ],
+  "cwd": "/Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104",
+  "PYTHONPATH": "src",
+  "UPDATER_FULL_DURATION": null,
+  "status": 1,
+  "elapsed_seconds": 5.165588374948129,
+  "python": "3.14.6 (main, Jun 10 2026, 10:03:53) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "revision": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "log": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-red-definition/red-unsandboxed.log"
+}

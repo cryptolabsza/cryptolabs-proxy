@@ -1,0 +1,31 @@
+{
+  "record_id": "ROOT-UPDATER-PRECODE-20261104",
+  "reviewed_at": "2026-11-04T07:18:19.725770+00:00",
+  "reviewer": "root orchestrator; did not author tests or implementation",
+  "decision": "definition_passed; production dispatch waits final capsule stamp and profile freeze",
+  "authority": "explicit approved updater-repair-plan.html unchanged two implementation controls, local IDs are labels only",
+  "source_baseline": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "checks": {
+    "production_hashes_unchanged": true,
+    "baseline": "46 passed,4.10s",
+    "red": "6 real failures,47 passes,4.73s; socket failures genuine timeout and bounded-time assertion; no permission errors",
+    "representative_red": "default15s client timed out before15.25sACK;1 failed15.12s",
+    "test_value": "7 added cases reuse existing Engine and actual worker persistence; no removed tests/skips/assertion weakening",
+    "contract": "nondefault grace formula preserved; stop only request override; UpdateEngine API prefix forwarding must remain; safe bounded known-cause fields and separate primary/recovery",
+    "validation": "real disposable Docker update and rollback + installed immutable Proxy identity before single LTX retry; historical incident exactcause remains unproven",
+    "held": "compatibility addendum awaiting owner approval; no production deployment until resolved"
+  },
+  "artifact_hashes": {
+    "authority.json": "478054d960a0aa6d25a8e2f8af43d067f91128e6513c95142411df049e543af4",
+    "workflow-profile.json": "8629b5d43356b08f60ad134e086173bb5bdfc95f3d44a5f825d9b6ff7bb5b357",
+    "verification-plan.json": "50b836a205195f63d36e43ba2ec59c1efa2d2725a433ae038f3b26d09c090a95",
+    "validation-plan.json": "9f3f041537c5b73ff8562bd7ae23e8649890da21f5f38e6cedca42be714b9f45",
+    "matrix-proposal.md": "d0f6b53c5f4bf4d23e58d22d1445c7d692ea56685f0d7c365289f59f6ec10e2f",
+    "intent-scope.json": "6a80be2f2fbd6615be4803f9b78fc7063b8711d7855bd4ed4027ad5ce4632739"
+  },
+  "test_hashes": {
+    "tests/test_updates.py": "4729ca4f9d3601b9f3ebc597260e75e17a9720cb7e19e9c90a6b7742fb1aaf5d",
+    "tests/test_proxy_lifecycle_review_repairs.py": "8872787e70a13ccbed7c0ee8bb4780fc6bc3f12a83d984139d13f7e0e1e67d03"
+  },
+  "profile_adjustment_before_production": "reduce repair_cycle_cap to1 per current tw-code-review; retain reviewer cap2, all other controls; revision2 with reason and freeze before production builder"
+}

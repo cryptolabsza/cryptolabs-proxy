@@ -1,0 +1,18 @@
+{
+  "schema": "updater-release-scope/1",
+  "recorded_at": "2026-11-04T08:30:57.701148+00:00",
+  "version": "1.6.1",
+  "base_main": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "accepted_seed": "ba0d23ca21db5efd4a2e430929aceb615562dcb0",
+  "source_dev_pr": "https://github.com/cryptolabsza/cryptolabs-proxy/pull/25",
+  "source_dev_head": "c8c745132dbcdc2681e04b47fd3881ca7ffbf0a2",
+  "route": "Approved main-based bounded hotfix after scoped dev handoff; exclude unrelated unreleased Fleet dev work. Main merge requires dev PR25 merged.",
+  "approval": "../compatibility/owner-approval.json and ../owner-approval.json",
+  "source_hashes": {
+    "src/cryptolabs_proxy/migration.py": "60ab6493757352c135cbb8b389dd198eab66b9b996398430bfa668b8599d9cc3",
+    "src/cryptolabs_proxy/updates.py": "1b176672c2a55499ca70a9eeb445550849975463846abb068443715e14bf1b56",
+    "src/cryptolabs_proxy/standard_adoption.py": "3a1c1d63b6bdc2207b9a6f10e5e423516d85905f23b91d2c8fe07538d7a44c74"
+  },
+  "verification": "1002release regressionPASS2existingSKIP; 1.6.1wheel/sdist/installedCLI/resourcesmatch; independentSource/ABI/reviewPASS",
+  "runtime": "Officialmatchingwheel/image and three native fresh-guest scenarios before LTX; one approvedIPMIretryunconsumed; BMCwritesOFF/unqualified"
+}

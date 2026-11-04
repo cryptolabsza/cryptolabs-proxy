@@ -1,0 +1,8 @@
+{
+  "recorded_at": "2026-11-04T07:59:41.539020+00:00",
+  "route": "mechanical_closure",
+  "reviewer_dispatch": 0,
+  "change": "Retain one-off originalstagingrunner as external runartifact; refresh pointersonly. No production/test/approvedscopechange. Original4 andcompat14scopedsourcehashes unchanged.",
+  "evidence": "artifacts/updater-independent-validation/acceptance.json",
+  "runtime": "matchingofficialnativeadoption/LTXstillheld"
+}

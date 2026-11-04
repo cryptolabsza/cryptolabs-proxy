@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=safe-update-recovery-diagnostics; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
 """Serialized fleet image updates executed outside the serving proxy container.
 
 Job files contain only operation state, never container environments or Docker
@@ -100,10 +101,12 @@ class UpdateBusy(UpdateError):
 
 
 class UpdateEngine(DockerEngine):
-    def _request(self, method, path, payload=None, allowed=(200, 201, 204)):
+    def _request(self, method, path, payload=None, allowed=(200, 201, 204), *, timeout=None):
         """Use an Engine API version accepted by the Docker 29 fleet host."""
         if not path.startswith(f'/{DOCKER_API_VERSION}/'):
             path = f'/{DOCKER_API_VERSION}{path}'
+        if timeout is not None:
+            return super()._request(method, path, payload, allowed, timeout=timeout)
         return super()._request(method, path, payload, allowed)
 
     def image(self, reference):
@@ -375,18 +378,48 @@ def wait_ready(engine, name, image_id, timeout=150):
         time.sleep(1)
 
 
+_FAILURE_PHASES = frozenset({'inspect', 'image', 'prepare', 'stop', 'disconnect',
+                           'rename', 'create', 'start', 'readiness', 'remove', 'connect'})
+
+
+def _failure_diagnostics(phase, error, *, recovery=False):
+    """Return only fixed values; diagnostic inspection must never block recovery."""
+    category = 'unknown'
+    try:
+        # Only unwrap our known transport wrapper, and only one level. Never
+        # inspect arbitrary chains, stringify errors, or expose class names.
+        cause = error.__cause__ if type(error) is MigrationError else None
+        classified = cause if cause is not None else error
+        if isinstance(classified, TimeoutError):
+            category = 'timeout'
+        elif isinstance(classified, OSError):
+            category = 'os_error'
+        elif type(classified) is UpdateError:
+            category = 'update_error'
+        elif type(classified) is MigrationError:
+            category = 'migration_error'
+    except Exception:
+        pass
+    prefix = 'recovery' if recovery else 'failure'
+    return {f'{prefix}_phase': phase if phase in _FAILURE_PHASES else 'unknown',
+            f'{prefix}_category': category}
+
+
+# TRACEWEAVER: entrypoint=replace_container; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
 def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=None, policy=None, expected_image=None):
     """Swap without destroying the previous runtime; prove recovery on failure."""
     backup = f'{name}.rollback-{job_id}'
     detached = []
     started_stop = renamed = created = False
     source = None
+    phase = 'inspect'
     try:
         source = engine.inspect(name)
         if expected_id and source['Id'] != expected_id:
             raise UpdateError('Container changed during update preparation.')
         if not source.get('State', {}).get('Running'):
             raise UpdateError('Service is stopped; use its installer to start it.')
+        phase = 'image'
         candidate = engine.image(image)
         if expected_image and candidate['Id'] != expected_image:
             raise UpdateError('Candidate changed during update preparation.')
@@ -395,6 +428,7 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
         if candidate['Id'] == source['Image'] and (not policy or (source['Config'].get('Labels') or {}).get(WATCHTOWER_LABEL) == 'false'):
             return {'success': True, 'state': 'unchanged', 'image_id': source['Image'], 'message': 'Already running the selected image.'}
         if name == 'cryptolabs-proxy': return _proxy_hold()
+        phase = 'prepare'
         request = build_update_request(source, engine.image(source['Image']), candidate)
         if policy:
             request['Config']['Labels'].update({WATCHTOWER_LABEL: 'false',
@@ -403,36 +437,49 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
             request['Config']['Labels'].update({CHANNEL_LABEL: image, IMAGE_LABEL: candidate['Id']})
         endpoints = request['NetworkingConfig']['EndpointsConfig']
         started_stop = True
+        phase = 'stop'
         engine.stop(name)
         for network in endpoints:
+            phase = 'disconnect'
             engine.disconnect(name, network)
             detached.append(network)
+        phase = 'rename'
         engine.rename(name, backup)
         renamed = True
+        phase = 'create'
         engine.create(name, request)
         created = True
+        phase = 'start'
         engine.start(name)
+        phase = 'readiness'
         if not wait_ready(engine, name, candidate['Id'], timeout):
             raise UpdateError('Replacement failed application health or image verification.')
         return {'success': True, 'state': 'completed', 'image_id': candidate['Id'],
                 'rollback_container': backup, 'message': 'Updated and health verified.'}
     except Exception as error:
+        failure = _failure_diagnostics(phase, error)
         message = str(error) if isinstance(error, UpdateError) else 'Container update failed.'
         if not started_stop:
-            return {'success': False, 'state': 'failed', 'message': message}
+            return {'success': False, 'state': 'failed', 'message': message, **failure}
         try:
             if created:
+                phase = 'remove'
                 engine.remove(name, ignore_missing=True)
             if renamed:
+                phase = 'rename'
                 engine.rename(backup, name)
             for network in detached:
+                phase = 'connect'
                 engine.connect(name, network, endpoints[network])
+            phase = 'start'
             engine.start(name)
+            phase = 'readiness'
             if not wait_ready(engine, name, source['Image'], timeout):
                 raise UpdateError('Original service did not recover.')
-            return {'success': False, 'state': 'rolled_back', 'message': message + ' Original service restored and health verified.'}
-        except Exception:
-            return {'success': False, 'state': 'recovery_required', 'message': message + ' Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup if renamed else name}
+            return {'success': False, 'state': 'rolled_back', 'message': message + ' Original service restored and health verified.', **failure}
+        except Exception as recovery_error:
+            return {'success': False, 'state': 'recovery_required', 'message': message + ' Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup if renamed else name,
+                    **failure, **_failure_diagnostics(phase, recovery_error, recovery=True)}
 
 
 def _job_path(directory, job_id):

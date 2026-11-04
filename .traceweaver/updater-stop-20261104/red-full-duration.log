@@ -1,0 +1,95 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_stop_delayed_ack_uses_headroom_without_changing_grace __________
+
+self = <cryptolabs_proxy.updates.UpdateEngine object at 0x10cdb38c0>
+method = 'POST', path = '/v1.45/containers/service%2Fname/stop?t=13'
+payload = None, allowed = (204, 304)
+
+    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204)):
+        connection = _UnixHTTPConnection(self.socket_path, self.timeout)
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Content-Type": "application/json"} if body else {}
+        try:
+            connection.request(method, path, body=body, headers=headers)
+>           response = connection.getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/cryptolabs_proxy/migration.py:304: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:1459: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:297: in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.SocketIO object at 0x10cdbe920>, b = <memory at 0x10cf39180>
+
+    def readinto(self, b):
+        """Read up to len(b) bytes into the writable buffer *b* and return
+        the number of bytes read.  If the socket is non-blocking and no bytes
+        are available, None is returned.
+    
+        If *b* is non-empty, a 0 return value indicates that the connection
+        was shutdown at the other end.
+        """
+        self._checkClosed()
+        self._checkReadable()
+        if self._timeout_occurred:
+            raise OSError("cannot read from timed out object")
+        try:
+>           return self._sock.recv_into(b)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TimeoutError: timed out
+
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socket.py:729: TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10cf8c2b0>
+
+    def test_stop_delayed_ack_uses_headroom_without_changing_grace(monkeypatch):
+        """Short regression; opt in to the same default-15s path for release proof."""
+        from cryptolabs_proxy import migration
+        full_duration = os.environ.get('UPDATER_FULL_DURATION') == '1'
+        transport = 15 if full_duration else .2
+        delay = 15.25 if full_duration else .6
+        if not full_duration:
+            monkeypatch.setattr(migration, 'STOP_ACK_HEADROOM', .35, raising=False)
+        with delayed_stop_socket(delay) as (socket_path, requests):
+            engine = updates.UpdateEngine(socket_path=socket_path, timeout=transport)
+>           engine.stop('service/name')
+
+tests/test_proxy_lifecycle_review_repairs.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/migration.py:324: in stop
+    self._request("POST", f"/containers/{quote(container, safe='')}/stop?t={grace}", allowed=allowed)
+src/cryptolabs_proxy/updates.py:107: in _request
+    return super()._request(method, path, payload, allowed)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.updates.UpdateEngine object at 0x10cdb38c0>
+method = 'POST', path = '/v1.45/containers/service%2Fname/stop?t=13'
+payload = None, allowed = (204, 304)
+
+    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204)):
+        connection = _UnixHTTPConnection(self.socket_path, self.timeout)
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Content-Type": "application/json"} if body else {}
+        try:
+            connection.request(method, path, body=body, headers=headers)
+            response = connection.getresponse()
+            content = response.read()
+        except OSError as error:
+>           raise MigrationError(f"Docker Engine request failed: {error}") from error
+E           cryptolabs_proxy.migration.MigrationError: Docker Engine request failed: timed out
+
+src/cryptolabs_proxy/migration.py:307: MigrationError
+=========================== short test summary info ============================
+FAILED tests/test_proxy_lifecycle_review_repairs.py::test_stop_delayed_ack_uses_headroom_without_changing_grace
+1 failed in 15.12s

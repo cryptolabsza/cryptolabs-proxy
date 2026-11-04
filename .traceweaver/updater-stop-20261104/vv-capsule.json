@@ -1,0 +1,62 @@
+{
+  "schema_version": "tw-vv-capsule/1",
+  "work_item_id": "UPDATER-STOP-20261104",
+  "workflow_profile": "L3",
+  "plan_ref": ".traceweaver/updater-stop-20261104/approved-plan.html",
+  "authority_ref": ".traceweaver/updater-stop-20261104/authority.json",
+  "profile_ref": ".traceweaver/updater-stop-20261104/workflow-profile.json",
+  "high_risk_controls": {
+    "rollback": "Retain and independently verify original-container recovery; unexpected failure holds rollout. Existing guards unchanged. Disposable Docker proof precedes production.",
+    "owner_decision": "Explicit owner approval permits original bounded Proxy repair/release and one LTX retry; root precode review permits two-file implementation only now. Runtime remains held for verified compatible fixed route and all staging/release gates. Compatibility addendum not yet approved."
+  },
+  "requirements": [
+    {
+      "req_id": "REQ-UPDATER-001",
+      "trace_id": "TRACE-UPDATER-001",
+      "ver_id": "VER-UPDATER-001",
+      "val_id": "VAL-UPDATER-001",
+      "verification_artifact": "tests/test_proxy_lifecycle_review_repairs.py",
+      "red_evidence": ".traceweaver/updater-stop-20261104/red-unsandboxed.log",
+      "validation_artifact": ".traceweaver/updater-stop-20261104/validation-plan.json",
+      "matrix_row_ref": "traceability-matrix.md#TRACE-UPDATER-001",
+      "reviews": [
+        {
+          "gate": "tw-code-review",
+          "id": "ROOT-UPDATER-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/root-precode-review.json"
+        },
+        {
+          "gate": "tw-doc-review",
+          "id": "ROOT-UPDATER-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/root-precode-review.json"
+        }
+      ]
+    },
+    {
+      "req_id": "REQ-UPDATER-002",
+      "trace_id": "TRACE-UPDATER-002",
+      "ver_id": "VER-UPDATER-002",
+      "val_id": "VAL-UPDATER-002",
+      "verification_artifact": "tests/test_updates.py",
+      "red_evidence": ".traceweaver/updater-stop-20261104/red-unsandboxed.log",
+      "validation_artifact": ".traceweaver/updater-stop-20261104/validation-plan.json",
+      "matrix_row_ref": "traceability-matrix.md#TRACE-UPDATER-002",
+      "reviews": [
+        {
+          "gate": "tw-code-review",
+          "id": "ROOT-UPDATER-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/root-precode-review.json"
+        },
+        {
+          "gate": "tw-doc-review",
+          "id": "ROOT-UPDATER-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/root-precode-review.json"
+        }
+      ]
+    }
+  ]
+}

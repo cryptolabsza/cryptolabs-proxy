@@ -1,0 +1,17 @@
+{
+  "schema": "owner-approval/1",
+  "recorded_at": "2026-11-04T07:32:53.018771+00:00",
+  "literal_user_response": "Approve compatibility addition and continue deployment",
+  "approved_question": "Review strict historical1.5.4 profile, staging, official matchinghostpackage before alreadyapprovedONEIPMIretry",
+  "plan": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/updater-compatibility-addendum.html",
+  "plan_revision": 2,
+  "plan_sha256": "f4c398629d4767a76a0ec45d7036997bb80b432ccec5d61d7bb3bec27b62980b",
+  "provisioning_clarification": "Separate versionedhostvenv using installedPython/venv/pip and exactofficialverifiedwheel; no existingfixedwheelinstaller. Explicitboundedprovisioningexception; no checked-outinstaller/script and no globalsymlink/currentenv modification. Clarified in commentary before approval.",
+  "exclusions": [
+    "Charlotte",
+    "BMCmutation/qualification",
+    "unreleasedFleetdev",
+    "guardbypass",
+    "blindsecondadoptionorretry"
+  ]
+}
