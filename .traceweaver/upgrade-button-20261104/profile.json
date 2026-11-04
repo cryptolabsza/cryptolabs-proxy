@@ -1,0 +1,28 @@
+{
+  "schema_version": "tw-workflow-profile/1",
+  "work_item_id": "UPGRADE-BUTTON-20261104",
+  "profile_revision": 1,
+  "risk": "L2",
+  "reason": "Additive status API field and administrative UI request binding across two modules; unchanged lifecycle algorithms. Release/deployment retains existing high-risk native route.",
+  "selected_controls": [
+    "test-first Node page reproduction",
+    "focused and full regression",
+    "one correctness review plus security specialist for administrative mutation entry",
+    "scoped traceability",
+    "official protected CI",
+    "native rollback and independent live/browser verification"
+  ],
+  "reviewer_cap": 2,
+  "repair_cycle_cap": 1,
+  "models": "Inherited available models; no model attestation claim",
+  "estimated_delivery_minutes": 75,
+  "process_target_minutes": 18.75,
+  "process_ceiling_minutes": 75,
+  "source_scope": [
+    "landing-page/index.html",
+    "src/cryptolabs_proxy/updates.py",
+    "tests/test_latest_status.py",
+    "tests/test_release_selection.py"
+  ],
+  "held": "No live outcome or publication pass until observed."
+}

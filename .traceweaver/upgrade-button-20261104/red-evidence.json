@@ -1,0 +1,7 @@
+{
+  "status": "EXPECTED_FAILURE_OBSERVED_BEFORE_PRODUCTION_EDITS",
+  "source": "Current chat tool result f3e5a0, before first implementation apply_patch",
+  "command": "PYTHONPATH=src python3.14 -m pytest tests/test_latest_status.py::test_selected_pin_update_button_and_request tests/test_release_selection.py::test_baseline_status_reports_identity_and_unknown_candidate -q",
+  "result": "2 failed, 6 passed; real page omitted IPMI selected-pin button; status lacked selection_sha256.",
+  "qualification": "This receipt is written after implementation and records the earlier observed RED; it does not assert the receipt file predated source edits."
+}

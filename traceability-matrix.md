@@ -4,6 +4,7 @@
 
 | Trace | Requirement | Implementation | Verification | Validation | Status |
 | --- | --- | --- | --- | --- | --- |
+| TRACE-UPGRADEBUTTON-001 | REQ-UPGRADEBUTTON-001 | landing-page/index.html; src/cryptolabs_proxy/updates.py; tests/test_latest_status.py; tests/test_release_selection.py | VER-UPGRADEBUTTON-001 | VAL-UPGRADEBUTTON-001 | Owner-approved source scope |
 | TRACE-PAIR-001 | REQ-PAIR-001 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-001 | VAL-PAIR-001 | Owner-approved source authority; reviewed scope |
 | TRACE-PAIR-002 | REQ-PAIR-002 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-002 | VAL-PAIR-002 | Owner-approved source authority; reviewed scope |
 | TRACE-PAIR-003 | REQ-PAIR-003 | src/cryptolabs_proxy/auth.py; src/cryptolabs_proxy/account_link.py; tests/test_account_link.py; nginx/nginx.conf; src/cryptolabs_proxy/templates/nginx.conf.j2 | VER-PAIR-003 | VAL-PAIR-003 | Owner-approved source authority; reviewed scope |
@@ -43,6 +44,9 @@ The TRACE-PAIR rows identify owner-approved and quality-reviewed source implemen
 | src/cryptolabs_proxy/standard_adoption.py | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | entrypoint | strict-released-standard-source |
 | tests/test_standard_adoption.py | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | file-role | historical-adoption-contract |
 | tests/test_standard_adoption.py | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | verifies | historical-adoption-contract |
+| landing-page/index.html | REQ-UPGRADEBUTTON-001 | TRACE-UPGRADEBUTTON-001 | VER-UPGRADEBUTTON-001 | file-role | selected-service-update-control |
+| tests/test_latest_status.py | REQ-UPGRADEBUTTON-001 | TRACE-UPGRADEBUTTON-001 | VER-UPGRADEBUTTON-001 | verifies | selected-service-page-contract |
+| tests/test_release_selection.py | REQ-UPGRADEBUTTON-001 | TRACE-UPGRADEBUTTON-001 | VER-UPGRADEBUTTON-001 | verifies | selection-status-contract |
 
 | src/cryptolabs_proxy/templates/released-standard-1.5.4/acme-challenge.conf.j2 | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | Exception | Immutable released/synthetic resource; SHA256 7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a; root-precode-review.json generated_resource_anchor_exception; external provenance mapping, no inline mutation |
 | src/cryptolabs_proxy/templates/released-standard-1.5.4/exporter-auth-routes.conf.j2 | REQ-UPDATER-003 | TRACE-UPDATER-003 | VER-UPDATER-003 | Exception | Immutable released/synthetic resource; SHA256 450f4c418c09474ac45b6dd314c47cc090fe7d230a0206b30e48c7975023133b; root-precode-review.json generated_resource_anchor_exception; external provenance mapping, no inline mutation |
@@ -76,3 +80,5 @@ These are generated raw data copies within the approved verification scope. Inli
 | --- | --- | --- | --- | --- | --- |
 
 Updater rows authorize source implementation only. GREEN/review/release checks and operational acceptance remain open until their evidence exists. Compatibility addendum is awaiting owner approval; no deployment GO is asserted.
+
+Selected-service upgrade control runtime acceptance remains pending; definition `.traceweaver/upgrade-button-20261104/validation.md`. Source scope follows the explicit owner request, without a deployed-outcome claim.

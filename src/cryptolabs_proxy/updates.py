@@ -268,7 +268,8 @@ def update_status(name, branch, *, engine=None, selection_directory=None, direct
                 result.update(reason='disabled', state='skipped')
                 return result
             target = policy.get('reference')
-            result.update(origin=policy['origin'], owner=policy['owner'], selection_id=snapshot['selection_id'])
+            result.update(origin=policy['origin'], owner=policy['owner'],
+                          selection_id=snapshot['selection_id'], selection_sha256=snapshot['selection_sha256'])
         else:
             target = target_for(name, source, branch)
         result.update(desired=target, observed=source['Image'])
