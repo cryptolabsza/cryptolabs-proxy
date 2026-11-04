@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=safe-update-recovery-diagnostics; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
 # TRACEWEAVER: file-role=fleet-release-implementation; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 """Serialized fleet image updates executed outside the serving proxy container.
 
@@ -236,10 +237,12 @@ class UpdateBusy(UpdateError):
 
 
 class UpdateEngine(DockerEngine):
-    def _request(self, method, path, payload=None, allowed=(200, 201, 204)):
+    def _request(self, method, path, payload=None, allowed=(200, 201, 204), *, timeout=None):
         """Use an Engine API version accepted by the Docker 29 fleet host."""
         if not path.startswith(f'/{DOCKER_API_VERSION}/'):
             path = f'/{DOCKER_API_VERSION}{path}'
+        if timeout is not None:
+            return super()._request(method, path, payload, allowed, timeout=timeout)
         return super()._request(method, path, payload, allowed)
 
     def image(self, reference):
@@ -544,15 +547,46 @@ def phase_recorder(directory, job, service):
     return record
 
 
+_FAILURE_PHASES = frozenset({'inspect', 'image', 'prepare', 'stop', 'disconnect',
+                           'rename', 'create', 'start', 'readiness', 'remove', 'connect'})
+
+
+def _failure_diagnostics(phase, error, *, recovery=False):
+    """Return only fixed values; diagnostic inspection must never block recovery."""
+    category = 'unknown'
+    try:
+        # Only unwrap our known transport wrapper, and only one level. Never
+        # inspect arbitrary chains, stringify errors, or expose class names.
+        cause = error.__cause__ if type(error) is MigrationError else None
+        classified = cause if cause is not None else error
+        if isinstance(classified, TimeoutError):
+            category = 'timeout'
+        elif isinstance(classified, OSError):
+            category = 'os_error'
+        elif type(classified) is UpdateError:
+            category = 'update_error'
+        elif type(classified) is MigrationError:
+            category = 'migration_error'
+    except Exception:
+        pass
+    prefix = 'recovery' if recovery else 'failure'
+    return {f'{prefix}_phase': phase if phase in _FAILURE_PHASES else 'unknown',
+            f'{prefix}_category': category}
+
+
+# TRACEWEAVER: entrypoint=replace_container; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
 def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=None, policy=None, expected_image=None, record_phase=None, before_mutation=None):
     """Swap and restore only inspected owned identities, including lost replies."""
     backup = f'{name}.rollback-{job_id}'
     started_stop = False
     source = candidate = None
+    failure_phase = 'inspect'
     def record(**event):
         if record_phase is not None:
             record_phase(**event)
     def mutate(operation, function, *args):
+        nonlocal failure_phase
+        failure_phase = operation
         record(phase='intent', operation=operation, deadline=timeout)
         value = function(*args)
         record(phase='completed', operation=operation, deadline=timeout)
@@ -570,6 +604,7 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
             raise UpdateError('runtime_changed')
         if not source.get('State', {}).get('Running'):
             raise UpdateError('service_stopped')
+        failure_phase = 'image'
         candidate = engine.image(image)
         if expected_image and candidate['Id'] != expected_image:
             raise UpdateError('candidate_changed')
@@ -580,8 +615,10 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
         if name == 'cryptolabs-proxy':
             return _proxy_hold()
         # A preexisting rollback name is not owned by this attempted switch.
+        failure_phase = 'inspect'
         if inspect_optional(backup) is not None:
             raise UpdateError('rollback_name_occupied')
+        failure_phase = 'prepare'
         request = build_update_request(source, engine.image(source['Image']), candidate)
         request['Config']['Labels']['io.cryptolabs.update.job'] = job_id
         if policy:
@@ -598,6 +635,7 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
                 return {'success': False, 'state': 'blocked', 'reason': 'native_service_recovery_required',
                         'message': 'native_service_recovery_required'}
         # Intent is durable before marking a possibly effective stop.
+        failure_phase = 'stop'
         record(phase='intent', operation='stop', deadline=timeout)
         started_stop = True
         engine.stop(source['Id'])
@@ -610,11 +648,13 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
         if created['Image'] != candidate['Id'] or (created['Config'].get('Labels') or {}).get('io.cryptolabs.update.job') != job_id:
             raise UpdateError('candidate_identity_mismatch')
         mutate('start', engine.start, created['Id'])
+        failure_phase = 'readiness'
         if not wait_ready(engine, name, candidate['Id'], timeout) or engine.inspect(name)['Id'] != created['Id']:
             raise UpdateError('health_failed')
         return {'success': True, 'state': 'completed', 'image_id': candidate['Id'],
                 'rollback_container': backup, 'message': 'Updated and health verified.'}
     except Exception as error:
+        failure_snapshot = _failure_diagnostics(failure_phase, error)
         # Never export exception text (including exceptions of our public type
         # raised by a transport adapter). Only a small fixed diagnostic survives.
         category = 'engine_error' if isinstance(error, MigrationError) else 'internal_error'
@@ -626,12 +666,13 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
             record(**diagnostic)
         except Exception:
             return {'success': False, 'state': 'recovery_required' if started_stop else 'failed',
-                    'message': 'Update evidence unavailable; operator inspection required.'}
+                    'message': 'Update evidence unavailable; operator inspection required.', **failure_snapshot}
         if not started_stop:
-            return {'success': False, 'state': 'failed', 'message': 'Container update failed.'}
+            return {'success': False, 'state': 'failed', 'message': 'Container update failed.', **failure_snapshot}
         try:
             # Replies may be lost after stop/disconnect/rename/create/start took
             # effect. Re-observe names and full IDs before ANY restoration effect.
+            failure_phase = 'inspect'
             current = inspect_optional(name)
             retained = inspect_optional(backup)
             originals = [item for item in (current, retained) if item and item['Id'] == source['Id'] and item['Image'] == source['Image']]
@@ -642,12 +683,14 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
                 if (current['Image'] != candidate['Id'] or
                         (current['Config'].get('Labels') or {}).get('io.cryptolabs.update.job') != job_id):
                     raise UpdateError('unowned_candidate')
+                failure_phase = 'remove'
                 record(phase='intent', operation='remove', recovery_phase='remove_owned_candidate')
                 engine.remove(current['Id'])
                 record(phase='completed', operation='remove', recovery_phase='remove_owned_candidate')
             elif current and current['Image'] != source['Image']:
                 raise UpdateError('original_identity_changed')
             if retained and retained['Id'] == source['Id']:
+                failure_phase = 'rename'
                 record(phase='intent', operation='rename', recovery_phase='restore_original_name')
                 engine.rename(source['Id'], name)
                 record(phase='completed', operation='rename', recovery_phase='restore_original_name')
@@ -656,23 +699,27 @@ def replace_container(engine, name, image, job_id, *, timeout=150, expected_id=N
                 raise UpdateError('original_identity_changed')
             for network, endpoint in endpoints.items():
                 if network not in restored.get('NetworkSettings', {}).get('Networks', {}):
+                    failure_phase = 'connect'
                     record(phase='intent', operation='connect', recovery_phase='restore_original_network')
                     engine.connect(source['Id'], network, endpoint)
                     record(phase='completed', operation='connect', recovery_phase='restore_original_network')
+            failure_phase = 'start'
             record(phase='intent', operation='start', recovery_phase='restore_original_running')
             engine.start(source['Id'])
             record(phase='completed', operation='start', recovery_phase='restore_original_running')
+            failure_phase = 'readiness'
             if not wait_ready(engine, name, source['Image'], timeout) or engine.inspect(name)['Id'] != source['Id']:
                 raise UpdateError('original_health_unavailable')
             record(phase='completed', operation='recovery', recovery_outcome='original_restored')
-            return {'success': False, 'state': 'rolled_back', 'message': 'Container update failed. Original service restored and health verified.'}
-        except Exception:
+            return {'success': False, 'state': 'rolled_back', 'message': 'Container update failed. Original service restored and health verified.', **failure_snapshot}
+        except Exception as recovery_error:
             try:
                 record(phase='failed', operation='recovery', recovery_outcome='recovery_required')
             except Exception:
                 pass
             return {'success': False, 'state': 'recovery_required',
-                    'message': 'Container update failed. Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup}
+                    'message': 'Container update failed. Automatic recovery was not verified; operator recovery required.', 'rollback_container': backup,
+                    **failure_snapshot, **_failure_diagnostics(failure_phase, recovery_error, recovery=True)}
 
 
 def _job_path(directory, job_id):

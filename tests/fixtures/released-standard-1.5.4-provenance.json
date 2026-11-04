@@ -1,0 +1,30 @@
+{
+  "schema": "released-render-fixture/1",
+  "release": "v1.5.4",
+  "commit": "61565a7228539a0b8b0bfb602e06ea3efcc6b94a",
+  "templates": {
+    "nginx.conf.j2": "f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de",
+    "acme-challenge.conf.j2": "7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a",
+    "fleet-api-routes.conf.j2": "6991ca6bf1dd4b258e8ee7851fc69ef50b19dfe2353570e4911a0ebadc68ed1b",
+    "exporter-auth-routes.conf.j2": "450f4c418c09474ac45b6dd314c47cc090fe7d230a0206b30e48c7975023133b",
+    "host-forwarding.conf.j2": "35c4a1fe1d3001865a77d7653350b7a61968953b94172dc7063bc31a42c0f9f7",
+    "standard-service-routes.conf.j2": "ef0f55aae48e35127d288781e68281a371505ba27384c8fd04dff9200dce3963",
+    "vast-price-manager-auth-blocks.conf.j2": "b9d7013434557492887b0600bc2afc92227ee17f9efebe55b0cccc4b16bd3f81",
+    "vast-price-manager.conf.j2": "32483d169a09c42653396e66c5c7efe1995bd599f44f11ee64fa2f0731a0a2f8"
+  },
+  "fixture_sha256": "f1aa7a0ed767e7432dd21123fc0086e0cc98e0b26ad3c95eff5fe233095e3e72",
+  "declaration": "released-standard-1.5.4-declaration.json",
+  "declaration_sha256": "c4f4f3e80ff3920522502f47335120e133bca6d8e8245133d0112b550f382274",
+  "render_options": {
+    "autoescape": [
+      "html",
+      "xml"
+    ],
+    "trim_blocks": true,
+    "lstrip_blocks": true
+  },
+  "renderer": "Jinja2 Environment with DictLoader containing exactly8git-tag blobs; no production render_standard/historical compatibility helper used",
+  "source_compare": "All8tag blobs equal independently archived released154 source; services.py byte-identical to tag; references finite and all resolve within8blob closure",
+  "safety": "Synthetic domain/declaration only; no exported live configuration",
+  "raw_reproduction_script": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/render-fixture.py"
+}

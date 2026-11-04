@@ -94,3 +94,23 @@ and worker revalidate restoration and retain predecessor dependencies through
 blocked successors. New-job phase diagnostics contain only allowlisted facts.
 Source tests do not establish actual Linux bootstrap, release, target or browser
 acceptance; those gates and publication remain held.
+
+## REQ-UPDATER-001 — owner-approved updater repair
+
+Bounded stop-only acknowledgement headroom; preserve existing stop grace (13s default), other socket timeouts and readiness deadlines.
+
+Authority: `.traceweaver/updater-stop-20261104/authority.json`, unchanged approved plan control. Verification: `VER-UPDATER-001`; validation: `VAL-UPDATER-001`. Intended-environment acceptance remains held.
+
+
+## REQ-UPDATER-002 — owner-approved updater repair
+
+Fixed allowlisted phase/category diagnostics, safe known wrapped-cause classification, separate primary/recovery failure; no exception text/payload/credentials/traceback serialization; diagnostics cannot interrupt recovery. Preserve rollback, identity, selection and native guards.
+
+Authority: `.traceweaver/updater-stop-20261104/authority.json`, unchanged approved plan control. Verification: `VER-UPDATER-002`; validation: `VAL-UPDATER-002`. Intended-environment acceptance remains held.
+
+
+## REQ-UPDATER-003 — owner-approved historical-profile prerequisite
+
+Recognize one explicitly named released-standard1.5.4 source via complete ordered structural equality and immutable eight-template historical closure; preserve current candidate rendering, auth/module identity, selection/source drift denial, declaration and recovery guards. Verify matching official wheel/container and disposable staging adoption before bounded separate official hostvenv provisioning, fixed native Proxy adoption and the already-approved single LTX IPMI retry.
+
+Authority: `.traceweaver/updater-stop-20261104/compatibility/owner-approval.json` and approved addendum. Verification `VER-UPDATER-003`; validation `VAL-UPDATER-003`. Operational outcomes remain held.

@@ -1,0 +1,15 @@
+{% if acme_challenge | default(none) %}
+        location ^~ /.well-known/acme-challenge/ {
+            proxy_pass {{ acme_challenge.origin }};
+            proxy_set_header Host $host;
+            proxy_connect_timeout {{ acme_challenge.get('connect_timeout_seconds', 2) }}s;
+            proxy_read_timeout {{ acme_challenge.get('read_timeout_seconds', 10) }}s;
+{% if not legacy_forward_profile | default(false) %}
+            proxy_set_header X-Mgmt-Token "";
+            proxy_set_header X-Fleet-Auth-Token "";
+            proxy_set_header X-Fleet-Auth-User "";
+            proxy_set_header X-Fleet-Auth-Role "";
+            proxy_set_header X-Fleet-Authenticated "";
+{% endif %}
+        }
+{% endif %}

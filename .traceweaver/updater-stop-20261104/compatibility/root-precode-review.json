@@ -1,0 +1,19 @@
+{
+  "id": "ROOT-COMPATIBILITY-PRECODE-20261104",
+  "recorded_at": "2026-11-04T07:40:29.564716+00:00",
+  "monotonic": 1309002.604981666,
+  "reviewer": "root orchestrator; did not author tests or production",
+  "decision": "definition passed; allow exact approved compatibility implementation; operational acceptance held",
+  "reviewed": [
+    "owner-approvedaddendumrevision2 +explicitprovisioningexception",
+    "REQ003indexmapsunchangedapprovedcontrol",
+    "exactnewtestdiff (5 historicalpositive/guard/recovery variants +6strictnegativecases, no removedassertions/skips)",
+    "independent8blobrenderprovenance; matchingretainedreleasebytes",
+    "genuine5RED/58pass unsupportedstructuralprofile, original4files/standard_adoption unchanged",
+    "validationplanrequirespackagedowner/realDockeradoption+negativeauth+rollback beforehostprovision"
+  ],
+  "test_sha256": "3293193e8f01cdea4913c92caee92f7c0536c080260445001169acee05d88e22",
+  "fixture_sha256": "f1aa7a0ed767e7432dd21123fc0086e0cc98e0b26ad3c95eff5fe233095e3e72",
+  "must_preserve": "strict complete orderedtree,currentcandidate/accounts,authhash/drift/recoveryguards,originalfourreviewedfilehashes",
+  "generated_resource_anchor_exception": "Historical8templates + fixture are exact immutable released/synthetic rawdata; inlineanchors wouldinvalidatepins. Use external per-file matrix/provenance mapping, no contentannotation. ProductionPython/testcode gets packagedpairedanchors."
+}

@@ -1,0 +1,61 @@
+{
+  "skill_name": "verification-planner",
+  "authority_status": "REQ-UPDATER-003 existing approved addendum revision2; no new requirements",
+  "baseline_reference": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d plus reviewed unchanged originalrepair4files",
+  "decision": "held",
+  "hold_conditions": [
+    "independent newtest/definition review pending",
+    "compatibility implementation intentionally absent"
+  ],
+  "verification_plan": {
+    "plan_id": "VER-UPDATER-003",
+    "requirement_ids": [
+      "REQ-UPDATER-003"
+    ],
+    "method": "test",
+    "owner": "root; currentworker only test preparation",
+    "target_environment": "local source Python; later exact official wheel/container and disposable Linux Docker",
+    "tested_ref_required": true,
+    "success_criteria": [
+      "Historical frozen synthetic1.5.4 bytes accepted as explicitly named released-standard-1.5.4; current source retains standard precedence.",
+      "Actual plan/adopt through reused existing happy test preserves identity/auth/mounts/TLS/networks and repeat semantics; candidate bytes exactly current normalized render; account-link route retained.",
+      "Six changed historical fulltree cases denied before mutation: directive, upstream, missingauth, extraserver, extraroute, complete regexrouteblockorder swap.",
+      "Historical auth mismatch and source/selection drift refuse before stop; historical healthfailure restores registry/auth/files via unchanged recovery assertions.",
+      "Immutable package closure exactly8tag blobs:rootf12e2b98\u2026 plus7includes; provenance hashes independently checked and references resolve onlyinsideclosure. No fallback to mutable currentincludes. Runtime hash mismatch must failclosed.",
+      "Wheel/sdist/installed image include all historical resources and exact reviewed auth/updater/compat source; source to package offline historical acceptance matches localtests.",
+      "Retain all originalstoprepair tests and full15.25sACK proof; fullregression and protectedCI retain existing safety gates."
+    ]
+  },
+  "verification_cross_reference_matrix": [
+    {
+      "requirement_id": "REQ-UPDATER-003",
+      "method": "test",
+      "procedure_ref": "PYTHONPATH=src python3 -m pytest tests/test_standard_adoption.py -q",
+      "expected_result": "63passed on repaired compatibility source; before implementation5fail/58pass",
+      "evidence_required": [
+        "red.log",
+        "historical-fixture-proof.json",
+        "futuregreen.log",
+        "packaged-resource-hashproof.json",
+        "disposable-adoption-proof.json"
+      ],
+      "harness_equivalence": "Frozen synthetic fixture rendered by separate Jinja Environment/DictLoader from exact8git-tag blobs (all compared archivedreleased154), not candidate renderer or future compatibility helper. Actual production plan/adopt/recovery execute with existing Engine boundary; no daemon/startup equivalence claimed."
+    }
+  ],
+  "execution_record_template": {
+    "execution_id": "VER-UPDATER-003-GREEN",
+    "procedure_or_command": "PYTHONPATH=src python3 -m pytest tests/test_standard_adoption.py -q",
+    "tested_ref": "exact futurecompatibility source/package hash required",
+    "expected_result": "63passed",
+    "actual_result": "5failed/58passed4.24s beforeproductionimplementation",
+    "outcome": "fail",
+    "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/red.log"
+  },
+  "baseline": {
+    "command": "PYTHONPATH=src python3 -m pytest tests/test_standard_adoption.py -q",
+    "status": 0,
+    "result": "52passed3.55s",
+    "log": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/baseline.log"
+  },
+  "lean_test_value": "11addedcases:5historicalreusesofexistinghappy/recovery/auth/source/selection assertions,6fulltreenegatives. Existing52cases retained, no new duplicateintegrationstack or skips. Historicalnegative cases currently pass because alloldconfigisrefused; their positivecounterpartfailsRED, then GREEN must admit onlyexacthistory."
+}

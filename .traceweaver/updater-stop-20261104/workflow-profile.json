@@ -1,0 +1,107 @@
+{
+  "schema_version": "tw-workflow-profile/1",
+  "task_id": "UPDATER-STOP-20261104",
+  "profile_revision": 3,
+  "profile_status": "frozen_before_compatibility_RED_dispatch",
+  "risk": "L3",
+  "selection_rationale": "Stop/recovery mutates containers and repair is release-facing; destructive/external-effect class even though only two production files. Current task authors tests only.",
+  "process_budget": {
+    "target_total_effort_percent": 20,
+    "hard_ceiling_total_effort_percent": 50,
+    "target_process_to_delivery_ratio_percent": 25,
+    "hard_ceiling_process_to_delivery_ratio_percent": 100,
+    "estimated_delivery_minutes": 140,
+    "estimated_process_target_minutes": 35,
+    "estimated_process_ceiling_minutes": 140
+  },
+  "selected_controls": [
+    "owner-approved exact plan/hash",
+    "isolated released-main baseline",
+    "minimal real-socket RED before production mutation",
+    "full reviewed V&V capsule",
+    "independent final verification",
+    "Astra adversarial review",
+    "full-duration socket proof",
+    "disposable Docker update/recovery proof before production",
+    "protected source-to-dev handoff and bounded main patch release",
+    "fixed host route only",
+    "one LTX IPMI retry after installed updater identity/health proof",
+    "preserve readiness/grace/identity/policy/native recovery guards",
+    "safe bounded diagnostics",
+    "retained rollback and history proof",
+    "no publication from preparation worker",
+    "strict immutable full-tree historical1.5.4 template closure",
+    "compatibility RED before production edit",
+    "matching officialwheel/container and real stagingadoption recovery",
+    "explicit bounded separate officialhostvenv provisioning exception; globalCLI unchanged"
+  ],
+  "child_roles": {
+    "builder": {
+      "model": "gpt-6.1-sol",
+      "maximum_timebox_minutes": 20
+    },
+    "verifier": {
+      "model": "gpt-6.1-sol",
+      "maximum_timebox_minutes": 20
+    },
+    "reviewer": {
+      "model": "gpt-6-astra",
+      "maximum_timebox_minutes": 10
+    },
+    "deployer": {
+      "model": "gpt-6.1-sol",
+      "maximum_timebox_minutes": 30
+    },
+    "dogfooder": {
+      "model": "gpt-6.1-sol",
+      "maximum_timebox_minutes": 10
+    }
+  },
+  "model_selection": {
+    "availability": [
+      "gpt-6.1-sol",
+      "gpt-6-astra"
+    ],
+    "choice": "Sol high preparation/build/verification; Astra high adversarial review; root owns deployment and retry.",
+    "rationale": "Cross-module failure recovery and safe diagnostics require substantive judgment. No attested runtime model identity available.",
+    "unavailable_consequence": "hold or delegate; never implement as fallback"
+  },
+  "reviewer_cap": 2,
+  "repair_cycle_cap": 1,
+  "requires_deploy": true,
+  "requires_chrome_dogfood": false,
+  "immutable_after_building": {
+    "fields": [
+      "risk",
+      "process_budget",
+      "selected_controls",
+      "child_roles",
+      "model_selection",
+      "reviewer_cap",
+      "repair_cycle_cap",
+      "requires_deploy",
+      "requires_chrome_dogfood",
+      "profile_hash"
+    ],
+    "expansion_rule": "New revision and escalation reason required for added controls/roles after production builder dispatch."
+  },
+  "accounting": {
+    "observer": "orchestration_harness",
+    "clock": "monotonic",
+    "child_self_report": "advisory_only",
+    "fixed_categories": [
+      "process",
+      "delivery",
+      "unclassified"
+    ],
+    "unclassified_rule": "counts_as_process_until_reviewer_resolves",
+    "receipts": [],
+    "terminal_rules": {
+      "target": "actual_process_minutes <= 0.25 * actual_delivery_minutes",
+      "hard_hold": "actual_process_minutes > actual_delivery_minutes => held_process_budget",
+      "no_in_task_exception": true
+    }
+  },
+  "revision_reason": "Explicit owner approval of reviewed compatibility addendum revision2 adds strict historicalprofile resources, packaged/staged adoption and separate official hostvenv provisioning. Original two-file source review remains valid for exact unchanged hashes.",
+  "profile_hash": "sha256:38bbffb104e856adfcecfd785449f2b156cb5762e4d7e316d8de5ec09e96aa53"
+}

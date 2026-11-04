@@ -1,0 +1,38 @@
+{
+  "schema_version": "tw-vv-capsule/1",
+  "work_item_id": "UPDATER-COMPATIBILITY-20261104",
+  "workflow_profile": "L3",
+  "plan_ref": ".traceweaver/updater-stop-20261104/compatibility/approved-addendum.html",
+  "authority_ref": ".traceweaver/updater-stop-20261104/compatibility/authority.json",
+  "profile_ref": ".traceweaver/updater-stop-20261104/workflow-profile.json",
+  "high_risk_controls": {
+    "rollback": "Existing recovery/auth/source/selection guards unchanged; prove actual disposable adoption/compensation before hostmutation; retain oldhostvenv and originalsnapshot; ambiguityholdswithoutreplay.",
+    "owner_decision": "Explicitownerapprovedaddendumrevision2; root independentprecode review now permits exacthistoricalprofile production implementation; no hostmutation until packaged/staged/protectedrelease gates. ONE LTXIPMIretry remainsunconsumed."
+  },
+  "requirements": [
+    {
+      "req_id": "REQ-UPDATER-003",
+      "trace_id": "TRACE-UPDATER-003",
+      "ver_id": "VER-UPDATER-003",
+      "val_id": "VAL-UPDATER-003",
+      "verification_artifact": "tests/test_standard_adoption.py",
+      "red_evidence": ".traceweaver/updater-stop-20261104/compatibility/red.log",
+      "validation_artifact": ".traceweaver/updater-stop-20261104/compatibility/validation-plan.json",
+      "matrix_row_ref": "traceability-matrix.md:TRACE-UPDATER-003",
+      "reviews": [
+        {
+          "gate": "tw-code-review",
+          "id": "ROOT-COMPATIBILITY-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/compatibility/root-precode-review.json"
+        },
+        {
+          "gate": "tw-doc-review",
+          "id": "ROOT-COMPATIBILITY-PRECODE-20261104",
+          "status": "passed",
+          "evidence_path": ".traceweaver/updater-stop-20261104/compatibility/root-precode-review.json"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+        {% if 'ipmi-monitor' in services %}
+        # IPMI Monitor API - returns JSON 401 for unauthenticated requests
+        location ~ ^/ipmi/api/(.*)$ {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            error_page 401 = @api_unauthorized;
+            
+            set $upstream_ipmi http://{{ services['ipmi-monitor'].container_name }}:{{ services['ipmi-monitor'].port }};
+            proxy_pass $upstream_ipmi/api/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Script-Name /ipmi;
+            proxy_set_header X-Fleet-Auth-User $auth_user;
+            proxy_set_header X-Fleet-Auth-Role $auth_role;
+            proxy_set_header X-Fleet-Auth-Token $auth_token;
+            proxy_set_header X-Fleet-Authenticated true;
+            proxy_read_timeout 300s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        # IPMI Monitor - regex location to properly rewrite URI with variable proxy_pass
+        location ~ ^/ipmi/(.*)$ {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            error_page 401 = @login_redirect;
+            
+            # Variable allows nginx to start even if service doesn't exist
+            set $upstream_ipmi http://{{ services['ipmi-monitor'].container_name }}:{{ services['ipmi-monitor'].port }};
+            proxy_pass $upstream_ipmi/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Script-Name /ipmi;
+            # Forward authentication headers from proxy auth
+            proxy_set_header X-Fleet-Auth-User $auth_user;
+            proxy_set_header X-Fleet-Auth-Role $auth_role;
+            proxy_set_header X-Fleet-Auth-Token $auth_token;
+            proxy_set_header X-Fleet-Authenticated true;
+            proxy_read_timeout 300s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        {% endif %}
+        {% if 'dc-overview' in services %}
+        # DC Overview API - returns JSON 401 for unauthenticated requests
+        location ~ ^/dc/api/(.*)$ {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            error_page 401 = @api_unauthorized;
+            
+            set $upstream_dc http://{{ services['dc-overview'].container_name }}:{{ services['dc-overview'].port }};
+            proxy_pass $upstream_dc/api/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Script-Name /dc;
+            proxy_set_header X-Fleet-Auth-User $auth_user;
+            proxy_set_header X-Fleet-Auth-Role $auth_role;
+            proxy_set_header X-Fleet-Auth-Token $auth_token;
+            proxy_set_header X-Fleet-Authenticated true;
+            proxy_read_timeout 300s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        # DC Overview / Server Manager - regex location to properly rewrite URI with variable proxy_pass
+        location ~ ^/dc/(.*)$ {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            auth_request_set $auth_token $upstream_http_x_fleet_auth_token;
+            error_page 401 = @login_redirect;
+            
+            # Variable allows nginx to start even if service doesn't exist
+            set $upstream_dc http://{{ services['dc-overview'].container_name }}:{{ services['dc-overview'].port }};
+            proxy_pass $upstream_dc/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Script-Name /dc;
+            # Forward authentication headers from proxy auth
+            proxy_set_header X-Fleet-Auth-User $auth_user;
+            proxy_set_header X-Fleet-Auth-Role $auth_role;
+            proxy_set_header X-Fleet-Auth-Token $auth_token;
+            proxy_set_header X-Fleet-Authenticated true;
+            proxy_read_timeout 300s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+        
+        # Shortcuts for /servers and /settings -> /dc/...
+        location = /servers {
+            return 301 /dc/servers;
+        }
+        location = /settings {
+            return 301 /dc/settings;
+        }
+
+        {% endif %}
+        {% if 'grafana' in services %}
+        # Grafana - uses variable for runtime DNS resolution
+        location /grafana/ {
+            auth_request /_auth_check;
+            auth_request_set $auth_user $upstream_http_x_fleet_auth_user;
+            auth_request_set $auth_role $upstream_http_x_fleet_auth_role;
+            error_page 401 = @login_redirect;
+            
+            # Map Fleet roles to Grafana roles
+            set $grafana_role "Viewer";
+            if ($auth_role = "admin") {
+                set $grafana_role "Admin";
+            }
+            if ($auth_role = "readwrite") {
+                set $grafana_role "Editor";
+            }
+            
+            # Variable allows nginx to start even if service doesn't exist
+            set $upstream_grafana http://{{ services['grafana'].container_name }}:{{ services['grafana'].port }};
+            proxy_pass $upstream_grafana;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # Pass authenticated user and role to Grafana
+            proxy_set_header X-WEBAUTH-USER $auth_user;
+            proxy_set_header X-WEBAUTH-ROLE $grafana_role;
+            proxy_read_timeout 300s;
+            
+            # Inject Fleet Management Home button into Grafana HTML
+            # target="_top" prevents Grafana's SPA router from intercepting the click
+            sub_filter '</head>' '<style>.fleet-home-bar{position:fixed;top:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-bottom:1px solid #333;padding:4px 16px;display:flex;align-items:center;gap:10px;font-family:-apple-system,sans-serif;font-size:13px;height:28px;}.fleet-home-bar a{color:#00b4d8;text-decoration:none;border:1px solid #00b4d8;padding:3px 12px;border-radius:4px;font-size:12px;font-weight:500;transition:background 0.2s;}.fleet-home-bar a:hover{background:rgba(0,180,216,0.15);}.fleet-home-bar span{color:#666;}body{padding-top:36px !important;}</style></head>';
+            sub_filter '</body>' '<div class="fleet-home-bar"><a href="/" target="_top">Home</a><span>|</span><span style="color:#888;">Grafana</span></div></body>';
+            sub_filter_once on;
+            sub_filter_types text/html;
+            proxy_set_header Accept-Encoding "";
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        {% endif %}
+        {% if 'prometheus' in services %}
+        # Prometheus - uses variable for runtime DNS resolution
+        # Prometheus is configured with --web.route-prefix=/prometheus/ so we must preserve the path
+        location /prometheus {
+            auth_request /_auth_check;
+            error_page 401 = @login_redirect;
+            
+            # Variable allows nginx to start even if service doesn't exist
+            set $upstream_prometheus http://{{ services['prometheus'].container_name }}:{{ services['prometheus'].port }};
+            proxy_pass $upstream_prometheus;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+            
+            # Inject Fleet Management Home button into Prometheus HTML
+            sub_filter '</head>' '<style>.fleet-home-bar{position:fixed;top:0;left:0;right:0;z-index:99999;background:#1a1a2e;border-bottom:1px solid #333;padding:4px 16px;display:flex;align-items:center;gap:10px;font-family:-apple-system,sans-serif;font-size:13px;height:28px;}.fleet-home-bar a{color:#00b4d8;text-decoration:none;border:1px solid #00b4d8;padding:3px 12px;border-radius:4px;font-size:12px;font-weight:500;transition:background 0.2s;}.fleet-home-bar a:hover{background:rgba(0,180,216,0.15);}.fleet-home-bar span{color:#666;}</style></head>';
+            sub_filter '</body>' '<div class="fleet-home-bar"><a href="/">Home</a><span>|</span><span style="color:#888;">Prometheus</span></div></body>';
+            sub_filter_once on;
+            sub_filter_types text/html;
+            proxy_set_header Accept-Encoding "";
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        {% endif %}
+        {% if 'vastai-exporter' in services %}
+        # Vast.ai Exporter metrics endpoint
+        location /vastai-metrics/ {
+            auth_request /_auth_check;
+            error_page 401 = @login_redirect;
+            
+            set $upstream_vastai http://{{ services['vastai-exporter'].container_name }}:{{ services['vastai-exporter'].port }};
+            proxy_pass $upstream_vastai/metrics;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        {% endif %}
+        {% if 'runpod-exporter' in services %}
+        # RunPod Exporter metrics endpoint
+        location /runpod-metrics/ {
+            auth_request /_auth_check;
+            error_page 401 = @login_redirect;
+            
+            set $upstream_runpod http://{{ services['runpod-exporter'].container_name }}:{{ services['runpod-exporter'].port }};
+            proxy_pass $upstream_runpod/metrics;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 30s;
+            
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        {% endif %}

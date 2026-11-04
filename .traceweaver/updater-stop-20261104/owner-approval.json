@@ -1,0 +1,14 @@
+{
+  "schema": "owner-approval/1",
+  "approved_at_recorded": "2026-11-04T07:08:42.723662+00:00",
+  "literal_user_approval": "Approve the [reviewed updater repair plan](/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/updater-repair-plan.html) and one LTX retry",
+  "plan_sha256": "5c48796eff976c9e614887931087494687d3626f5780d4db0acf28b7f2299342",
+  "scope": "bounded Proxy repair, reviewed patch publication, fixed host-route Proxy update and one scoped LTX IPMI retry",
+  "backup_waiver_continues": true,
+  "ssh_route_continues": true,
+  "excluded": [
+    "Charlotte deployment",
+    "BMC mutation or qualification",
+    "unreleased Fleet dev changes"
+  ]
+}

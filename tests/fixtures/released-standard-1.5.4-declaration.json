@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "domain": "fleet.example.test",
+  "tls": "self-signed",
+  "services": {
+    "ipmi-monitor": {
+      "container_name": "ipmi-monitor",
+      "path": "/ipmi/",
+      "port": 5000
+    },
+    "dc-overview": {
+      "container_name": "dc-overview",
+      "path": "/dc/",
+      "port": 5001
+    },
+    "grafana": {
+      "container_name": "grafana",
+      "path": "/grafana/",
+      "port": 3000
+    },
+    "prometheus": {
+      "container_name": "prometheus",
+      "path": "/prometheus/",
+      "port": 9090
+    },
+    "vastai-exporter": {
+      "container_name": "vastai-exporter",
+      "path": "/vastai-metrics/",
+      "port": 8622
+    },
+    "runpod-exporter": {
+      "container_name": "runpod-exporter",
+      "path": "/runpod-metrics/",
+      "port": 8623
+    },
+    "vast-price-manager": {
+      "container_name": "vast-price-manager",
+      "path": "/vast-pricing/",
+      "port": 8088
+    }
+  },
+  "obsolete_overlays": [],
+  "obsolete_owner_labels": []
+}

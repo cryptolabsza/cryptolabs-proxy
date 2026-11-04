@@ -1,0 +1,20 @@
+{
+  "phase": "implementation and local verification returned for review",
+  "frozen_manifest": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-builder/frozen-manifest.json",
+  "production_source_hashes": {
+    "src/cryptolabs_proxy/migration.py": "60ab6493757352c135cbb8b389dd198eab66b9b996398430bfa668b8599d9cc3",
+    "src/cryptolabs_proxy/updates.py": "1b176672c2a55499ca70a9eeb445550849975463846abb068443715e14bf1b56"
+  },
+  "requirements": [
+    "REQ-UPDATER-001",
+    "REQ-UPDATER-002"
+  ],
+  "verifications": [
+    "VER-UPDATER-001",
+    "VER-UPDATER-002"
+  ],
+  "validation_status": "held pending independent Docker/Linux and intended environment proof",
+  "source_anchor_helper": "8 successful paired source/matrix transactions; scoped scanner0findings",
+  "profile_hash": "sha256:aaa66c2aad99a1e23e58e7112872f82b918eb1534edd68b102022a0c7f05d2eb",
+  "publication": "not performed"
+}
