@@ -1,0 +1,387 @@
+..........FFFF.................FF....................                    [100%]
+=================================== FAILURES ===================================
+_ test_worker_persists_safe_primary_and_recovery_diagnostics[stop-timeout-False] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1098373f0>
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9766/test_worker_persists_safe_prim0')
+phase = 'stop', category = 'timeout', recovery_fails = False
+
+    @pytest.mark.parametrize('phase,category,recovery_fails', [
+        ('stop', 'timeout', False),
+        ('disconnect', 'os_error', False),
+        ('stop', 'unknown', False),
+        ('stop', 'timeout', True),
+    ])
+    def test_worker_persists_safe_primary_and_recovery_diagnostics(
+            monkeypatch, tmp_path, phase, category, recovery_fails):
+        """An ambiguous failed stop needs safe phase/cause evidence after recovery.
+    
+        Reuse the worker's actual persistence path, rather than serializing a
+        hand-built result. The source may already be stopped when its ACK fails.
+        """
+        secret = 'synthetic-credential-must-never-be-recorded'
+    
+        class PrivateFailure(RuntimeError):
+            def __str__(self):
+                raise AssertionError('diagnostics must not format unknown exceptions')
+    
+        class FailingEngine(Engine):
+            def fail(self):
+                if category == 'unknown':
+                    raise PrivateFailure(secret)
+                cause = TimeoutError(secret) if category == 'timeout' else OSError(secret)
+                raise updates.MigrationError(secret) from cause
+    
+            def stop(self, name, **kwargs):
+                super().stop(name, **kwargs)
+                if phase == 'stop':
+                    self.fail()
+    
+            def disconnect(self, name, network):
+                super().disconnect(name, network)
+                if phase == 'disconnect':
+                    self.fail()
+    
+            def start(self, name):
+                if recovery_fails:
+                    raise OSError(secret)
+                super().start(name)
+    
+        engine = FailingEngine()
+        monkeypatch.setattr(updates, 'pull_target', lambda target: True)
+        job = {'id': 'e' * 32, 'service': 'prometheus', 'branch': 'main', 'action': 'update'}
+        updates.write_job(tmp_path, job)
+        returned = updates.run_job(tmp_path, job['id'], engine=engine)
+        stored = updates.read_job(tmp_path, job['id'])
+        assert stored == returned
+        result = stored['results']['prometheus']
+        assert result['state'] == ('recovery_required' if recovery_fails else 'rolled_back')
+        assert result['success'] is False
+>       assert result['failure_phase'] == phase
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'failure_phase'
+
+tests/test_updates.py:202: KeyError
+_ test_worker_persists_safe_primary_and_recovery_diagnostics[disconnect-os_error-False] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109777d40>
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9766/test_worker_persists_safe_prim1')
+phase = 'disconnect', category = 'os_error', recovery_fails = False
+
+    @pytest.mark.parametrize('phase,category,recovery_fails', [
+        ('stop', 'timeout', False),
+        ('disconnect', 'os_error', False),
+        ('stop', 'unknown', False),
+        ('stop', 'timeout', True),
+    ])
+    def test_worker_persists_safe_primary_and_recovery_diagnostics(
+            monkeypatch, tmp_path, phase, category, recovery_fails):
+        """An ambiguous failed stop needs safe phase/cause evidence after recovery.
+    
+        Reuse the worker's actual persistence path, rather than serializing a
+        hand-built result. The source may already be stopped when its ACK fails.
+        """
+        secret = 'synthetic-credential-must-never-be-recorded'
+    
+        class PrivateFailure(RuntimeError):
+            def __str__(self):
+                raise AssertionError('diagnostics must not format unknown exceptions')
+    
+        class FailingEngine(Engine):
+            def fail(self):
+                if category == 'unknown':
+                    raise PrivateFailure(secret)
+                cause = TimeoutError(secret) if category == 'timeout' else OSError(secret)
+                raise updates.MigrationError(secret) from cause
+    
+            def stop(self, name, **kwargs):
+                super().stop(name, **kwargs)
+                if phase == 'stop':
+                    self.fail()
+    
+            def disconnect(self, name, network):
+                super().disconnect(name, network)
+                if phase == 'disconnect':
+                    self.fail()
+    
+            def start(self, name):
+                if recovery_fails:
+                    raise OSError(secret)
+                super().start(name)
+    
+        engine = FailingEngine()
+        monkeypatch.setattr(updates, 'pull_target', lambda target: True)
+        job = {'id': 'e' * 32, 'service': 'prometheus', 'branch': 'main', 'action': 'update'}
+        updates.write_job(tmp_path, job)
+        returned = updates.run_job(tmp_path, job['id'], engine=engine)
+        stored = updates.read_job(tmp_path, job['id'])
+        assert stored == returned
+        result = stored['results']['prometheus']
+        assert result['state'] == ('recovery_required' if recovery_fails else 'rolled_back')
+        assert result['success'] is False
+>       assert result['failure_phase'] == phase
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'failure_phase'
+
+tests/test_updates.py:202: KeyError
+_ test_worker_persists_safe_primary_and_recovery_diagnostics[stop-unknown-False] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1098a4590>
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9766/test_worker_persists_safe_prim2')
+phase = 'stop', category = 'unknown', recovery_fails = False
+
+    @pytest.mark.parametrize('phase,category,recovery_fails', [
+        ('stop', 'timeout', False),
+        ('disconnect', 'os_error', False),
+        ('stop', 'unknown', False),
+        ('stop', 'timeout', True),
+    ])
+    def test_worker_persists_safe_primary_and_recovery_diagnostics(
+            monkeypatch, tmp_path, phase, category, recovery_fails):
+        """An ambiguous failed stop needs safe phase/cause evidence after recovery.
+    
+        Reuse the worker's actual persistence path, rather than serializing a
+        hand-built result. The source may already be stopped when its ACK fails.
+        """
+        secret = 'synthetic-credential-must-never-be-recorded'
+    
+        class PrivateFailure(RuntimeError):
+            def __str__(self):
+                raise AssertionError('diagnostics must not format unknown exceptions')
+    
+        class FailingEngine(Engine):
+            def fail(self):
+                if category == 'unknown':
+                    raise PrivateFailure(secret)
+                cause = TimeoutError(secret) if category == 'timeout' else OSError(secret)
+                raise updates.MigrationError(secret) from cause
+    
+            def stop(self, name, **kwargs):
+                super().stop(name, **kwargs)
+                if phase == 'stop':
+                    self.fail()
+    
+            def disconnect(self, name, network):
+                super().disconnect(name, network)
+                if phase == 'disconnect':
+                    self.fail()
+    
+            def start(self, name):
+                if recovery_fails:
+                    raise OSError(secret)
+                super().start(name)
+    
+        engine = FailingEngine()
+        monkeypatch.setattr(updates, 'pull_target', lambda target: True)
+        job = {'id': 'e' * 32, 'service': 'prometheus', 'branch': 'main', 'action': 'update'}
+        updates.write_job(tmp_path, job)
+        returned = updates.run_job(tmp_path, job['id'], engine=engine)
+        stored = updates.read_job(tmp_path, job['id'])
+        assert stored == returned
+        result = stored['results']['prometheus']
+        assert result['state'] == ('recovery_required' if recovery_fails else 'rolled_back')
+        assert result['success'] is False
+>       assert result['failure_phase'] == phase
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'failure_phase'
+
+tests/test_updates.py:202: KeyError
+_ test_worker_persists_safe_primary_and_recovery_diagnostics[stop-timeout-True] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109805790>
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9766/test_worker_persists_safe_prim3')
+phase = 'stop', category = 'timeout', recovery_fails = True
+
+    @pytest.mark.parametrize('phase,category,recovery_fails', [
+        ('stop', 'timeout', False),
+        ('disconnect', 'os_error', False),
+        ('stop', 'unknown', False),
+        ('stop', 'timeout', True),
+    ])
+    def test_worker_persists_safe_primary_and_recovery_diagnostics(
+            monkeypatch, tmp_path, phase, category, recovery_fails):
+        """An ambiguous failed stop needs safe phase/cause evidence after recovery.
+    
+        Reuse the worker's actual persistence path, rather than serializing a
+        hand-built result. The source may already be stopped when its ACK fails.
+        """
+        secret = 'synthetic-credential-must-never-be-recorded'
+    
+        class PrivateFailure(RuntimeError):
+            def __str__(self):
+                raise AssertionError('diagnostics must not format unknown exceptions')
+    
+        class FailingEngine(Engine):
+            def fail(self):
+                if category == 'unknown':
+                    raise PrivateFailure(secret)
+                cause = TimeoutError(secret) if category == 'timeout' else OSError(secret)
+                raise updates.MigrationError(secret) from cause
+    
+            def stop(self, name, **kwargs):
+                super().stop(name, **kwargs)
+                if phase == 'stop':
+                    self.fail()
+    
+            def disconnect(self, name, network):
+                super().disconnect(name, network)
+                if phase == 'disconnect':
+                    self.fail()
+    
+            def start(self, name):
+                if recovery_fails:
+                    raise OSError(secret)
+                super().start(name)
+    
+        engine = FailingEngine()
+        monkeypatch.setattr(updates, 'pull_target', lambda target: True)
+        job = {'id': 'e' * 32, 'service': 'prometheus', 'branch': 'main', 'action': 'update'}
+        updates.write_job(tmp_path, job)
+        returned = updates.run_job(tmp_path, job['id'], engine=engine)
+        stored = updates.read_job(tmp_path, job['id'])
+        assert stored == returned
+        result = stored['results']['prometheus']
+        assert result['state'] == ('recovery_required' if recovery_fails else 'rolled_back')
+        assert result['success'] is False
+>       assert result['failure_phase'] == phase
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'failure_phase'
+
+tests/test_updates.py:202: KeyError
+__________ test_stop_delayed_ack_uses_headroom_without_changing_grace __________
+
+self = <cryptolabs_proxy.updates.UpdateEngine object at 0x10982a350>
+method = 'POST', path = '/v1.45/containers/service%2Fname/stop?t=1'
+payload = None, allowed = (204, 304)
+
+    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204)):
+        connection = _UnixHTTPConnection(self.socket_path, self.timeout)
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Content-Type": "application/json"} if body else {}
+        try:
+            connection.request(method, path, body=body, headers=headers)
+>           response = connection.getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/cryptolabs_proxy/migration.py:304: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:1459: in getresponse
+    response.begin()
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:336: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/http/client.py:297: in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <socket.SocketIO object at 0x109936fe0>, b = <memory at 0x1098a6800>
+
+    def readinto(self, b):
+        """Read up to len(b) bytes into the writable buffer *b* and return
+        the number of bytes read.  If the socket is non-blocking and no bytes
+        are available, None is returned.
+    
+        If *b* is non-empty, a 0 return value indicates that the connection
+        was shutdown at the other end.
+        """
+        self._checkClosed()
+        self._checkReadable()
+        if self._timeout_occurred:
+            raise OSError("cannot read from timed out object")
+        try:
+>           return self._sock.recv_into(b)
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E           TimeoutError: timed out
+
+/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/socket.py:729: TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1098afe70>
+
+    def test_stop_delayed_ack_uses_headroom_without_changing_grace(monkeypatch):
+        """Short regression; opt in to the same default-15s path for release proof."""
+        from cryptolabs_proxy import migration
+        full_duration = os.environ.get('UPDATER_FULL_DURATION') == '1'
+        transport = 15 if full_duration else .2
+        delay = 15.25 if full_duration else .6
+        if not full_duration:
+            monkeypatch.setattr(migration, 'STOP_ACK_HEADROOM', .35, raising=False)
+        with delayed_stop_socket(delay) as (socket_path, requests):
+            engine = updates.UpdateEngine(socket_path=socket_path, timeout=transport)
+>           engine.stop('service/name')
+
+tests/test_proxy_lifecycle_review_repairs.py:75: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/migration.py:324: in stop
+    self._request("POST", f"/containers/{quote(container, safe='')}/stop?t={grace}", allowed=allowed)
+src/cryptolabs_proxy/updates.py:107: in _request
+    return super()._request(method, path, payload, allowed)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.updates.UpdateEngine object at 0x10982a350>
+method = 'POST', path = '/v1.45/containers/service%2Fname/stop?t=1'
+payload = None, allowed = (204, 304)
+
+    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204)):
+        connection = _UnixHTTPConnection(self.socket_path, self.timeout)
+        body = json.dumps(payload).encode() if payload is not None else None
+        headers = {"Content-Type": "application/json"} if body else {}
+        try:
+            connection.request(method, path, body=body, headers=headers)
+            response = connection.getresponse()
+            content = response.read()
+        except OSError as error:
+>           raise MigrationError(f"Docker Engine request failed: {error}") from error
+E           cryptolabs_proxy.migration.MigrationError: Docker Engine request failed: timed out
+
+src/cryptolabs_proxy/migration.py:307: MigrationError
+____________ test_stop_ack_exceeding_budget_is_bounded_and_recovers ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109b62ac0>
+
+    def test_stop_ack_exceeding_budget_is_bounded_and_recovers(monkeypatch):
+        import time
+        from cryptolabs_proxy import migration
+        from tests.test_updates import Engine as UpdateFixtureEngine
+    
+        monkeypatch.setattr(migration, 'STOP_ACK_HEADROOM', .35, raising=False)
+        with delayed_stop_socket(5) as (socket_path, requests):
+            socket_engine = updates.UpdateEngine(socket_path=socket_path, timeout=.2)
+    
+            class SocketStopEngine(UpdateFixtureEngine):
+                def stop(self, name, **kwargs):
+                    super().stop(name, **kwargs)
+                    socket_engine.stop(name, **kwargs)
+    
+            engine = SocketStopEngine()
+            started = time.monotonic()
+            result = updates.replace_container(engine, 'prometheus', 'sha256:new', 'job', timeout=0)
+            elapsed = time.monotonic() - started
+            # Preserved short-caller grace 1s + .35s ACK headroom, with scheduler tolerance.
+>           assert 1.2 <= elapsed < 3, elapsed
+E           AssertionError: 0.20253383298404515
+E           assert 1.2 <= 0.20253383298404515
+
+tests/test_proxy_lifecycle_review_repairs.py:99: AssertionError
+=============================== warnings summary ===============================
+tests/test_proxy_lifecycle_review_repairs.py: 21 warnings
+  /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/../src/cryptolabs_proxy/auth.py:374: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    'created_at': datetime.utcnow().isoformat(),
+
+tests/test_proxy_lifecycle_review_repairs.py::test_adoption_real_initializer_preserves_current_customer_password
+tests/test_proxy_lifecycle_review_repairs.py::test_initializer_fresh_install_bootstraps_and_restart_preserves
+  /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/../src/cryptolabs_proxy/auth.py:471: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    users[username]['last_login'] = datetime.utcnow().isoformat()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_updates.py::test_worker_persists_safe_primary_and_recovery_diagnostics[stop-timeout-False]
+FAILED tests/test_updates.py::test_worker_persists_safe_primary_and_recovery_diagnostics[disconnect-os_error-False]
+FAILED tests/test_updates.py::test_worker_persists_safe_primary_and_recovery_diagnostics[stop-unknown-False]
+FAILED tests/test_updates.py::test_worker_persists_safe_primary_and_recovery_diagnostics[stop-timeout-True]
+FAILED tests/test_proxy_lifecycle_review_repairs.py::test_stop_delayed_ack_uses_headroom_without_changing_grace
+FAILED tests/test_proxy_lifecycle_review_repairs.py::test_stop_ack_exceeding_budget_is_bounded_and_recovers
+6 failed, 47 passed, 23 warnings in 4.73s

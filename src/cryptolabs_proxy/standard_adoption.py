@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=strict-released-standard-source; req=REQ-UPDATER-003; trace=TRACE-UPDATER-003; ver=VER-UPDATER-003
 """Explicit standard configuration adoption, without Nginx passthrough.
 
 Public manifests contain identities and declarative fields only. Inspected
@@ -15,6 +16,7 @@ import re
 import tarfile
 import time
 from urllib.parse import quote, urlsplit
+from jinja2 import DictLoader, Environment, select_autoescape
 
 from .config import get_jinja_env, validate_host_forward_groups, render_host_forward_groups, validate_acme_challenge, render_acme_challenge, validate_hostname_policy, validate_http_policy, render_policy_healthcheck, policy_healthcheck
 from .custom_config import render_managed_vpm_config
@@ -185,6 +187,44 @@ def _declaration(value):
 
 def render_standard(declaration):
     return get_jinja_env().get_template('nginx.conf.j2').render(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
+
+
+_RELEASED_STANDARD_154_COMMIT = 'b09195b6c08725fbe4867b4b3ab3642e8aff483d'
+_RELEASED_STANDARD_154_HASHES = {
+    'nginx.conf.j2': 'f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de',
+    'acme-challenge.conf.j2': '7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a',
+    'fleet-api-routes.conf.j2': '6991ca6bf1dd4b258e8ee7851fc69ef50b19dfe2353570e4911a0ebadc68ed1b',
+    'exporter-auth-routes.conf.j2': '450f4c418c09474ac45b6dd314c47cc090fe7d230a0206b30e48c7975023133b',
+    'host-forwarding.conf.j2': '35c4a1fe1d3001865a77d7653350b7a61968953b94172dc7063bc31a42c0f9f7',
+    'standard-service-routes.conf.j2': 'ef0f55aae48e35127d288781e68281a371505ba27384c8fd04dff9200dce3963',
+    'vast-price-manager-auth-blocks.conf.j2': 'b9d7013434557492887b0600bc2afc92227ee17f9efebe55b0cccc4b16bd3f81',
+    'vast-price-manager.conf.j2': '32483d169a09c42653396e66c5c7efe1995bd599f44f11ee64fa2f0731a0a2f8',
+}
+
+
+def _render_released_standard_154(declaration):
+    """Render only the pinned release closure, never mutable current includes."""
+    directory=Path(__file__).with_name('templates')/'released-standard-1.5.4'
+    try:
+        provenance=json.loads((directory/'provenance.json').read_bytes())
+        if provenance!={'release':'v1.5.4','commit':_RELEASED_STANDARD_154_COMMIT,
+                        'templates':_RELEASED_STANDARD_154_HASHES}:
+            raise ValueError()
+        templates={}
+        for name,digest in _RELEASED_STANDARD_154_HASHES.items():
+            data=(directory/name).read_bytes()
+            if sha256(data)!=digest: raise ValueError()
+            templates[name]=data.decode()
+        environment=Environment(loader=DictLoader(templates),
+            autoescape=select_autoescape(['html','xml']),trim_blocks=True,lstrip_blocks=True)
+        return environment.get_template('nginx.conf.j2').render(
+            domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',
+            services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),
+            acme_challenge=declaration.get('acme_challenge'),
+            hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),
+            http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
+    except Exception:
+        raise AdoptionError('historical_profile_unavailable') from None
 
 
 def _policy_healthcheck(source, declaration):
@@ -566,6 +606,7 @@ class StandardAdoption:
             'upstreams':[_safe_upstream(w[1:]) for w in words if w[0] in ('proxy_pass','set') and any(re.search(r'(?i)https?://', word) for word in w[1:])],
             'custom_mode':registry.config.get('custom_config',{}).get('mode'),'owner':'cryptolabs-proxy','directives':sorted({w[0] for w in words})}
 
+# TRACEWEAVER: entrypoint=_coverage; req=REQ-UPDATER-003; trace=TRACE-UPDATER-003; ver=VER-UPDATER-003
     def _coverage(self,active,declaration):
         tree=parse_nginx(active)
         # Entire configuration, including every directive and server, must
@@ -581,6 +622,8 @@ class StandardAdoption:
             visit(nodes); return nodes
         actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
         if actual==expected: return 'standard'
+        historical=normalize(parse_nginx(_render_released_standard_154(declaration)))
+        if actual==historical: return 'released-standard-1.5.4'
         legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
         profiles=[legacy]
         for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))

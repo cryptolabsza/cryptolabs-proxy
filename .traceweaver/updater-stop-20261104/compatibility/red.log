@@ -1,0 +1,409 @@
+.....................FF.F.F.............................F......          [100%]
+=================================== FAILURES ===================================
+____________ test_adopt_preflight_denial_stops_nothing[True-source] ____________
+
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9796/test_adopt_preflight_denial_st11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b932660>
+change = 'source', historical = True
+
+    @pytest.mark.parametrize('historical,change',
+        [(False,c) for c in ['source','config','selection','digest','validation','mount-source','mount-rw','mount-option','mount-add','mount-remove','env-order']]
+        +[(True,'source'),(True,'selection')])
+    def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change,historical):
+        from cryptolabs_proxy.standard_adoption import AdoptionError
+>       adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
+                                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_standard_adoption.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/standard_adoption.py:628: in plan
+    profile=self._coverage(active,source_declaration)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.standard_adoption.StandardAdoption object at 0x10c022f30>
+active = b'worker_processes auto;\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n    worker_co...ion / {\n            root /usr/share/nginx/html;\n            try_files $uri $uri/ /index.html;\n        }\n    }\n\n}'
+declaration = {'acme_challenge': None, 'domain': 'fleet.example.test', 'host_forward_groups': [], 'obsolete_overlays': [], ...}
+
+    def _coverage(self,active,declaration):
+        tree=parse_nginx(active)
+        # Entire configuration, including every directive and server, must
+        # match a supported profile. Only explicit server_name is normalized.
+        def normalize(nodes):
+            nodes=deepcopy(nodes)
+            def visit(items):
+                for words,children in items:
+                    if words[0]=='server_name':
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
+                        elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
+                    if children is not None: visit(children)
+            visit(nodes); return nodes
+        actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
+        if actual==expected: return 'standard'
+        legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
+        profiles=[legacy]
+        for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
+        forwarding_tree=parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True))
+        profile_trees=[]
+        for profile in profiles:
+            profile_tree=parse_nginx(profile)
+            if declaration.get('acme_challenge'):
+                http=next(children for words,children in profile_tree if words==['http'])
+                server=next(children for words,children in http if words==['server'])
+                index=next(i for i,(words,children) in enumerate(server) if words[0]=='location')
+                server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
+            next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
+            profile_trees.append(profile_tree)
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
+            required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
+            if b'location = /vast-pricing' in active: required.add('vast-price-manager')
+            if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
+            for name in required:
+                if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+            return 'released-bootstrap-1.2.0'
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
+        actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
+        closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
+        known={tuple(w) for w in _walk(closest)}
+        mismatch=next((w for w in actual_words if tuple(w) not in known),['structural-order'])
+        context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
+>       raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
+E       cryptolabs_proxy.standard_adoption.AdoptionError: unsupported_source_behavior: structural-order requires a supported declarative product profile
+
+src/cryptolabs_proxy/standard_adoption.py:619: AdoptionError
+__________ test_adopt_preflight_denial_stops_nothing[True-selection] ___________
+
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9796/test_adopt_preflight_denial_st12')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0f17f0>
+change = 'selection', historical = True
+
+    @pytest.mark.parametrize('historical,change',
+        [(False,c) for c in ['source','config','selection','digest','validation','mount-source','mount-rw','mount-option','mount-add','mount-remove','env-order']]
+        +[(True,'source'),(True,'selection')])
+    def test_adopt_preflight_denial_stops_nothing(tmp_path,monkeypatch,change,historical):
+        from cryptolabs_proxy.standard_adoption import AdoptionError
+>       adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
+                                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_standard_adoption.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/standard_adoption.py:628: in plan
+    profile=self._coverage(active,source_declaration)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.standard_adoption.StandardAdoption object at 0x10c0ee7b0>
+active = b'worker_processes auto;\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n    worker_co...ion / {\n            root /usr/share/nginx/html;\n            try_files $uri $uri/ /index.html;\n        }\n    }\n\n}'
+declaration = {'acme_challenge': None, 'domain': 'fleet.example.test', 'host_forward_groups': [], 'obsolete_overlays': [], ...}
+
+    def _coverage(self,active,declaration):
+        tree=parse_nginx(active)
+        # Entire configuration, including every directive and server, must
+        # match a supported profile. Only explicit server_name is normalized.
+        def normalize(nodes):
+            nodes=deepcopy(nodes)
+            def visit(items):
+                for words,children in items:
+                    if words[0]=='server_name':
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
+                        elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
+                    if children is not None: visit(children)
+            visit(nodes); return nodes
+        actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
+        if actual==expected: return 'standard'
+        legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
+        profiles=[legacy]
+        for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
+        forwarding_tree=parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True))
+        profile_trees=[]
+        for profile in profiles:
+            profile_tree=parse_nginx(profile)
+            if declaration.get('acme_challenge'):
+                http=next(children for words,children in profile_tree if words==['http'])
+                server=next(children for words,children in http if words==['server'])
+                index=next(i for i,(words,children) in enumerate(server) if words[0]=='location')
+                server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
+            next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
+            profile_trees.append(profile_tree)
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
+            required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
+            if b'location = /vast-pricing' in active: required.add('vast-price-manager')
+            if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
+            for name in required:
+                if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+            return 'released-bootstrap-1.2.0'
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
+        actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
+        closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
+        known={tuple(w) for w in _walk(closest)}
+        mismatch=next((w for w in actual_words if tuple(w) not in known),['structural-order'])
+        context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
+>       raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
+E       cryptolabs_proxy.standard_adoption.AdoptionError: unsupported_source_behavior: structural-order requires a supported declarative product profile
+
+src/cryptolabs_proxy/standard_adoption.py:619: AdoptionError
+_____ test_adopt_preserves_private_identity_tls_networks_and_repeat[True] ______
+
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9796/test_adopt_preserves_private_i1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0f2200>
+historical = True
+
+    @pytest.mark.parametrize('historical',[False,True])
+    def test_adopt_preserves_private_identity_tls_networks_and_repeat(tmp_path,monkeypatch,historical):
+        from cryptolabs_proxy.standard_adoption import render_standard, _declaration
+        adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical)
+        inspect=engine.inspect
+        from itertools import count
+        inspections=count()
+        def rotating_mounts(name):
+            observed=inspect(name)
+            if observed and observed.get('Mounts'):
+                mounts=observed['Mounts']; offset=next(inspections)%len(mounts)
+                observed['Mounts']=mounts[offset:]+mounts[:offset]
+            return observed
+        monkeypatch.setattr(engine,'inspect',rotating_mounts)
+>       plan=adoption.plan(settings)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_standard_adoption.py:168: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/standard_adoption.py:628: in plan
+    profile=self._coverage(active,source_declaration)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.standard_adoption.StandardAdoption object at 0x10c399e50>
+active = b'worker_processes auto;\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n    worker_co...ion / {\n            root /usr/share/nginx/html;\n            try_files $uri $uri/ /index.html;\n        }\n    }\n\n}'
+declaration = {'acme_challenge': None, 'domain': 'fleet.example.test', 'host_forward_groups': [], 'obsolete_overlays': [], ...}
+
+    def _coverage(self,active,declaration):
+        tree=parse_nginx(active)
+        # Entire configuration, including every directive and server, must
+        # match a supported profile. Only explicit server_name is normalized.
+        def normalize(nodes):
+            nodes=deepcopy(nodes)
+            def visit(items):
+                for words,children in items:
+                    if words[0]=='server_name':
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
+                        elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
+                    if children is not None: visit(children)
+            visit(nodes); return nodes
+        actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
+        if actual==expected: return 'standard'
+        legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
+        profiles=[legacy]
+        for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
+        forwarding_tree=parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True))
+        profile_trees=[]
+        for profile in profiles:
+            profile_tree=parse_nginx(profile)
+            if declaration.get('acme_challenge'):
+                http=next(children for words,children in profile_tree if words==['http'])
+                server=next(children for words,children in http if words==['server'])
+                index=next(i for i,(words,children) in enumerate(server) if words[0]=='location')
+                server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
+            next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
+            profile_trees.append(profile_tree)
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
+            required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
+            if b'location = /vast-pricing' in active: required.add('vast-price-manager')
+            if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
+            for name in required:
+                if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+            return 'released-bootstrap-1.2.0'
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
+        actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
+        closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
+        known={tuple(w) for w in _walk(closest)}
+        mismatch=next((w for w in actual_words if tuple(w) not in known),['structural-order'])
+        context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
+>       raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
+E       cryptolabs_proxy.standard_adoption.AdoptionError: unsupported_source_behavior: structural-order requires a supported declarative product profile
+
+src/cryptolabs_proxy/standard_adoption.py:619: AdoptionError
+___ test_late_health_failure_restores_files_and_consistent_source_auth[True] ___
+
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9796/test_late_health_failure_resto1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0f3850>
+historical = True
+
+    @pytest.mark.parametrize('historical',[False,True])
+    def test_late_health_failure_restores_files_and_consistent_source_auth(tmp_path,monkeypatch,historical):
+        from cryptolabs_proxy.standard_adoption import AdoptionError
+>       adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
+                                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_standard_adoption.py:194: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/standard_adoption.py:628: in plan
+    profile=self._coverage(active,source_declaration)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.standard_adoption.StandardAdoption object at 0x10c2a1d30>
+active = b'worker_processes auto;\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n    worker_co...ion / {\n            root /usr/share/nginx/html;\n            try_files $uri $uri/ /index.html;\n        }\n    }\n\n}'
+declaration = {'acme_challenge': None, 'domain': 'fleet.example.test', 'host_forward_groups': [], 'obsolete_overlays': [], ...}
+
+    def _coverage(self,active,declaration):
+        tree=parse_nginx(active)
+        # Entire configuration, including every directive and server, must
+        # match a supported profile. Only explicit server_name is normalized.
+        def normalize(nodes):
+            nodes=deepcopy(nodes)
+            def visit(items):
+                for words,children in items:
+                    if words[0]=='server_name':
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
+                        elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
+                    if children is not None: visit(children)
+            visit(nodes); return nodes
+        actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
+        if actual==expected: return 'standard'
+        legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
+        profiles=[legacy]
+        for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
+        forwarding_tree=parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True))
+        profile_trees=[]
+        for profile in profiles:
+            profile_tree=parse_nginx(profile)
+            if declaration.get('acme_challenge'):
+                http=next(children for words,children in profile_tree if words==['http'])
+                server=next(children for words,children in http if words==['server'])
+                index=next(i for i,(words,children) in enumerate(server) if words[0]=='location')
+                server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
+            next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
+            profile_trees.append(profile_tree)
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
+            required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
+            if b'location = /vast-pricing' in active: required.add('vast-price-manager')
+            if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
+            for name in required:
+                if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+            return 'released-bootstrap-1.2.0'
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
+        actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
+        closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
+        known={tuple(w) for w in _walk(closest)}
+        mismatch=next((w for w in actual_words if tuple(w) not in known),['structural-order'])
+        context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
+>       raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
+E       cryptolabs_proxy.standard_adoption.AdoptionError: unsupported_source_behavior: structural-order requires a supported declarative product profile
+
+src/cryptolabs_proxy/standard_adoption.py:619: AdoptionError
+_ test_selected_image_must_have_normal_auth_module_even_without_overlay[True] __
+
+tmp_path = PosixPath('/private/var/folders/2f/ntb_0p9558v4wfcwr5_64dg00000gn/T/pytest-of-hanneszietsman/pytest-9796/test_selected_image_must_have_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10c0a35b0>
+historical = True
+
+    @pytest.mark.parametrize('historical',[False,True])
+    def test_selected_image_must_have_normal_auth_module_even_without_overlay(tmp_path,monkeypatch,historical):
+        from cryptolabs_proxy.standard_adoption import AdoptionError
+>       adoption,engine,settings,directory=system(tmp_path,monkeypatch,historical=historical); plan=adoption.plan(settings)
+                                                                                                    ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_standard_adoption.py:489: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/cryptolabs_proxy/standard_adoption.py:628: in plan
+    profile=self._coverage(active,source_declaration)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <cryptolabs_proxy.standard_adoption.StandardAdoption object at 0x10c2792b0>
+active = b'worker_processes auto;\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n    worker_co...ion / {\n            root /usr/share/nginx/html;\n            try_files $uri $uri/ /index.html;\n        }\n    }\n\n}'
+declaration = {'acme_challenge': None, 'domain': 'fleet.example.test', 'host_forward_groups': [], 'obsolete_overlays': [], ...}
+
+    def _coverage(self,active,declaration):
+        tree=parse_nginx(active)
+        # Entire configuration, including every directive and server, must
+        # match a supported profile. Only explicit server_name is normalized.
+        def normalize(nodes):
+            nodes=deepcopy(nodes)
+            def visit(items):
+                for words,children in items:
+                    if words[0]=='server_name':
+                        if words[1:]==[declaration['domain']] or words[1:]==['_'] and not declaration.get('hostname_policy'): words[1:]=['DECLARED_DOMAIN']
+                        elif words[1:] not in [g['hostnames'] for g in declaration.get('host_forward_groups',[])]: raise AdoptionError('source_domain_unmapped')
+                    if children is not None: visit(children)
+            visit(nodes); return nodes
+        actual=normalize(tree); expected=normalize(parse_nginx(render_standard(declaration)))
+        if actual==expected: return 'standard'
+        legacy=get_jinja_env().loader.get_source(get_jinja_env(),'legacy-bootstrap-nginx.conf')[0].encode()
+        profiles=[legacy]
+        for enabled in (False,True): profiles.append(render_managed_vpm_config(legacy,enabled))
+        forwarding_tree=parse_nginx(render_host_forward_groups(declaration.get('host_forward_groups',[]),legacy_profile=True))
+        profile_trees=[]
+        for profile in profiles:
+            profile_tree=parse_nginx(profile)
+            if declaration.get('acme_challenge'):
+                http=next(children for words,children in profile_tree if words==['http'])
+                server=next(children for words,children in http if words==['server'])
+                index=next(i for i,(words,children) in enumerate(server) if words[0]=='location')
+                server[index:index]=parse_nginx(render_acme_challenge(declaration['acme_challenge'],legacy_profile=True))
+            next(children for words,children in profile_tree if words==['http']).extend(deepcopy(forwarding_tree))
+            profile_trees.append(profile_tree)
+        if not declaration.get('hostname_policy') and any(actual==normalize(p) for p in profile_trees):
+            required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter'}
+            if b'location = /vast-pricing' in active: required.add('vast-price-manager')
+            if not required<=set(declaration['services']) or declaration['tls']!='self-signed': raise AdoptionError('legacy_services_or_tls_unmapped')
+            for name in required:
+                if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+            return 'released-bootstrap-1.2.0'
+        if declaration.get('hostname_policy')=='primary-only' and declaration.get('http_policy')=='redirect-primary-https' and declaration['tls']=='self-signed' and not declaration.get('acme_challenge'):
+            guarded=_guarded_bootstrap_profile(legacy,declaration)
+            if actual==normalize(guarded):
+                required={'ipmi-monitor','dc-overview','grafana','prometheus','vastai-exporter','runpod-exporter','vast-price-manager'}
+                if not required<=set(declaration['services']): raise AdoptionError('legacy_services_or_tls_unmapped')
+                for name in required:
+                    if any(declaration['services'][name][k]!=DEFAULT_SERVICES[name][k] for k in ('container_name','port','path')): raise AdoptionError('legacy_target_unmapped')
+                return 'released-bootstrap-primary-only'
+        supported=[expected]+([normalize(p) for p in profile_trees] if not declaration.get('hostname_policy') else [])
+        actual_words=list(_walk(actual)); actual_set={tuple(w) for w in actual_words}
+        closest=min(supported,key=lambda profile:len(actual_set^{tuple(w) for w in _walk(profile)}))
+        known={tuple(w) for w in _walk(closest)}
+        mismatch=next((w for w in actual_words if tuple(w) not in known),['structural-order'])
+        context=_safe(' '.join(mismatch) if mismatch[0]=='location' else mismatch[0])
+>       raise AdoptionError('unsupported_source_behavior: '+context+' requires a supported declarative product profile')
+E       cryptolabs_proxy.standard_adoption.AdoptionError: unsupported_source_behavior: structural-order requires a supported declarative product profile
+
+src/cryptolabs_proxy/standard_adoption.py:619: AdoptionError
+=========================== short test summary info ============================
+FAILED tests/test_standard_adoption.py::test_adopt_preflight_denial_stops_nothing[True-source]
+FAILED tests/test_standard_adoption.py::test_adopt_preflight_denial_stops_nothing[True-selection]
+FAILED tests/test_standard_adoption.py::test_adopt_preserves_private_identity_tls_networks_and_repeat[True]
+FAILED tests/test_standard_adoption.py::test_late_health_failure_restores_files_and_consistent_source_auth[True]
+FAILED tests/test_standard_adoption.py::test_selected_image_must_have_normal_auth_module_even_without_overlay[True]
+5 failed, 58 passed in 4.24s

@@ -1,0 +1,13 @@
+..............................................                           [100%]
+=============================== warnings summary ===============================
+tests/test_proxy_lifecycle_review_repairs.py: 21 warnings
+  /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/../src/cryptolabs_proxy/auth.py:374: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    'created_at': datetime.utcnow().isoformat(),
+
+tests/test_proxy_lifecycle_review_repairs.py::test_adoption_real_initializer_preserves_current_customer_password
+tests/test_proxy_lifecycle_review_repairs.py::test_initializer_fresh_install_bootstraps_and_restart_preserves
+  /Users/hanneszietsman/CrypotAI/cryptolabs-proxy-updater-stop-20261104/tests/../src/cryptolabs_proxy/auth.py:471: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    users[username]['last_login'] = datetime.utcnow().isoformat()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+46 passed, 23 warnings in 4.10s

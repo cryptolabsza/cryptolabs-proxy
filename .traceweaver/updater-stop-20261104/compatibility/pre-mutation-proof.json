@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-11-04T07:38:34.714947+00:00",
+  "original4filesunchanged": {
+    "src/cryptolabs_proxy/migration.py": true,
+    "src/cryptolabs_proxy/updates.py": true,
+    "tests/test_updates.py": true,
+    "tests/test_proxy_lifecycle_review_repairs.py": true
+  },
+  "compatibility_source_sha256": "e7603ba67a29d42e0d6e6c83eaa50cee7acef1cbff246e1230a99629d2397514",
+  "production_historical_directory_exists": false,
+  "profile_revision": 3,
+  "profile_hash": "sha256:38bbffb104e856adfcecfd785449f2b156cb5762e4d7e316d8de5ec09e96aa53",
+  "tests_sha256": "3293193e8f01cdea4913c92caee92f7c0536c080260445001169acee05d88e22",
+  "fixtures": {
+    "released-standard-1.5.4-declaration.json": "c4f4f3e80ff3920522502f47335120e133bca6d8e8245133d0112b550f382274",
+    "released-standard-1.5.4-provenance.json": "fe1ddc482fee7a42b5ce9f6df33146b7a17a57169360872bd333add44e273bfc",
+    "released-standard-1.5.4.nginx.conf": "f1aa7a0ed767e7432dd21123fc0086e0cc98e0b26ad3c95eff5fe233095e3e72"
+  },
+  "test_environment": {
+    "python": "3.14.6 (main, Jun 10 2026, 10:03:53) [Clang 21.0.0 (clang-2100.0.123.102)]",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "model_requested": "Solhigh",
+  "actual_identity": "unattested"
+}

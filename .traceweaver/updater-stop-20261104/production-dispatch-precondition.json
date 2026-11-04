@@ -1,0 +1,14 @@
+{
+  "recorded_at": "2026-11-04T07:20:00.497212+00:00",
+  "monotonic": 1307773.580649791,
+  "owner_approval": ".traceweaver/updater-stop-20261104/owner-approval.json",
+  "root_review": ".traceweaver/updater-stop-20261104/root-precode-review.json",
+  "profile_revision": 2,
+  "profile_hash": "sha256:aaa66c2aad99a1e23e58e7112872f82b918eb1534edd68b102022a0c7f05d2eb",
+  "production_files": [
+    "src/cryptolabs_proxy/migration.py",
+    "src/cryptolabs_proxy/updates.py"
+  ],
+  "compatibility_scope": "held pending new owner approval",
+  "prior_preparation_monotonic_receipts": "not captured by root; walltime/raw test duration retained, no invented monotonic proof"
+}
