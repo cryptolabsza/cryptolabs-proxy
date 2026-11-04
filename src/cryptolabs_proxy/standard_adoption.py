@@ -189,7 +189,7 @@ def render_standard(declaration):
     return get_jinja_env().get_template('nginx.conf.j2').render(domain=declaration['domain'],letsencrypt=declaration['tls']=='letsencrypt',services=declaration['services'],host_forward_groups=declaration.get('host_forward_groups',[]),acme_challenge=declaration.get('acme_challenge'),hostname_policy=validate_hostname_policy(declaration.get('hostname_policy'),declaration['domain']),http_policy=validate_http_policy(declaration.get('http_policy'),declaration['domain'],declaration.get('acme_challenge'))).encode()
 
 
-_RELEASED_STANDARD_154_COMMIT = 'b09195b6c08725fbe4867b4b3ab3642e8aff483d'
+_RELEASED_STANDARD_154_COMMIT = '61565a7228539a0b8b0bfb602e06ea3efcc6b94a'
 _RELEASED_STANDARD_154_HASHES = {
     'nginx.conf.j2': 'f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de',
     'acme-challenge.conf.j2': '7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a',

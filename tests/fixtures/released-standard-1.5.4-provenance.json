@@ -1,7 +1,7 @@
 {
   "schema": "released-render-fixture/1",
   "release": "v1.5.4",
-  "commit": "b09195b6c08725fbe4867b4b3ab3642e8aff483d",
+  "commit": "61565a7228539a0b8b0bfb602e06ea3efcc6b94a",
   "templates": {
     "nginx.conf.j2": "f12e2b9800cbaa0e49e685506cfaad38eb7e568fa6d239fa15277af59073d8de",
     "acme-challenge.conf.j2": "7e594162700825757c9d402971094448aa1834d1f7121ac1c02f152f345e149a",
