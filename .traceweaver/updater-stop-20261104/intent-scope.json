@@ -1,0 +1,18 @@
+{
+  "intent_contract_id": "UPDATER-STOP-20261104",
+  "traceweaver_mode": "advisory",
+  "scope_authority": ".traceweaver/updater-stop-20261104/authority.json",
+  "root_intent_preserved": ".traceweaver/intent-contract.yml",
+  "must_not_change": [
+    "13s default Docker grace",
+    "non-stop socket timeouts",
+    "readiness deadlines",
+    "identity/selection/controller guards",
+    "unreleased Fleet branch",
+    "CI/dependencies",
+    "BMC policy",
+    "Charlotte"
+  ],
+  "publication": "not authorized for this worker",
+  "runtime_acceptance": "held"
+}

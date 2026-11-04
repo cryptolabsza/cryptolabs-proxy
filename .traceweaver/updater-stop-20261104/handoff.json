@@ -1,0 +1,48 @@
+{
+  "phase": "RED definition only; awaiting independent V&V/mapping review",
+  "allowed_next_production_files": [
+    "src/cryptolabs_proxy/migration.py",
+    "src/cryptolabs_proxy/updates.py"
+  ],
+  "exact_next_behavior": [
+    "Introduce STOP_ACK_HEADROOM=15 seconds and request-scoped timeout override for stop only; grace remains max(1,engine.timeout-2), default13; budget grace+headroom default28. Nondefault callers retain preexisting grace formula.",
+    "Forward override through UpdateEngine._request without losing v1.45 prefix; existing _request callers/test doubles without timeout remain compatible by forwarding timeout only when explicitly supplied. Never mutate engine.timeout.",
+    "Capture allowlisted failure phase immediately before each mutation; classify only known wrapped cause without text/classname/args/traceback serialization, unknown fixed generic.",
+    "Freeze failure_phase/failure_category before recovery; recovery_phase/recovery_category distinct only if recovery fails; diagnostics cannot interrupt recovery; preserve existing success/state/message and guard behavior.",
+    "Rerun authored tests unchanged for GREEN; full-default proof and disposable Docker staging before production; use packaged anchors + matrix helper during production work."
+  ],
+  "new_test_api": {
+    "constant": "migration.STOP_ACK_HEADROOM",
+    "primary": [
+      "failure_phase",
+      "failure_category"
+    ],
+    "recovery": [
+      "recovery_phase",
+      "recovery_category"
+    ],
+    "observed_values": [
+      "stop",
+      "disconnect",
+      "start",
+      "timeout",
+      "os_error",
+      "unknown"
+    ]
+  },
+  "preserve": [
+    "all46 preexisting test scenarios",
+    "no new skips/dependency changes",
+    "existing rollback/identity/policy/native guards"
+  ],
+  "prerequisites": [
+    "verify scoped indexing of approved plan clauses",
+    "independent review exact tests and validation definition; stamp capsule with actual passed evidence",
+    "checker --require-review-passed exit0",
+    "root harness freeze profile and record monotonic role receipts before production builder dispatch"
+  ],
+  "commands_ref": ".traceweaver/updater-stop-20261104/verification-plan.json",
+  "root_authority_files": "unchanged (unrelated account-pairing scope retained)",
+  "staging_gate": "Historical definition in staging-procedure.json; one-off runner retained under external run artifacts/updater-red-definition. Actual independent proof artifacts/updater-independent-validation/acceptance.json.",
+  "historical_exception_claim": "Timeout strongly supported by incident timing and local source reproduction; historical discarded exception remains unproven."
+}

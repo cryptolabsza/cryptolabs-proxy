@@ -1,3 +1,4 @@
+# TRACEWEAVER: file-role=bounded-docker-stop-transport; req=REQ-UPDATER-001; trace=TRACE-UPDATER-001; ver=VER-UPDATER-001
 """Dry-run planning and bounded state helpers for custom VPM proxy migration.
 
 This module intentionally does not contact Docker at import time. The calling
@@ -62,6 +63,9 @@ PROXY_READY_TIMEOUT = (
     + DOCKER_HEALTH_TIMEOUT
     + 10  # bounded local auth-probe allowance
 )
+# Stop grace remains independent of the time allowed for the daemon to
+# acknowledge it after SIGTERM/forced termination and teardown.
+STOP_ACK_HEADROOM = 15
 
 
 @dataclass(frozen=True)
@@ -295,8 +299,8 @@ class DockerEngine:
         self.socket_path = socket_path
         self.timeout = timeout
 
-    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204)):
-        connection = _UnixHTTPConnection(self.socket_path, self.timeout)
+    def _request(self, method: str, path: str, payload: dict | None = None, allowed=(200, 201, 204), *, timeout=None):
+        connection = _UnixHTTPConnection(self.socket_path, self.timeout if timeout is None else timeout)
         body = json.dumps(payload).encode() if payload is not None else None
         headers = {"Content-Type": "application/json"} if body else {}
         try:
@@ -316,12 +320,15 @@ class DockerEngine:
     def inspect(self, container: str) -> dict[str, Any]:
         return json.loads(self._request("GET", f"/containers/{quote(container, safe='')}/json"))
 
+# TRACEWEAVER: entrypoint=stop; req=REQ-UPDATER-001; trace=TRACE-UPDATER-001; ver=VER-UPDATER-001
     def stop(self, container: str, ignore_missing: bool = False):
         allowed = (204, 304, 404) if ignore_missing else (204, 304)
-        # Leave the Unix-socket read timeout enough headroom to receive the
-        # Engine response after its graceful-stop period.
+        # Preserve the existing grace, including for nondefault timeout callers.
+        # Only this request receives response headroom; shared transport and
+        # readiness deadlines do not change.
         grace = max(1, self.timeout - 2)
-        self._request("POST", f"/containers/{quote(container, safe='')}/stop?t={grace}", allowed=allowed)
+        self._request("POST", f"/containers/{quote(container, safe='')}/stop?t={grace}",
+                      allowed=allowed, timeout=grace + STOP_ACK_HEADROOM)
 
     def rename(self, old: str, new: str):
         self._request("POST", f"/containers/{quote(old, safe='')}/rename?name={quote(new, safe='')}", allowed=(204,))

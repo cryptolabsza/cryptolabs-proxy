@@ -1,5 +1,10 @@
 # TRACEWEAVER: file-role=verification; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001; ver=VER-FLEETUPDATE-001
 # TRACEWEAVER: verifies=VER-FLEETUPDATE-001; req=REQ-FLEETUPDATE-001; trace=TRACE-FLEETUPDATE-001
+
+
+# TRACEWEAVER: file-role=persisted-updater-failure-contract; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
+# TRACEWEAVER: verifies=VER-UPDATER-002; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002
+# TRACEWEAVER: file-role=persisted-updater-failure-contract; req=REQ-UPDATER-002; trace=TRACE-UPDATER-002; ver=VER-UPDATER-002
 """Updater failures must not destroy existing runtime state or conceal outcomes."""
 import importlib.util
 import json
@@ -162,6 +167,71 @@ def test_inspection_failure_never_stops_original():
     result = updates.replace_container(engine, 'prometheus', 'sha256:new', 'job', timeout=0)
     assert result['success'] is False
     assert not engine.calls
+
+
+@pytest.mark.parametrize('phase,category,recovery_fails', [
+    ('stop', 'timeout', False),
+    ('disconnect', 'os_error', False),
+    ('stop', 'unknown', False),
+    ('stop', 'timeout', True),
+])
+def test_worker_persists_safe_primary_and_recovery_diagnostics(
+        monkeypatch, tmp_path, phase, category, recovery_fails):
+    """An ambiguous failed stop needs safe phase/cause evidence after recovery.
+
+    Reuse the worker's actual persistence path, rather than serializing a
+    hand-built result. The source may already be stopped when its ACK fails.
+    """
+    secret = 'synthetic-credential-must-never-be-recorded'
+
+    class PrivateFailure(RuntimeError):
+        def __str__(self):
+            raise AssertionError('diagnostics must not format unknown exceptions')
+
+    class FailingEngine(Engine):
+        def fail(self):
+            if category == 'unknown':
+                raise PrivateFailure(secret)
+            cause = TimeoutError(secret) if category == 'timeout' else OSError(secret)
+            raise updates.MigrationError(secret) from cause
+
+        def stop(self, name, **kwargs):
+            super().stop(name, **kwargs)
+            if phase == 'stop':
+                self.fail()
+
+        def disconnect(self, name, network):
+            super().disconnect(name, network)
+            if phase == 'disconnect':
+                self.fail()
+
+        def start(self, name):
+            if recovery_fails:
+                raise OSError(secret)
+            super().start(name)
+
+    engine = FailingEngine()
+    monkeypatch.setattr(updates, 'pull_target', lambda target: True)
+    job = {'id': 'e' * 32, 'service': 'prometheus', 'branch': 'main', 'action': 'update'}
+    updates.write_job(tmp_path, job)
+    returned = updates.run_job(tmp_path, job['id'], engine=engine)
+    stored = updates.read_job(tmp_path, job['id'])
+    assert stored == returned
+    result = stored['results']['prometheus']
+    assert result['state'] == ('recovery_required' if recovery_fails else 'rolled_back')
+    assert result['success'] is False
+    assert result['failure_phase'] == phase
+    assert result['failure_category'] == category
+    if recovery_fails:
+        assert result['recovery_phase'] == 'start'
+        assert result['recovery_category'] == 'os_error'
+    else:
+        assert 'recovery_phase' not in result
+        assert 'recovery_category' not in result
+        assert engine.inspect('prometheus')['State']['Running'] is True
+    assert secret not in json.dumps(stored)
+    assert 'PrivateFailure' not in json.dumps(stored)
+    assert not any(call[0] in ('rename', 'create') for call in engine.calls)
 
 
 def test_success_retains_old_container_and_verifies_new_identity():

@@ -1,0 +1,60 @@
+{
+  "skill_name": "validation-planner",
+  "decision": "held",
+  "authority_status": "ownerapprovedaddendumrevision2",
+  "hold_conditions": [
+    "newvalidationdefinitionreview pending",
+    "actualpackagedowner/Dockeradoption unexecuted",
+    "hostpackageinputsandnativeplan notfrozen"
+  ],
+  "validation_plan": {
+    "plan_id": "VAL-UPDATER-003",
+    "need_ids": [
+      "approved-addendum.html:live1.5.4compatibilityblocker"
+    ],
+    "owner": "root under ownerexplicitapproval; independent verifier judges intendedoperation",
+    "intended_use": "Upgrade onlyLTXProxy through compatibleofficialhostowner without weakeningauth/fullconfigguard, then alreadyapprovedsingleIPMIretry",
+    "operating_context": "Independentlyreviewedpatchrelease; separateversionedhostvenv usingexactofficialwheel with frozenURLs/hashes/dependencyinputs; existinghostenvironment/globalCLI untouched",
+    "success_criteria": [
+      "Independent offline installedofficialowner accepts synthetic exacthistoricalfixture and currentcandidate keepsaccount-link/auth. Historicalclosure hash/resource proof matches releasecommit.",
+      "Disposable Linux Docker adoption observes realold\u2192newcontainer/authmoduleidentity and preservedusers/sessions/keys/mounts/network/TLS/history; negativeauth rejects beforestop; deliberatecandidatehealthfailure demonstratescompensated recovery with retained private evidence.",
+      "Before production root freezesofficialpackageURLs/checksums/dependencyinputs and freshnativeplan identity, retains oldhostvenv and originaldeclaration/snapshots, then invokesofficialnativeowner only.",
+      "LTXonly:healthyexactreleasedProxy/updater/auth installed; browserauth and unrelated8componentpins unchanged. Onlythen singleIPMIretry, currenthistorybaseline/collection/warningUI acceptance. Anyambiguityholds, no blind replay."
+    ]
+  },
+  "stakeholder_or_rater_profile": {
+    "name_or_role": "Independent verifier plus root owner-delegatedoperator; ownerHannesZietsman acceptanceauthority",
+    "relationship_to_work": "Verifierfreshcontext, notcompatibility implementer",
+    "independence_note": "Preparationworker cannot selfaccept operationaloutcomes",
+    "representative_reason": "Exercises exact officialowner operation in isolateddaemon before fixed LTXroute"
+  },
+  "validation_scenario_matrix": [
+    {
+      "scenario_id": "VAL-UPDATER-003-PACKAGE",
+      "scenario": "Installedofficialpackage offline exacthistorical source\u2192currentcandidate",
+      "acceptance_signal": "Exacthistoricalprofile; candidatecurrentrender/accountlink; closure/sourcebyteproof",
+      "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/future-packaged-owner-proof.json",
+      "status": "planned"
+    },
+    {
+      "scenario_id": "VAL-UPDATER-003-DOCKER",
+      "scenario": "Actualhistoricaladoption, negativeauth denial, compensatedrecovery, preserveddata",
+      "acceptance_signal": "Freshverifier observes correctold/newIDs andauth/state; failureholdswithprovenrecovery",
+      "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/future-disposable-adoption-proof.json",
+      "status": "planned"
+    },
+    {
+      "scenario_id": "VAL-UPDATER-003-LTX",
+      "scenario": "Boundedofficialhostvenv+freshnativeadopt; onealreadyapprovedretry afteracceptance",
+      "acceptance_signal": "Exactinstalledsource/auth/updater, browserhealth,pins/history preserved; nosecondattempt",
+      "evidence_path": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-red/future-ltx-acceptance.json",
+      "status": "planned"
+    }
+  ],
+  "adoption_evidence_record": {
+    "record_id": "VAL-UPDATER-003-PENDING",
+    "result": "blocked",
+    "rater_or_source": "notexecuted",
+    "deferred_trigger": null
+  }
+}

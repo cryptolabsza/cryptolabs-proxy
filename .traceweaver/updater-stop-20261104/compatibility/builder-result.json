@@ -1,0 +1,13 @@
+{
+  "phase": "implementation and local/package verification returned for independent review",
+  "manifest": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-compatibility-builder/frozen-manifest.json",
+  "production_source_sha256": "ae9215e461f8c3b7b10fd9b814ebae90ecaeb15efc25d9d62c4ac26496f2c060",
+  "original4files_unchanged": true,
+  "focused": "66passed4.92s",
+  "affected": "189passed41.39s",
+  "regression": "1002passed2existing-skipped672warnings103.03s",
+  "resource_red": "3failed63deselected0.34s beforecompatibilityproduction",
+  "validation_status": "actual native staging/operational acceptance held",
+  "staging_harness": "raw artifact definition only; not executed",
+  "future_dev_handoff": "Main literalreleased-standard-1.5.4 profile assertion intentional. Review historical-profile label/precedence compatibility during later scoped dev handoff; do not import unreleased Fleet source."
+}

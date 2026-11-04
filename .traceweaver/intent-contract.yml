@@ -68,6 +68,30 @@
       "trace_id": "TRACE-PAIR-006",
       "verification_id": "VER-PAIR-006",
       "validation_id": "VAL-PAIR-006"
+    },
+    {
+      "id": "REQ-UPDATER-001",
+      "statement": "Bounded stop-only acknowledgement headroom; preserve existing stop grace (13s default), other socket timeouts and readiness deadlines.",
+      "authority_status": "owner_approved_scope",
+      "trace_id": "TRACE-UPDATER-001",
+      "verification_id": "VER-UPDATER-001",
+      "validation_id": "VAL-UPDATER-001"
+    },
+    {
+      "id": "REQ-UPDATER-002",
+      "statement": "Fixed allowlisted phase/category diagnostics, safe known wrapped-cause classification, separate primary/recovery failure; no exception text/payload/credentials/traceback serialization; diagnostics cannot interrupt recovery. Preserve rollback, identity, selection and native guards.",
+      "authority_status": "owner_approved_scope",
+      "trace_id": "TRACE-UPDATER-002",
+      "verification_id": "VER-UPDATER-002",
+      "validation_id": "VAL-UPDATER-002"
+    },
+    {
+      "id": "REQ-UPDATER-003",
+      "statement": "Recognize one explicitly named released-standard1.5.4 source via complete ordered structural equality and immutable eight-template historical closure; preserve current candidate rendering, auth/module identity, selection/source drift denial, declaration and recovery guards. Verify matching official wheel/container and disposable staging adoption before bounded separate official hostvenv provisioning, fixed native Proxy adoption and the already-approved single LTX IPMI retry.",
+      "authority_status": "owner_approved_scope",
+      "trace_id": "TRACE-UPDATER-003",
+      "verification_id": "VER-UPDATER-003",
+      "validation_id": "VAL-UPDATER-003"
     }
   ],
   "service_recovery_amendment_projection": {
@@ -105,5 +129,15 @@
     "acceptance": "Local candidate only; final independent review, protected CI/native/installed browser/site acceptance held",
     "prior_recovery_budget_reset": false,
     "new_native_budget": 0
+  },
+  "updater_stop_scope": {
+    "authority": ".traceweaver/updater-stop-20261104/authority.json",
+    "profile": ".traceweaver/updater-stop-20261104/workflow-profile.json",
+    "status": "owner_approved_scope; implementation verification pending; runtime held"
+  },
+  "updater_compatibility_scope": {
+    "authority": ".traceweaver/updater-stop-20261104/compatibility/authority.json",
+    "profile_revision": 3,
+    "status": "owner-approvedscope; REDdefinitionphase; runtimeheld"
   }
 }

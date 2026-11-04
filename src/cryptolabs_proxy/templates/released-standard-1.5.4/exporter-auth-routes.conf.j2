@@ -1,0 +1,37 @@
+        # Exporter account APIs require a current Fleet administrator.
+        location = /_exporter_admin {
+            internal;
+            proxy_pass http://127.0.0.1:8081/auth/exporters/authorize;
+            proxy_pass_request_body off;
+            proxy_set_header Content-Length "";
+            proxy_set_header Cookie $http_cookie;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Capture the suffix explicitly: variable proxy_pass does not replace
+        # a prefix URI. Preserve query arguments and never accept a client token.
+        location ~ ^/vastai-api/(.*)$ {
+            auth_request /_exporter_admin;
+            auth_request_set $mgmt_token $upstream_http_x_mgmt_token;
+            set $upstream_vastai_api http://vastai-exporter:8622;
+            proxy_pass $upstream_vastai_api/api/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Mgmt-Token $mgmt_token;
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }
+
+        location ~ ^/runpod-api/(.*)$ {
+            auth_request /_exporter_admin;
+            auth_request_set $mgmt_token $upstream_http_x_mgmt_token;
+            set $upstream_runpod_api http://runpod-exporter:8623;
+            proxy_pass $upstream_runpod_api/api/$1$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Mgmt-Token $mgmt_token;
+            proxy_intercept_errors on;
+            error_page 502 503 504 = @service_unavailable;
+        }

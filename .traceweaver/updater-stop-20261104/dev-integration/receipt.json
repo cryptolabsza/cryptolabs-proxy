@@ -1,0 +1,25 @@
+{
+  "schema": "updater-dev-integration/1",
+  "recorded_at": "2026-11-04T08:20:24.374897+00:00",
+  "base": "2f868959d56d45e2e35cd00b23d2d5c8bfccfdba",
+  "seed": "ba0d23ca21db5efd4a2e430929aceb615562dcb0",
+  "seed_parent": "8e2b421b65f6d8d47f780e5681d0f3d690686a6d",
+  "authority": "Existing owner approval expressly includes scopedsource-to-dev handoff and boundedmainbasedrelease; rootdispatch composes exactseedontoexistingdev; requirements/controlsunchanged.",
+  "profile_revision": 3,
+  "profile_hash": "sha256:38bbffb104e856adfcecfd785449f2b156cb5762e4d7e316d8de5ec09e96aa53",
+  "source_context": "Dev contains approved unreleasedFleetguards; mainreview does not automatically acceptdevadaptation. Independentrootreview/CI remainsheld.",
+  "before_production_red": "9failed161passed13.95s aftertransplantedtests/newfixtures,beforeproductionedits; olddevbaseline149passed11.72s.",
+  "verification": "170focused/289affected/1086complete+2existing-skips+8CIcontractsPASS; scoped6fileanchorsPASS0; compile/diff/capsulesPASS",
+  "adaptations": [
+    "Preserveallfutureeffectidentity/nativejournal/broker/mutation/recoverylogic; onlyaddfixedfailure_phase/failure_snapshot diagnostics, with exactoldalgorithmASTafterstrippingadditivefields/statements.",
+    "Keepcurrentdevrenderandexistingprevious-profileprecedencelabels; validateimmutable1.5.4closurebeforenoncurrentprofileadmission, then retainstandard-444d7c0/standard-8e2b421 returns.",
+    "Rootapprovednewhistoricalprofileassertwhitelist released-standard-1.5.4 orstandard-444d7c0, distinctfromcurrentstandard.",
+    "RootseparatelyapprovedonlynewtransporttestURIexpectedimmutablefixturefullID; deadline/category/recovery/no-createassertionsretained."
+  ],
+  "preservation": "/Users/hanneszietsman/CrypotAI/artifacts/ipmi-sel-release-20261104/artifacts/updater-dev-integration/preservation.json",
+  "publication": "Noindexstaging/commit/push/PR/merge/deploy; maindreleaseworktreesread-only",
+  "dev_version": "1.2.0byte-identicaltobase",
+  "evidence_classification": "localmacOS/Python3.14syntheticUnixsocket/processproof; Linux/Docker/productionnotclaimed",
+  "model_requested": "Solhigh",
+  "model_observed": "unattested"
+}

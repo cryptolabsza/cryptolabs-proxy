@@ -1,0 +1,52 @@
+        location /api/build-info {
+            proxy_pass http://127.0.0.1:8080/api/build-info;
+        }
+        
+        # Version management and update endpoints (protected)
+        location /api/versions {
+            auth_request /_auth_check;
+            error_page 401 = @api_unauthorized;
+            proxy_pass http://127.0.0.1:8080/api/versions;
+            proxy_set_header Host $host;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout 30s;
+        }
+        
+        location /api/update-settings {
+            auth_request /_auth_check;
+            error_page 401 = @api_unauthorized;
+            proxy_pass http://127.0.0.1:8080/api/update-settings;
+            proxy_set_header Host $host;
+            proxy_set_header Content-Type $http_content_type;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 10s;
+        }
+        
+        location /api/update {
+            auth_request /_auth_check;
+            error_page 401 = @api_unauthorized;
+            proxy_pass http://127.0.0.1:8080/api/update;
+            proxy_set_header Host $host;
+            proxy_set_header Content-Type $http_content_type;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout 120s;  # Updates can take time
+        }
+        
+        location /api/pull {
+            auth_request /_auth_check;
+            error_page 401 = @api_unauthorized;
+            proxy_pass http://127.0.0.1:8080/api/pull;
+            proxy_set_header Host $host;
+            proxy_set_header Content-Type $http_content_type;
+            proxy_connect_timeout 10s;
+            proxy_read_timeout 300s;  # Image pulls can be slow
+        }
+
+        location @api_unauthorized {
+            default_type application/json;
+            return 401 '{"error":"Authentication required"}';
+        }
+        location /assets/ {
+            alias /usr/share/nginx/html/assets/;
+            expires 1h;
+        }
