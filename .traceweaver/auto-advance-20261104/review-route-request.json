@@ -1,0 +1,17 @@
+{
+  "schema_version": "tw-review-route/1",
+  "accepted": {
+    "semantic_authority_digest": "94b783d925834004cd3f111dd2437f8ae531850f0184aaa29c52f89f84267795",
+    "behavior_digest": "089c1017874e768e526e3d8793c21450273fa09246d482946f1b7aed2c17ee56",
+    "verification_digest": "e9257ad2c43fdb4e719f8111e1142dde8c5eb947db23138b68244fe571555d4d",
+    "bookkeeping_digest": "before-annotations-and-receipts",
+    "session_id": "independent-backend-review-plus-final-ui-delta"
+  },
+  "candidate": {
+    "semantic_authority_digest": "94b783d925834004cd3f111dd2437f8ae531850f0184aaa29c52f89f84267795",
+    "behavior_digest": "089c1017874e768e526e3d8793c21450273fa09246d482946f1b7aed2c17ee56",
+    "verification_digest": "e9257ad2c43fdb4e719f8111e1142dde8c5eb947db23138b68244fe571555d4d",
+    "bookkeeping_digest": "4b3c5e45c299371418a6b98ae5218c4220dba9ab1e33b5d5fce579caf802581e",
+    "session_id": "source-publication-preparation"
+  }
+}

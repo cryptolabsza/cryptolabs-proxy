@@ -789,7 +789,7 @@
                     </select>
                 </div>
                 <div class="update-buttons">
-                    <button class="btn btn-secondary" onclick="loadReleaseCandidates()">Check admitted releases</button>
+                    <button class="btn btn-secondary" onclick="checkForUpdates()">Check Updates</button>
                     <button class="btn btn-primary" id="releasePreviewButton" onclick="previewRelease()" disabled>Preview selected updates</button>
                 </div>
             </div>
@@ -801,6 +801,9 @@
                 <button class="btn btn-secondary" id="releaseRecoverButton" onclick="recoverRelease()" hidden>Reconcile operation</button>
                 <p id="releaseOperation" role="status" aria-live="polite"></p>
             </section>
+            <div id="releasePolicyControls" aria-label="Service update policies">
+                <p>Loading update policies…</p>
+            </div>
             <div class="versions-grid" id="versionsGrid">
                 <div class="loading">
                     <div class="spinner"></div>
@@ -1425,12 +1428,14 @@
                     }
                     if (info.lifecycle_manager) {
                         updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Managed by Server Manager</span>';
+                    } else if (info.selected_release && name === 'cryptolabs-proxy') {
+                        updateBtn += '<span>Managed by host updater</span>';
+                    } else if (info.selected_release) {
+                        updateBtn += `<span>${info.update_available === true ? 'Selected update ready · review above' : info.update_available === false ? 'Selected release installed' : 'Selected release identity unavailable'}</span>`;
                     } else if (info.pinned) {
                         updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
                     } else if (!info.running) {
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Use service setup to start</span>';
-                    } else if (info.selected_release) {
-                        updateBtn += '<span>Use admitted releases above</span>';
                     } else if (info.update_available === true) {
                         updateBtn += `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
                         updatableCount++;
@@ -1570,7 +1575,14 @@
         }
 
         async function checkForUpdates() {
-            return startUpdateJob('pull', 'all');
+            try {
+                await refreshReleasePolicies();
+                await loadVersions();
+                return await loadReleaseCandidates();
+            } catch (error) {
+                showUpdateStatus('error', error.message || 'Could not refresh stable release selections.');
+                return;
+            }
         }
 
         async function updateService(serviceName) {
@@ -1603,6 +1615,87 @@
         }
 
         const RELEASE_OPERATION_KEY = 'fleet-release-operation';
+        let releasePolicies = null;
+        let releasePolicyEpoch = 0;
+        let releasePolicyBusy = false;
+
+        function renderReleasePolicies() {
+            const container = document.getElementById('releasePolicyControls');
+            container.replaceChildren();
+            if (!releasePolicies) return;
+            const description = document.createElement('p');
+            description.textContent = 'Pinned keeps the installed version. Follow stable selects compatible releases when checked. Installation remains manual.';
+            container.appendChild(description);
+            for (const [name, policy] of Object.entries(releasePolicies.components || {})) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;margin:.75rem 0';
+                const label = document.createElement('label');
+                label.textContent = (DEFAULT_SERVICES[name] || {}).displayName || name.replace(/-/g, ' ');
+                const choice = document.createElement('select');
+                choice.id = 'release-policy-' + name;
+                label.htmlFor = choice.id;
+                for (const [value, title] of [['pinned','Pinned'],['follow-stable','Follow stable']]) {
+                    const option = document.createElement('option');
+                    option.value = value; option.textContent = title;
+                    choice.appendChild(option);
+                }
+                choice.value = policy.mode;
+                choice.disabled = releasePolicyBusy || !policy.supported || releasePolicies.writes_enabled === false;
+                choice.addEventListener('change', () => setReleasePolicy(name, choice.value));
+                const details = document.createElement('span');
+                details.textContent = policy.reason || `Installed: ${policy.installed_release || 'unknown'} · Selected: ${policy.selected_release || 'unknown'}`;
+                row.appendChild(label); row.appendChild(choice); row.appendChild(details);
+                container.appendChild(row);
+            }
+        }
+
+        async function loadReleasePolicies() {
+            const epoch = ++releasePolicyEpoch;
+            try {
+                const result = await releaseRequest('/api/releases/policies');
+                if (epoch !== releasePolicyEpoch) return releasePolicies;
+                releasePolicies = result;
+                renderReleasePolicies();
+                return result;
+            } catch (error) {
+                if (epoch === releasePolicyEpoch) {
+                    releasePolicies = null;
+                    document.getElementById('releasePolicyControls').textContent = error.message || 'Update policies unavailable.';
+                }
+                throw error;
+            }
+        }
+
+        async function setReleasePolicy(component, mode) {
+            if (releasePolicyBusy || !releasePolicies) return;
+            const expected = {expected_selection_id:releasePolicies.selection_id,
+                expected_selection_sha256:releasePolicies.selection_sha256};
+            releasePolicyBusy = true;
+            renderReleasePolicies();
+            try {
+                const result = await releaseRequest('/api/releases/policy-set', {component, mode, ...expected});
+                releasePolicies = result;
+                await loadVersions();
+                showUpdateStatus('success', mode === 'pinned' ? 'Installed version pinned.' : 'Following compatible stable releases. Use Check Updates to refresh the selected target.');
+            } catch (error) {
+                showUpdateStatus('error', error.message || 'Could not confirm the update policy. Refresh before retrying.');
+            } finally {
+                try { await loadReleasePolicies(); } catch (error) { /* Keep the explicit unavailable state. */ }
+                releasePolicyBusy = false;
+                if (releasePolicies) renderReleasePolicies();
+            }
+        }
+
+        async function refreshReleasePolicies() {
+            if (releasePolicyBusy) throw new Error('An update policy change is in progress.');
+            const current = await loadReleasePolicies();
+            const result = await releaseRequest('/api/releases/policy-refresh', {
+                expected_selection_id:current.selection_id, expected_selection_sha256:current.selection_sha256});
+            releasePolicies = result;
+            renderReleasePolicies();
+            return result;
+        }
+
         const RELEASE_APPLY_KEY = 'fleet-release-apply';
         let releaseSession = null;
         let releaseListing = null;
@@ -2056,6 +2149,7 @@
         loadBuildInfo();
         loadVersions();  // This calls loadWatchdogStatus() at the end
         loadReleaseCandidates();
+        loadReleasePolicies().catch(() => {});
         try {
             const pendingUpdate = localStorage.getItem(UPDATE_JOB_KEY);
             if (pendingUpdate) pollUpdateJob(pendingUpdate);
@@ -2067,6 +2161,7 @@
         // Auto-refresh every 30 seconds
         setInterval(loadServices, 30000);
         setInterval(loadVersions, 60000);  // loadVersions calls loadWatchdogStatus at the end
+        setInterval(() => loadReleasePolicies().catch(() => {}), 60000);
     </script>
 </body>
 </html>

@@ -1363,12 +1363,20 @@ def create_flask_auth_app():
 
     @app.route('/api/releases/preview',methods=['POST'])
     @app.route('/api/releases/apply',methods=['POST'])
+    @app.route('/api/releases/policy-set',methods=['POST'])
+    @app.route('/api/releases/policy-refresh',methods=['POST'])
     def release_mutation():
         from .release_client import ReleaseBrokerError
         try:
             release_authority(True)
             return release_dispatch(request.path.rsplit('/',1)[-1],release_body())
         except ReleaseBrokerError as error: return release_error(error)
+
+    @app.route('/api/releases/policies')
+# TRACEWEAVER: entrypoint=release_policies; req=REQ-AUTOADVANCE-005; trace=TRACE-AUTOADVANCE-005; ver=VER-AUTOADVANCE-005
+    def release_policies():
+        if request.args: return jsonify({'error':'Invalid policy query.'}),400
+        return release_dispatch('policy-list',{})
 
     @app.route('/api/releases/operations/<operation_id>')
     def release_operation_status(operation_id):

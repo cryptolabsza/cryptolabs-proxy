@@ -141,3 +141,10 @@
     "status": "owner-approvedscope; REDdefinitionphase; runtimeheld"
   }
 }
+
+auto_advance_20261104:
+  authority: .traceweaver/auto-advance-20261104/authority.json
+  approved_plan_sha256: 94b783d925834004cd3f111dd2437f8ae531850f0184aaa29c52f89f84267795
+  owner_approval: .traceweaver/auto-advance-20261104/owner-approval.json
+  scope: per-servicepinremoval/stable-following/manualinstall
+  runtime_acceptance: pending

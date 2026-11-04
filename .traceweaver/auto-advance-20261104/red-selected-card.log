@@ -1,0 +1,23 @@
+.................................F                                       [100%]
+=================================== FAILURES ===================================
+____ test_selected_pinned_service_is_not_misreported_as_managed_separately _____
+
+    def test_selected_pinned_service_is_not_misreported_as_managed_separately():
+        from tests.test_latest_status import landing_script
+        script=landing_script()+r'''
+    loadWatchdogStatus=()=>{};const grid={innerHTML:''};
+    global.document={getElementById:id=>id==='versionsGrid'?grid:id==='targetBranch'?{value:'main'}:null,
+    querySelector:()=>({style:{}})};
+    global.fetch=async()=>({ok:true,json:async()=>({'ipmi-monitor':{running:true,version:'1.4.0',selected_release:'1.4.0',selected_channel:'main',pinned:true,update_available:false}})});
+    loadVersions().then(()=>{if(grid.innerHTML.includes('managed separately')||!grid.innerHTML.includes('Selected release installed'))process.exitCode=1});
+    '''
+        result=subprocess.run(['node'],input=script,text=True,capture_output=True)
+>       assert result.returncode==0,result.stderr
+E       AssertionError: 
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['node'], returncode=1, stdout='', stderr='').returncode
+
+tests/test_release_policy_ui.py:68: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_release_policy_ui.py::test_selected_pinned_service_is_not_misreported_as_managed_separately
+1 failed, 33 passed in 1.09s

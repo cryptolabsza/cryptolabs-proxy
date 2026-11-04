@@ -1,0 +1,28 @@
+........................................................................ [ 59%]
+..................................................                       [100%]
+=============================== warnings summary ===============================
+tests/test_auth.py: 68 warnings
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:375: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    'created_at': datetime.utcnow().isoformat(),
+
+tests/test_auth.py: 58 warnings
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:472: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    users[username]['last_login'] = datetime.utcnow().isoformat()
+
+tests/test_auth.py::TestAccountLockout::test_lockout_after_max_attempts
+tests/test_auth.py::TestAccountLockout::test_lockout_expires
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:491: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime.utcnow() + timedelta(minutes=lockout_mins)
+
+tests/test_auth.py::TestAccountLockout::test_lockout_after_max_attempts
+tests/test_auth.py::TestAccountLockout::test_lockout_expires
+tests/test_auth.py::TestAccountLockout::test_lockout_expires
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/../src/cryptolabs_proxy/auth.py:463: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if datetime.fromisoformat(locked_until) > datetime.utcnow():
+
+tests/test_auth.py::TestAccountLockout::test_lockout_expires
+  /private/tmp/ltx-auto-advance-20261104/cryptolabs-proxy/tests/test_auth.py:442: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    datetime.utcnow() - timedelta(minutes=5)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+122 passed, 132 warnings in 6.64s

@@ -1,0 +1,23 @@
+{
+  "reviewer": "advance_vv_correctness",
+  "findings": [],
+  "scope": "correctness/concurrency/recovery",
+  "closed_findings": [
+    "policy journal created after native CAS under lifecycle/updater locks; postcommit policy state written before locks release",
+    "installed major derived from verified running image and advanced only after explicit major installation"
+  ],
+  "independent_tests": "91 policy tests passed",
+  "status": "passed within source scope",
+  "production_acceptance": false,
+  "held": [
+    "trusted publisher/installed broker prerequisite",
+    "native and production acceptance separately required"
+  ],
+  "final_ui_delta_review": {
+    "reviewer": "advance_vv_correctness",
+    "findings": [],
+    "scope": "selected-card wording and actual renderer regression after backend review",
+    "result": "passed",
+    "limit": "No publication or production acceptance assessed"
+  }
+}

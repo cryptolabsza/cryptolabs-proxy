@@ -1,0 +1,40 @@
+{
+  "scope": "source verification; production and future genuine release acceptance held",
+  "full_regression": {
+    "passed": 1106,
+    "skipped": 2,
+    "log": "full-tests-final.log"
+  },
+  "final_focus": {
+    "passed": 122,
+    "log": "final-annotated-tests.log"
+  },
+  "log_hashes": {
+    "red-integration.log": "2f14dd2aa83df060d8ac95291b56e9719436d9ebe6108a7402c687163252e89f",
+    "red-selected-card.log": "e3347830274ae1d3dd4af94ae7aff184cf199ee2c1b9b5ec7f1c7fb9068a7d8b",
+    "red-check-wiring.log": "1ae3af7fc1a5d1643358054df2f687dc10c2e0c7d88e65f5ea7c6c5209786799",
+    "final-annotated-tests.log": "688b4395d4c085425fb5704a83c9cba94f609d4372aa372dc84e86e1ba893327",
+    "full-tests-final.log": "f0a7a4287f15fe93dda90d406f1f8e504e9ae83e3c257de8f458bbc005be600e",
+    "red-tests.log": "ddf92415c07dbcf98a6c24332f32a9e985642c72bf4b0dd0129df63ceedaa309"
+  },
+  "native": {
+    "passed_cases": 11,
+    "receipt_sha256": "06ceabc99113de2f13d90ac7013a64e16c2a79b66f656a69ed6f0f9c7a546158",
+    "scope": "real Linux root/Docker inspection/locks/crash recovery/socket/CLI/systemd; synthetic signed admissions and idle app containers",
+    "application_installation_health": false,
+    "negative_cases": "native-negative.log: bad signature and real SO_PEERCRED rejection passed"
+  },
+  "browser": {
+    "passed": true,
+    "scope": "actual candidate page in Chrome, synthetic API; pin/follow/check/reload/repin, no install calls",
+    "receipt_sha256": "c1d146fa4d93014eeb743cc586ef620ad38e47770b7c993dcc93d4427f3c990b"
+  },
+  "live_activation_blockers": [
+    "trusted current-pack discovery is404; production issuer custody/publisher unaccepted",
+    "existing Fleet PR34 native scoped-select recovery continuity gate failed; do not bypass"
+  ],
+  "independent_review": [
+    "review-correctness.json",
+    "review-security.json"
+  ]
+}
