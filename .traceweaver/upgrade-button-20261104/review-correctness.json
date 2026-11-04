@@ -1,0 +1,14 @@
+{
+  "reviewer": "correctness",
+  "findings": [],
+  "residual_risks": [
+    "Clean scoped source review only. No CI, published-artifact, installed-LTX or real-browser lifecycle acceptance is established by this review.",
+    "The action reconciles an existing approved selected release; it does not choose or authorize a newer channel release. Proxy self-replacement remains delegated to the host owner.",
+    "The new source behavior is sound for backend-produced values: selected ID/SHA are captured synchronously with the rendered card and POSTed before the first await; backend selection validation rejects stale displayed policy. Missing SHA/target, blocked identity, external owner, lifecycle owner, stopped service and selected Proxy cannot expose a service Update action.",
+    "Reviewed source SHA256: {\"landing-page/index.html\": \"b096a96d18a761962ae86e6e8e8f3923b65c97429bb5aa83ce1be410b2d274f1\", \"src/cryptolabs_proxy/updates.py\": \"1053bdf6f0da4eb046890a62ce4ba7dfee66c4700a10eb6388f321924ff274af\", \"tests/test_latest_status.py\": \"2472d2b401c1030fab89fef9b37263e3bd3634c1aaed585fd824297a536357fc\", \"tests/test_release_selection.py\": \"a6d0a8ffc31afcaec4afc500b8cf44d5df0fcdc447b7b0553eaec7218a01a838\"}",
+    "Verification-only follow-up accepted: production behavior hashes unchanged; the added bulk case executes real updateAll() with matching displayed Proxy/IPMI selection and asserts service all plus exact ID/SHA. Focused parametrized test independently rerun: 11 passed in 0.43s."
+  ],
+  "testing_gaps": [
+    "A policy change between display and submission is not directly exercised by the new page test. Existing backend selection-change tests provide related guard coverage; retain planned disposable/native and live browser validation."
+  ]
+}

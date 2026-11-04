@@ -1,0 +1,18 @@
+{
+  "status": "PASS_LOCAL_SOURCE",
+  "focused": "102 passed; real page per-service and bulk request bindings",
+  "full": "1013 passed, 2 unchanged skips; 104.65 seconds; macOS Python3.14.6 with local Unix sockets enabled",
+  "full_log_sha256": "a00d387ea1e19562e6d9376cc227518611651a3c03be34c7bfb103e87977cd0c",
+  "source_sha256": {
+    "landing-page/index.html": "b096a96d18a761962ae86e6e8e8f3923b65c97429bb5aa83ce1be410b2d274f1",
+    "src/cryptolabs_proxy/updates.py": "1053bdf6f0da4eb046890a62ce4ba7dfee66c4700a10eb6388f321924ff274af",
+    "tests/test_latest_status.py": "2472d2b401c1030fab89fef9b37263e3bd3634c1aaed585fd824297a536357fc",
+    "tests/test_release_selection.py": "a6d0a8ffc31afcaec4afc500b8cf44d5df0fcdc447b7b0553eaec7218a01a838"
+  },
+  "held": [
+    "GitHub CI",
+    "official artifact identity",
+    "LTX deployment",
+    "production browser acceptance"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "UPGRADE-BUTTON-20261104",
+  "baseline": "4e3538feed695dc3c0c49b179a38489fbcb06a38",
+  "steps": [
+    "Reproduce missing pinned selected-service action with real page JavaScript test and missing selection binding assertion.",
+    "Expose selection SHA in status; show action only for eligible selected services; POST displayed ID/SHA; preserve host/external/unmanaged guards.",
+    "Run focused/full checks and independent scoped reviews.",
+    "Publish a bounded patch via normal required GitHub CI and release. Coordinate sole LTX lifecycle owner; deploy only published exact artefacts.",
+    "Verify disposable pending-selection button through its real request, plus live LTX installed version, health and real browser controls."
+  ],
+  "source_files": [
+    "landing-page/index.html",
+    "src/cryptolabs_proxy/updates.py",
+    "tests/test_latest_status.py",
+    "tests/test_release_selection.py"
+  ],
+  "dependencies": "No new runtime dependencies or infrastructure.",
+  "risks": "A selected release can differ from the floating channel; action must preserve selected identity. Proxy host adoption remains separate. LTX deployment must be serialized with existing repair task.",
+  "rollback": "Retain native original container/private auth snapshot; use installed adoption recovery. No reset of failed history or speculative replay."
+}

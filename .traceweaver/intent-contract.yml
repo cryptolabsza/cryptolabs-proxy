@@ -81,6 +81,14 @@
       "trace_id": "TRACE-UPDATER-003",
       "verification_id": "VER-UPDATER-003",
       "validation_id": "VAL-UPDATER-003"
+    },
+    {
+      "id": "REQ-UPGRADEBUTTON-001",
+      "statement": "Complete selected-service upgrade control repair through CI, LTX deployment and observed updated IPMI/button verification; retain native policy and ownership guards.",
+      "authority_status": "explicit_owner_request",
+      "trace_id": "TRACE-UPGRADEBUTTON-001",
+      "verification_id": "VER-UPGRADEBUTTON-001",
+      "validation_id": "VAL-UPGRADEBUTTON-001"
     }
   ],
   "updater_stop_scope": {
@@ -92,5 +100,9 @@
     "authority": ".traceweaver/updater-stop-20261104/compatibility/authority.json",
     "profile_revision": 3,
     "status": "owner-approvedscope; REDdefinitionphase; runtimeheld"
+  },
+  "upgrade_button_scope": {
+    "authority": ".traceweaver/upgrade-button-20261104/authority.json",
+    "runtime_acceptance": "pending"
   }
 }

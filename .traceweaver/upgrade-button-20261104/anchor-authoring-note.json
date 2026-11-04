@@ -1,0 +1,4 @@
+{
+  "updates.py": "Existing valid REQ-UPDATER-002 file anchor is preserved; helper refused an additional file premise due to conflicting_existing_anchor. New behavior linkage remains explicit in matrix and new verification anchors; no manual source anchor substituted.",
+  "html": "Helper generated hash-style comment for HTML; converted to inert HTML comment so no tool metadata is rendered in product UI."
+}

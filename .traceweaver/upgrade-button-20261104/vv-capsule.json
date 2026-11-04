@@ -1,0 +1,32 @@
+{
+  "schema_version": "tw-vv-capsule/1",
+  "workflow_profile": "L2",
+  "work_item_id": "UPGRADE-BUTTON-20261104",
+  "plan_ref": ".traceweaver/upgrade-button-20261104/plan.json",
+  "requirements": [
+    {
+      "req_id": "REQ-UPGRADEBUTTON-001",
+      "trace_id": "TRACE-UPGRADEBUTTON-001",
+      "ver_id": "VER-UPGRADEBUTTON-001",
+      "val_id": "VAL-UPGRADEBUTTON-001",
+      "verification_artifact": "tests/test_latest_status.py",
+      "red_evidence": ".traceweaver/upgrade-button-20261104/red-evidence.json",
+      "validation_artifact": ".traceweaver/upgrade-button-20261104/validation.md",
+      "matrix_row_ref": "TRACE-UPGRADEBUTTON-001",
+      "reviews": [
+        {
+          "gate": "tw-code-review",
+          "id": "UPGRADEBUTTON-CORRECTNESS",
+          "status": "passed",
+          "evidence_path": ".traceweaver/upgrade-button-20261104/review-correctness.json"
+        },
+        {
+          "gate": "tw-code-review",
+          "id": "UPGRADEBUTTON-SECURITY",
+          "status": "passed",
+          "evidence_path": ".traceweaver/upgrade-button-20261104/review-security.json"
+        }
+      ]
+    }
+  ]
+}

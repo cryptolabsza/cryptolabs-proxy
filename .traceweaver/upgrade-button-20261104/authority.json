@@ -1,0 +1,8 @@
+{
+  "user_request_verbatim": "Please finish the repair, run it through GitHub CI, deploy it to LTX and verify IPMI is updated and the upgrade button works.",
+  "status": "explicit_owner_requested_repair_ci_ltx_deploy_and_button_verification",
+  "coordination_approval": "Yes, coordinate the deployment",
+  "scope": "Fix released-main System Updates eligibility for a pending valid selected service; preserve pinned exact targets, all backend/native guards, external owners and host-only Proxy replacement. No Charlotte changes.",
+  "label": "REQ-UPGRADEBUTTON-001 indexes this request; no new product requirement authority is invented.",
+  "source": "Direct owner message in this repair chat, 2026-11-04"
+}

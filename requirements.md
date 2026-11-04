@@ -61,3 +61,8 @@ Authority: `.traceweaver/updater-stop-20261104/authority.json`, unchanged approv
 Recognize one explicitly named released-standard1.5.4 source via complete ordered structural equality and immutable eight-template historical closure; preserve current candidate rendering, auth/module identity, selection/source drift denial, declaration and recovery guards. Verify matching official wheel/container and disposable staging adoption before bounded separate official hostvenv provisioning, fixed native Proxy adoption and the already-approved single LTX IPMI retry.
 
 Authority: `.traceweaver/updater-stop-20261104/compatibility/owner-approval.json` and approved addendum. Verification `VER-UPDATER-003`; validation `VAL-UPDATER-003`. Operational outcomes remain held.
+
+
+## REQ-UPGRADEBUTTON-001 — requested selected-service upgrade control repair
+
+The owner requests completion through CI, LTX deployment, updated IPMI and a working upgrade button. The bounded repair exposes the existing approved selected-service update action and binds the displayed selection identity, retaining unmanaged pins, external ownership, Proxy host adoption and backend guards. Authority: `.traceweaver/upgrade-button-20261104/authority.json`; verification `VER-UPGRADEBUTTON-001`, validation `VAL-UPGRADEBUTTON-001`. Runtime acceptance remains pending.

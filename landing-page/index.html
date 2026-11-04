@@ -1,3 +1,4 @@
+<!-- TRACEWEAVER: file-role=selected-service-update-control; req=REQ-UPGRADEBUTTON-001; trace=TRACE-UPGRADEBUTTON-001; ver=VER-UPGRADEBUTTON-001 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1355,6 +1356,8 @@
         }
 
         // Load versions
+        let displayedUpdateSelections = {};
+
         async function loadVersions() {
             const grid = document.getElementById('versionsGrid');
             try {
@@ -1371,6 +1374,7 @@
                 // Render version cards
                 let html = '';
                 let updatableCount = 0;  // Track how many services can be updated
+                displayedUpdateSelections = {};
                 
                 for (const [name, info] of Object.entries(data)) {
                     if (name === '_settings') continue;
@@ -1402,19 +1406,33 @@
                         versionText = 'Not running';
                     }
                     
+                    const selected = Boolean(info.selection_id);
+                    const boundSelection = selected && /^[a-f0-9]{64}$/.test(info.selection_sha256 || '');
+                    const selectedManaged = boundSelection && info.owner === 'proxy-updater'
+                        && info.target_image && !info.reason && info.state !== 'blocked';
+                    displayedUpdateSelections[name] = boundSelection ? {
+                        selection_id: info.selection_id, selection_sha256: info.selection_sha256
+                    } : null;
+                    if (name === 'cryptolabs-proxy') displayedUpdateSelections.all = displayedUpdateSelections[name];
                     let updateBtn = '';
                     if (info.running && info.latest_status !== 'latest') {
                         updateBtn = `<span style="color: var(--text-muted); font-size: 0.8em;">${info.latest_status === 'update_available' ? 'Update available' : 'Unable to verify · Check Updates'}</span>`;
                     }
                     if (info.lifecycle_manager) {
                         updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Managed by Server Manager</span>';
-                    } else if (info.pinned) {
+                    } else if (selected && name === 'cryptolabs-proxy') {
+                        updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Managed by host updater</span>';
+                    } else if (selected && !selectedManaged) {
+                        updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Selected release unavailable · Check Updates</span>';
+                    } else if (info.pinned && !selectedManaged) {
                         updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Pinned image · managed separately</span>';
                     } else if (!info.running) {
                         updateBtn = '<span style="color: var(--text-muted); font-size: 0.8em;">Use service setup to start</span>';
                     } else if (info.update_available === true) {
-                        updateBtn += `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ Update</button>`;
+                        updateBtn += `<button class="btn btn-primary btn-small" onclick="updateService('${name}')">⬆️ ${selectedManaged ? 'Update selected release' : 'Update'}</button>`;
                         updatableCount++;
+                    } else if (selectedManaged) {
+                        updateBtn += '<span style="color: var(--text-muted); font-size: 0.8em;">Selected release installed</span>';
                     }
                     
                     // Self badge for proxy
@@ -1543,7 +1561,7 @@
                 const response = await fetch(action === 'pull' ? '/api/pull' : '/api/update', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ service, branch })
+                    body: JSON.stringify({ service, branch, ...(displayedUpdateSelections[service] || {}) })
                 });
                 const data = await response.json();
                 if (data.job && (response.ok || response.status === 409)) {

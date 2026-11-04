@@ -1,0 +1,31 @@
+{
+  "reviewer": "security",
+  "findings": [],
+  "status": "PASS_SCOPED_CHANGE_NO_NEW_EXPLOITABLE_PATH_FOUND",
+  "baseline": "4e3538feed695dc3c0c49b179a38489fbcb06a38",
+  "scope": "Additive selected-policy SHA status field, UI eligibility and displayed selection POST binding; backend selectors and authentication unchanged.",
+  "evidence": [
+    "Backend get_all_versions iterates fixed SERVICES keys; service name used in inline onclick is not a new user-controlled value.",
+    "selection_sha256 is a public policy-byte digest, not an authentication secret; selection IDs and digests are validated by release_selection.validate.",
+    "submit_job validates the allowlisted service/action/channel, exact optional selection pair, installed policy, enabled component ownership, clear recovery state, current updater capabilities and host-only Proxy adoption before dispatch.",
+    "Native selected worker revalidates selection bytes, manifest bytes, admitted artifact digests/platform and source runtime after pulls and before first stop; UI flags do not grant new authority.",
+    "Page test exercised real HTML JavaScript and verified selected ID/SHA in POST. Focused independent command returned11PASS in0.46s."
+  ],
+  "residual_risks": [
+    {
+      "kind": "pre_existing_boundary_not_changed",
+      "detail": "Released baseline nginx /api/update and /api/pull use generic /_auth_check; /auth/headers accepts logged-in readonly sessions, and health-api does not inspect a role. Thus this scoped patch preserves existing authentication behavior but does not establish administrator-only mutation authorization. The endpoint could already be called directly before this change; this is not reported as a newly introduced vulnerability. Do not describe this review as proving an admin-only API."
+    }
+  ],
+  "testing_gaps": [
+    "GitHub CI, native staging, published payload identity, actual LTX deployment and production browser acceptance were not exercised by this reviewer and remain held.",
+    "No claim of security approval for unreleased dev/broker surfaces or full baseline service security."
+  ],
+  "source_sha256": {
+    "landing-page/index.html": "b096a96d18a761962ae86e6e8e8f3923b65c97429bb5aa83ce1be410b2d274f1",
+    "src/cryptolabs_proxy/updates.py": "1053bdf6f0da4eb046890a62ce4ba7dfee66c4700a10eb6388f321924ff274af",
+    "tests/test_latest_status.py": "22556274f2ef4f8450effff8f3f2026bd4303cc7e4323db34a869a7f10cd93dd",
+    "tests/test_release_selection.py": "a6d0a8ffc31afcaec4afc500b8cf44d5df0fcdc447b7b0553eaec7218a01a838"
+  },
+  "writes": "Only this review-security.json report; no source, publication or runtime changes."
+}

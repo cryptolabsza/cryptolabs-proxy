@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=selected-service-page-contract; req=REQ-UPGRADEBUTTON-001; trace=TRACE-UPGRADEBUTTON-001; ver=VER-UPGRADEBUTTON-001
+# TRACEWEAVER: verifies=VER-UPGRADEBUTTON-001; req=REQ-UPGRADEBUTTON-001; trace=TRACE-UPGRADEBUTTON-001
 """Latest is a verified channel comparison, independent of update permission."""
 import importlib.util
 import json
@@ -9,6 +11,62 @@ import pytest
 
 from cryptolabs_proxy import updates
 from tests.test_updates import Engine, landing_script, source
+
+
+@pytest.mark.parametrize('overrides,enabled', [
+    ({}, True),
+    ({'owner': 'dc-vpm'}, False),
+    ({'selection_sha256': None}, False),
+    ({'running': False}, False),
+    ({'reason': 'identity_unavailable', 'state': 'blocked'}, False),
+    ({'target_image': None}, False),
+    ({'update_available': False}, False),
+    ({'_service': 'cryptolabs-proxy'}, False),
+    ({'selection_id': None}, False),
+    ({'lifecycle_manager': 'dc-overview'}, False),
+    ({'_bulk': True}, True),
+])
+def test_selected_pin_update_button_and_request(overrides, enabled):
+    """The displayed selected target is the authority sent by the real page code."""
+    overrides = dict(overrides)
+    service = overrides.pop('_service', 'ipmi-monitor')
+    bulk = overrides.pop('_bulk', False)
+    info = {'running': True, 'pinned': True, 'origin': 'customer-pin',
+            'owner': 'proxy-updater', 'selection_id': 'site-release',
+            'selection_sha256': 'a' * 64, 'target_image': 'repo@sha256:' + 'b' * 64,
+            'update_available': True, 'latest_status': 'unknown', **overrides}
+    script = landing_script() + '''
+    loadWatchdogStatus = () => {};
+    showUpdateStatus = () => {};
+    globalThis.confirm = () => true;
+    const grid = {innerHTML: ''}, button = {style: {}};
+    globalThis.document = {
+        getElementById: id => id === 'versionsGrid' ? grid : id === 'targetBranch' ? {value: 'main'} : null,
+        querySelector: () => button,
+    };
+    let request;
+    globalThis.fetch = async (url, options) => {
+        if (url === '/api/versions') return {ok: true, json: async () => ({
+            'cryptolabs-proxy': {...INFO, update_available: false}, [SERVICE]: INFO
+        })};
+        request = {url, body: JSON.parse(options.body)};
+        return {ok: false, json: async () => ({error: 'test request captured'})};
+    };
+    (async () => {
+        await loadVersions();
+        if (ENABLED) { if (BULK) await updateAll(); else await updateService(SERVICE); }
+        console.log(JSON.stringify({html: grid.innerHTML, disabled: button.disabled, request}));
+    })();
+    '''.replace('INFO', json.dumps(info)).replace('ENABLED', json.dumps(enabled)).replace('SERVICE', json.dumps(service)).replace('BULK', json.dumps(bulk))
+    result = subprocess.run(['node'], input=script, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    actual = json.loads(result.stdout)
+    assert (f"updateService('{service}')" in actual['html']) is enabled
+    assert actual['disabled'] is (not enabled)
+    if enabled:
+        assert actual['request'] == {'url': '/api/update', 'body': {
+            'service': 'all' if bulk else 'ipmi-monitor', 'branch': 'main',
+            'selection_id': 'site-release', 'selection_sha256': 'a' * 64}}
 
 
 def health_api():

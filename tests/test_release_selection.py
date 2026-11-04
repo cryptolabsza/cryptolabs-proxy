@@ -1,3 +1,5 @@
+# TRACEWEAVER: file-role=selection-status-contract; req=REQ-UPGRADEBUTTON-001; trace=TRACE-UPGRADEBUTTON-001; ver=VER-UPGRADEBUTTON-001
+# TRACEWEAVER: verifies=VER-UPGRADEBUTTON-001; req=REQ-UPGRADEBUTTON-001; trace=TRACE-UPGRADEBUTTON-001
 """Synthetic contract1 selection/update authority regressions."""
 import hashlib
 import importlib.util
@@ -235,6 +237,7 @@ def test_baseline_status_reports_identity_and_unknown_candidate(tmp_path):
     engine=SelectedEngine(tmp_path)
     result=updates.update_status('prometheus','main',engine=engine,selection_directory=directory)
     assert result['desired']==REF and result['origin']=='baseline' and result['observed']=='sha256:old'
+    assert result['selection_sha256'] == digest
     assert result['update_available'] is True
     original=engine.image
     engine.image=lambda ref: original(ref) if ref!=''+REF else (_ for _ in ()).throw(RuntimeError())
